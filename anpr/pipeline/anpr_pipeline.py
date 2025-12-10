@@ -139,24 +139,3 @@ class ANPRPipeline:
                             self._touch_plate(detection["text"])
         return detections
 
-
-class Visualizer:
-    """Отрисовка результатов для CLI-режима."""
-
-    @staticmethod
-    def draw_results(frame: np.ndarray, results: List[Dict[str, Any]]) -> np.ndarray:
-        for res in results:
-            x1, y1, x2, y2 = res["bbox"]
-            text = res.get("text", "")
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(
-                frame,
-                text,
-                (x1, y1 - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.9,
-                (0, 255, 0),
-                2,
-            )
-        return frame
-
