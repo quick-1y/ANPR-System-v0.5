@@ -1,0 +1,52 @@
+{
+  "grid": "2x2",
+  "channels": [
+    {
+      "id": 1,
+      "name": "Канал 1",
+      "source": "0",
+      "best_shots": 10,
+      "cooldown_seconds": 10,
+      "ocr_min_confidence": 0.9,
+      "region": {
+        "x": 0,
+        "y": 0,
+        "width": 100,
+        "height": 100
+      },
+      "detection_mode": "motion",
+      "detector_frame_stride": 5,
+      "motion_threshold": 0.01,
+      "motion_frame_stride": 2,
+      "motion_activation_frames": 3,
+      "motion_release_frames": 6
+    }
+  ],
+  "reconnect": {
+    "signal_loss": {
+      "enabled": true,
+      "frame_timeout_seconds": 5,
+      "retry_interval_seconds": 5
+    },
+    "periodic": {
+      "enabled": false,
+      "interval_minutes": 60
+    }
+  },
+  "storage": {
+    "db_dir": "data/db",
+    "database_file": "anpr.db",
+    "screenshots_dir": "data/screenshots"
+  },
+  "tracking": {
+    "best_shots": 10,
+    "cooldown_seconds": 10,
+    "ocr_min_confidence": 0.9
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "data/app.log",
+    "max_bytes": 1048576,
+    "backup_count": 5
+  }
+}
