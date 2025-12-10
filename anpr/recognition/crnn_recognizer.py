@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List, Tuple
 
+import numpy as np
+
 import torch
 import torch.ao.quantization.quantize_fx as quantize_fx
 from torch.ao.quantization import QConfigMapping
@@ -43,11 +45,11 @@ class CRNNRecognizer:
         model_quantized = quantize_fx.convert_fx(model_prepared)
 
         model_quantized.load_state_dict(torch.load(model_path, map_location=device))
-        self.model = model_quantized
+        self.model = model_quantized.to(device)
         logger.info("Распознаватель OCR (INT8) успешно загружен (model=%s, device=%s)", model_path, device)
 
     @torch.no_grad()
-    def recognize_batch(self, plate_images: Iterable) -> List[Tuple[str, float]]:
+    def recognize_batch(self, plate_images: Iterable[np.ndarray]) -> List[Tuple[str, float]]:
         """Распознаёт батч изображений номерных знаков."""
 
         plate_images = list(plate_images)
@@ -55,7 +57,7 @@ class CRNNRecognizer:
             return []
 
         batch = torch.stack([self.transform(img) for img in plate_images]).to(self.device)
-        preds = self.model(batch)
+        preds = self.model(batch.to(self.device))
         return self._decode_batch(preds)
 
     @torch.no_grad()
