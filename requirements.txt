@@ -6,3 +6,4 @@ opencv-python
 PyQt5
 aiosqlite
 psutil
+PyYAML

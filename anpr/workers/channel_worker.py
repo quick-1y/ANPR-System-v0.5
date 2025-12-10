@@ -132,6 +132,7 @@ class ChannelWorker(QtCore.QThread):
         db_path: str,
         screenshot_dir: str,
         reconnect_conf: Optional[Dict[str, Any]] = None,
+        allowed_countries: tuple[str, ...] = (),
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -139,6 +140,7 @@ class ChannelWorker(QtCore.QThread):
         self.reconnect_policy = ReconnectPolicy.from_dict(reconnect_conf)
         self.db_path = db_path
         self.screenshot_dir = screenshot_dir
+        self.allowed_countries = allowed_countries
         os.makedirs(self.screenshot_dir, exist_ok=True)
         self._running = True
 
@@ -179,7 +181,10 @@ class ChannelWorker(QtCore.QThread):
 
     def _build_pipeline(self) -> Tuple[object, object]:
         return build_components(
-            self.config.best_shots, self.config.cooldown_seconds, self.config.min_confidence
+            self.config.best_shots,
+            self.config.cooldown_seconds,
+            self.config.min_confidence,
+            self.allowed_countries,
         )
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:
@@ -266,8 +271,12 @@ class ChannelWorker(QtCore.QThread):
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "channel": channel_name,
                     "plate": res.get("text", ""),
+                    "normalized_plate": res.get("normalized_plate", res.get("text", "")),
                     "confidence": res.get("confidence", 0.0),
                     "source": source,
+                    "country_code": res.get("country_code"),
+                    "country_name": res.get("country_name"),
+                    "plate_format": res.get("plate_format"),
                 }
                 x1, y1, x2, y2 = res.get("bbox", (0, 0, 0, 0))
                 plate_crop = frame[y1:y2, x1:x2] if frame is not None else None
@@ -284,6 +293,10 @@ class ChannelWorker(QtCore.QThread):
                     timestamp=event["timestamp"],
                     frame_path=event.get("frame_path"),
                     plate_path=event.get("plate_path"),
+                    normalized_plate=event.get("normalized_plate"),
+                    country_code=event.get("country_code"),
+                    country_name=event.get("country_name"),
+                    plate_format=event.get("plate_format"),
                 )
                 self.event_ready.emit(event)
                 logger.info(

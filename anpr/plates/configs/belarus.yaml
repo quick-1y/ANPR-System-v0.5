@@ -1,0 +1,45 @@
+name: "Республика Беларусь"
+code: "BY"
+priority: 2
+alphabet: "cyrillic"
+
+license_plate_formats:
+  - name: "standard_car"
+    regex: '^[ABCEHKMOPTX]{2}\d{4}[1-7]$'
+    description: "Автомобиль"
+  - name: "transit"
+    regex: '^T\d{6}$'
+    description: "Транзит"
+
+valid_characters:
+  letters: "ABCEHKMOPTXАВСЕНКМОРТХУ"
+  digits: "0123456789"
+
+corrections:
+  digit_to_letter:
+    "0": "О"
+    "3": "З"
+    "4": "А"
+    "6": "Б"
+    "8": "В"
+  latin_to_cyrillic:
+    "A": "А"
+    "B": "В"
+    "C": "С"
+    "E": "Е"
+    "H": "Н"
+    "K": "К"
+    "M": "М"
+    "O": "О"
+    "P": "Р"
+    "T": "Т"
+    "X": "Х"
+  common_mistakes:
+    - from: "Y"
+      to: "У"
+
+stop_words:
+  - "TEST"
+
+invalid_sequences:
+  - "0000"
