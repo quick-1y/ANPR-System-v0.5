@@ -50,6 +50,9 @@ class SettingsManager:
                 "cooldown_seconds": 5,
                 "ocr_min_confidence": 0.6,
             },
+            "plate_validation": {
+                "allowed_countries": ["RU", "BY", "KZ"],
+            },
             "logging": {
                 "level": "INFO",
                 "file": "data/app.log",
@@ -73,6 +76,7 @@ class SettingsManager:
         tracking_defaults = data.get("tracking", {})
         reconnect_defaults = self._reconnect_defaults()
         storage_defaults = self._storage_defaults()
+        validation_defaults = self._validation_defaults()
         for channel in data.get("channels", []):
             if self._fill_channel_defaults(channel, tracking_defaults):
                 changed = True
@@ -81,6 +85,9 @@ class SettingsManager:
             changed = True
 
         if self._fill_storage_defaults(data, storage_defaults):
+            changed = True
+
+        if self._fill_validation_defaults(data, validation_defaults):
             changed = True
 
         if changed:
@@ -120,6 +127,10 @@ class SettingsManager:
             "database_file": "anpr.db",
             "screenshots_dir": "data/screenshots",
         }
+
+    @staticmethod
+    def _validation_defaults() -> Dict[str, Any]:
+        return {"allowed_countries": ["RU", "BY", "KZ"]}
 
     def _fill_channel_defaults(self, channel: Dict[str, Any], tracking_defaults: Dict[str, Any]) -> bool:
         defaults = self._channel_defaults(tracking_defaults)
@@ -170,6 +181,20 @@ class SettingsManager:
                 storage[key] = val
                 changed = True
         data["storage"] = storage
+        return changed
+
+    def _fill_validation_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
+        if "plate_validation" not in data:
+            data["plate_validation"] = defaults
+            return True
+
+        changed = False
+        validation = data.get("plate_validation", {})
+        for key, val in defaults.items():
+            if key not in validation:
+                validation[key] = val
+                changed = True
+        data["plate_validation"] = validation
         return changed
 
     def _save(self, data: Dict[str, Any]) -> None:
@@ -272,6 +297,17 @@ class SettingsManager:
 
     def refresh(self) -> None:
         self.settings = self._load()
+
+    def get_allowed_countries(self) -> List[str]:
+        validation = self.settings.get("plate_validation", {})
+        allowed = validation.get("allowed_countries", [])
+        return [str(code).upper() for code in allowed]
+
+    def save_allowed_countries(self, countries: List[str]) -> None:
+        validation = self.settings.get("plate_validation", {})
+        validation["allowed_countries"] = [str(code).upper() for code in countries]
+        self.settings["plate_validation"] = validation
+        self._save(self.settings)
 
     def update_channel(self, channel_id: int, data: Dict[str, Any]) -> None:
         channels = self.get_channels()

@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import time
 from collections import Counter
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
 
 from anpr.config import ModelConfig
+from anpr.postprocessing import PlatePostProcessor
 from anpr.recognition.crnn_recognizer import CRNNRecognizer
 
 
@@ -47,15 +48,19 @@ class ANPRPipeline:
     def __init__(
         self,
         recognizer: CRNNRecognizer,
+        postprocessor: PlatePostProcessor,
         best_shots: int,
         cooldown_seconds: int = 0,
         min_confidence: float = ModelConfig.OCR_CONFIDENCE_THRESHOLD,
+        allowed_countries: Optional[List[str]] = None,
     ) -> None:
         self.recognizer = recognizer
+        self.postprocessor = postprocessor
         self.aggregator = TrackAggregator(best_shots)
         self.cooldown_seconds = max(0, cooldown_seconds)
         self.min_confidence = max(0.0, min(1.0, min_confidence))
         self._last_seen: Dict[str, float] = {}
+        self.allowed_countries = [code.upper() for code in allowed_countries] if allowed_countries else None
 
     def _on_cooldown(self, plate: str) -> bool:
         last_seen = self._last_seen.get(plate)
@@ -127,17 +132,45 @@ class ANPRPipeline:
 
         for detection_idx, (current_text, confidence) in zip(detection_indices, batch_results):
             detection = detections[detection_idx]
+            stage_log = detection.setdefault("debug_log", [])
+            stage_log.append(
+                "detector: bbox=%s, track_id=%s" % (detection.get("bbox"), detection.get("track_id"))
+            )
 
             if confidence < self.min_confidence:
+                stage_log.append(
+                    f"ocr: confidence {confidence:.2f} below threshold {self.min_confidence:.2f}"
+                )
                 detection["text"] = "Нечитаемо"
                 detection["unreadable"] = True
                 detection["confidence"] = confidence
                 continue
 
+            raw_text = current_text
+            stage_log.append(f"ocr: '{current_text}' (conf={confidence:.2f})")
             if "track_id" in detection:
-                detection["text"] = self.aggregator.add_result(detection["track_id"], current_text)
+                raw_text = self.aggregator.add_result(detection["track_id"], current_text)
+                if raw_text:
+                    stage_log.append(f"aggregator: emitted '{raw_text}'")
+                else:
+                    stage_log.append("aggregator: waiting for quorum")
+            detection["raw_text"] = raw_text
+
+            if raw_text:
+                validation = self.postprocessor.process(raw_text, allowed_countries=self.allowed_countries)
+                detection["text"] = validation.normalized_text if validation.is_valid else ""
+                detection["country"] = validation.country_code
+                detection["country_name"] = validation.country_name
+                detection["plate_format"] = validation.plate_format
+                detection["validation_reason"] = validation.reason
+                if validation.debug_log:
+                    stage_log.extend(f"postprocess: {msg}" for msg in validation.debug_log)
+                if validation.is_valid:
+                    stage_log.append("result: accepted")
+                else:
+                    stage_log.append(f"result: rejected ({validation.reason})")
             else:
-                detection["text"] = current_text
+                detection["text"] = ""
 
             detection["confidence"] = confidence
 

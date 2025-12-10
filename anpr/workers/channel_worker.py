@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # /anpr/workers/channel_worker.py
 import asyncio
+import json
 import os
 import time
 import uuid
@@ -132,6 +133,7 @@ class ChannelWorker(QtCore.QThread):
         db_path: str,
         screenshot_dir: str,
         reconnect_conf: Optional[Dict[str, Any]] = None,
+        allowed_countries: Optional[list[str]] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -139,6 +141,7 @@ class ChannelWorker(QtCore.QThread):
         self.reconnect_policy = ReconnectPolicy.from_dict(reconnect_conf)
         self.db_path = db_path
         self.screenshot_dir = screenshot_dir
+        self.allowed_countries = tuple(allowed_countries) if allowed_countries else None
         os.makedirs(self.screenshot_dir, exist_ok=True)
         self._running = True
 
@@ -179,7 +182,10 @@ class ChannelWorker(QtCore.QThread):
 
     def _build_pipeline(self) -> Tuple[object, object]:
         return build_components(
-            self.config.best_shots, self.config.cooldown_seconds, self.config.min_confidence
+            self.config.best_shots,
+            self.config.cooldown_seconds,
+            self.config.min_confidence,
+            self.allowed_countries,
         )
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:
@@ -266,8 +272,12 @@ class ChannelWorker(QtCore.QThread):
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "channel": channel_name,
                     "plate": res.get("text", ""),
+                    "raw_plate": res.get("raw_text", ""),
+                    "country": res.get("country"),
+                    "plate_format": res.get("plate_format"),
                     "confidence": res.get("confidence", 0.0),
                     "source": source,
+                    "debug_log": res.get("debug_log", []),
                 }
                 x1, y1, x2, y2 = res.get("bbox", (0, 0, 0, 0))
                 plate_crop = frame[y1:y2, x1:x2] if frame is not None else None
@@ -284,6 +294,10 @@ class ChannelWorker(QtCore.QThread):
                     timestamp=event["timestamp"],
                     frame_path=event.get("frame_path"),
                     plate_path=event.get("plate_path"),
+                    raw_plate=event.get("raw_plate"),
+                    country=event.get("country"),
+                    plate_format=event.get("plate_format"),
+                    debug_log=json.dumps(event.get("debug_log") or [], ensure_ascii=False),
                 )
                 self.event_ready.emit(event)
                 logger.info(
