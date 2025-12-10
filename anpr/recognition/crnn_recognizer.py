@@ -57,7 +57,7 @@ class CRNNRecognizer:
             return []
 
         batch = torch.stack([self.transform(img) for img in plate_images]).to(self.device)
-        preds = self.model(batch.to(self.device))
+        preds = self.model(batch)
         return self._decode_batch(preds)
 
     @torch.no_grad()
