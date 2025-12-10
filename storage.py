@@ -40,8 +40,6 @@ class EventDatabase:
             conn.execute("ALTER TABLE events ADD COLUMN country_code TEXT")
         if not _column_exists("country_name"):
             conn.execute("ALTER TABLE events ADD COLUMN country_name TEXT")
-        if not _column_exists("plate_format"):
-            conn.execute("ALTER TABLE events ADD COLUMN plate_format TEXT")
 
     def _init_db(self) -> None:
         with self._connect() as conn:
@@ -58,8 +56,7 @@ class EventDatabase:
                     plate_path TEXT,
                     normalized_plate TEXT,
                     country_code TEXT,
-                    country_name TEXT,
-                    plate_format TEXT
+                    country_name TEXT
                 )
                 """
             )
@@ -78,14 +75,13 @@ class EventDatabase:
         normalized_plate: Optional[str] = None,
         country_code: Optional[str] = None,
         country_name: Optional[str] = None,
-        plate_format: Optional[str] = None,
     ) -> int:
         ts = timestamp or datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
             cursor = conn.execute(
                 (
-                    "INSERT INTO events (timestamp, channel, plate, confidence, source, frame_path, plate_path, normalized_plate, country_code, country_name, plate_format)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    "INSERT INTO events (timestamp, channel, plate, confidence, source, frame_path, plate_path, normalized_plate, country_code, country_name)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 ),
                 (
                     ts,
@@ -98,7 +94,6 @@ class EventDatabase:
                     normalized_plate,
                     country_code,
                     country_name,
-                    plate_format,
                 ),
             )
             conn.commit()
@@ -206,8 +201,7 @@ class AsyncEventDatabase:
                     plate_path TEXT,
                     normalized_plate TEXT,
                     country_code TEXT,
-                    country_name TEXT,
-                    plate_format TEXT
+                    country_name TEXT
                 )
                 """
             )
@@ -231,8 +225,6 @@ class AsyncEventDatabase:
             await conn.execute("ALTER TABLE events ADD COLUMN country_code TEXT")
         if not await _column_exists("country_name"):
             await conn.execute("ALTER TABLE events ADD COLUMN country_name TEXT")
-        if not await _column_exists("plate_format"):
-            await conn.execute("ALTER TABLE events ADD COLUMN plate_format TEXT")
 
     async def insert_event_async(
         self,
@@ -246,15 +238,14 @@ class AsyncEventDatabase:
         normalized_plate: Optional[str] = None,
         country_code: Optional[str] = None,
         country_name: Optional[str] = None,
-        plate_format: Optional[str] = None,
     ) -> int:
         await self._ensure_schema()
         ts = timestamp or datetime.now(timezone.utc).isoformat()
         async with aiosqlite.connect(self.db_path) as conn:
             cursor = await conn.execute(
                 (
-                    "INSERT INTO events (timestamp, channel, plate, confidence, source, frame_path, plate_path, normalized_plate, country_code, country_name, plate_format)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    "INSERT INTO events (timestamp, channel, plate, confidence, source, frame_path, plate_path, normalized_plate, country_code, country_name)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 ),
                 (
                     ts,
@@ -267,7 +258,6 @@ class AsyncEventDatabase:
                     normalized_plate,
                     country_code,
                     country_name,
-                    plate_format,
                 ),
             )
             await conn.commit()

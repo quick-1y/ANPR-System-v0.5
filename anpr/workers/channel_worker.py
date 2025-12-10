@@ -275,8 +275,6 @@ class ChannelWorker(QtCore.QThread):
                     "confidence": res.get("confidence", 0.0),
                     "source": source,
                     "country_code": res.get("country_code"),
-                    "country_name": res.get("country_name"),
-                    "plate_format": res.get("plate_format"),
                 }
                 x1, y1, x2, y2 = res.get("bbox", (0, 0, 0, 0))
                 plate_crop = frame[y1:y2, x1:x2] if frame is not None else None
@@ -295,8 +293,6 @@ class ChannelWorker(QtCore.QThread):
                     plate_path=event.get("plate_path"),
                     normalized_plate=event.get("normalized_plate"),
                     country_code=event.get("country_code"),
-                    country_name=event.get("country_name"),
-                    plate_format=event.get("plate_format"),
                 )
                 self.event_ready.emit(event)
                 logger.info(

@@ -8,8 +8,8 @@ import threading
 from anpr.config import ModelConfig
 from anpr.detection.yolo_detector import YOLODetector
 from anpr.pipeline.anpr_pipeline import ANPRPipeline
-from anpr.plates import PlatePostProcessor
-from anpr.plates.registry import CountryRegistry
+from anpr.postprocessing import PlatePostProcessor
+from anpr.postprocessing.registry import CountryRegistry
 from anpr.recognition.crnn_recognizer import CRNNRecognizer
 
 

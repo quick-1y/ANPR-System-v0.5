@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Tuple
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from anpr.config import ModelConfig
-from anpr.plates.registry import CountryRegistry
+from anpr.postprocessing.registry import CountryRegistry
 from anpr.workers.channel_worker import ChannelWorker
 from logging_manager import get_logger
 from settings_manager import SettingsManager
@@ -270,14 +270,12 @@ class EventDetailView(QtWidgets.QWidget):
         self.plate_label = QtWidgets.QLabel("—")
         self.normalized_label = QtWidgets.QLabel("—")
         self.country_label = QtWidgets.QLabel("—")
-        self.format_label = QtWidgets.QLabel("—")
         self.conf_label = QtWidgets.QLabel("—")
         meta_layout.addRow("Дата/Время:", self.time_label)
         meta_layout.addRow("Канал:", self.channel_label)
         meta_layout.addRow("Гос. номер:", self.plate_label)
         meta_layout.addRow("Нормализованный:", self.normalized_label)
         meta_layout.addRow("Страна:", self.country_label)
-        meta_layout.addRow("Формат:", self.format_label)
         meta_layout.addRow("Уверенность:", self.conf_label)
         bottom_row.addWidget(meta_group, 1)
 
@@ -310,7 +308,6 @@ class EventDetailView(QtWidgets.QWidget):
         self.plate_label.setText("—")
         self.normalized_label.setText("—")
         self.country_label.setText("—")
-        self.format_label.setText("—")
         self.conf_label.setText("—")
         for group in (self.frame_preview, self.plate_preview):
             group.display_label.setPixmap(QtGui.QPixmap())  # type: ignore[attr-defined]
@@ -332,9 +329,8 @@ class EventDetailView(QtWidgets.QWidget):
         self.plate_label.setText(plate)
         normalized = event.get("normalized_plate") or plate
         self.normalized_label.setText(normalized)
-        country = event.get("country_name") or event.get("country_code") or "—"
+        country = event.get("country_code") or "—"
         self.country_label.setText(country)
-        self.format_label.setText(event.get("plate_format") or "—")
         conf = event.get("confidence")
         self.conf_label.setText(f"{float(conf):.2f}" if conf is not None else "—")
 
@@ -479,10 +475,8 @@ class MainWindow(QtWidgets.QMainWindow):
             "QGroupBox { background-color: rgb(40,40,40); color: white; border: 1px solid #2e2e2e; padding: 6px; }"
         )
         events_layout = QtWidgets.QVBoxLayout(events_group)
-        self.events_table = QtWidgets.QTableWidget(0, 5)
-        self.events_table.setHorizontalHeaderLabels(
-            ["Дата/Время", "Гос. номер", "Страна", "Формат", "Канал"]
-        )
+        self.events_table = QtWidgets.QTableWidget(0, 4)
+        self.events_table.setHorizontalHeaderLabels(["Дата/Время", "Гос. номер", "Страна", "Канал"])
         self.events_table.setStyleSheet(self.TABLE_STYLE)
         self.events_table.horizontalHeader().setStretchLastSection(True)
         self.events_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
@@ -663,8 +657,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         timestamp = self._format_timestamp(event.get("timestamp", ""))
         plate = event.get("plate", "—")
-        country = event.get("country_name") or event.get("country_code") or "—"
-        plate_format = event.get("plate_format") or "—"
+        country = event.get("country_code") or "—"
         channel = event.get("channel", "—")
         event_id = int(event.get("id") or 0)
 
@@ -673,8 +666,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.events_table.setItem(row_index, 0, id_item)
         self.events_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(plate))
         self.events_table.setItem(row_index, 2, QtWidgets.QTableWidgetItem(country))
-        self.events_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(plate_format))
-        self.events_table.setItem(row_index, 4, QtWidgets.QTableWidgetItem(channel))
+        self.events_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(channel))
 
     def _trim_events_table(self, max_rows: int = 200) -> None:
         while self.events_table.rowCount() > max_rows:
@@ -772,9 +764,9 @@ class MainWindow(QtWidgets.QMainWindow):
         button_row.addWidget(search_btn)
         layout.addLayout(button_row)
 
-        self.search_table = QtWidgets.QTableWidget(0, 7)
+        self.search_table = QtWidgets.QTableWidget(0, 6)
         self.search_table.setHorizontalHeaderLabels(
-            ["Дата/Время", "Канал", "Номер", "Страна", "Формат", "Уверенность", "Источник"]
+            ["Дата/Время", "Канал", "Номер", "Страна", "Уверенность", "Источник"]
         )
         self.search_table.horizontalHeader().setStretchLastSection(True)
         self.search_table.setStyleSheet(self.TABLE_STYLE)
@@ -799,14 +791,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.search_table.setItem(row_index, 0, QtWidgets.QTableWidgetItem(formatted_time))
             self.search_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(row_data["channel"]))
             self.search_table.setItem(row_index, 2, QtWidgets.QTableWidgetItem(row_data["plate"]))
-            country = row_data.get("country_name") or row_data.get("country_code") or "—"
-            plate_format = row_data.get("plate_format") or "—"
+            country = row_data.get("country_code") or "—"
             self.search_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(country))
-            self.search_table.setItem(row_index, 4, QtWidgets.QTableWidgetItem(plate_format))
             self.search_table.setItem(
-                row_index, 5, QtWidgets.QTableWidgetItem(f"{row_data['confidence'] or 0:.2f}")
+                row_index, 4, QtWidgets.QTableWidgetItem(f"{row_data['confidence'] or 0:.2f}")
             )
-            self.search_table.setItem(row_index, 6, QtWidgets.QTableWidgetItem(row_data["source"]))
+            self.search_table.setItem(row_index, 5, QtWidgets.QTableWidgetItem(row_data["source"]))
 
     # ------------------ Настройки ------------------
     def _build_settings_tab(self) -> QtWidgets.QWidget:

@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 from anpr.config import ModelConfig
-from anpr.plates import PlatePostProcessor
+from anpr.postprocessing import PlatePostProcessor
 from anpr.recognition.crnn_recognizer import CRNNRecognizer
 
 
@@ -151,8 +151,6 @@ class ANPRPipeline:
                     detection["text"] = processed.value
                     detection["normalized_plate"] = processed.value
                     detection["country_code"] = processed.country_code
-                    detection["country_name"] = processed.country_name
-                    detection["plate_format"] = processed.format_name
                 else:
                     detection["text"] = ""
 
