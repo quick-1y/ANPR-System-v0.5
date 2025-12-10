@@ -16,7 +16,6 @@
 - **Локальное хранение** — SQLite база событий с автоматическим созданием скриншотов
 - **Гибкие настройки** — индивидуальная конфигурация для каждого канала
 - **Автоматическое восстановление** — переподключение при потере сигнала
-- **CLI-интерфейс** — инструмент для пакетной обработки изображений и видео
 
 ## 📦 Установка
 
@@ -53,18 +52,6 @@ pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https
 python app.py
 ```
 
-### Командный интерфейс (CLI)
-```bash
-# Обработка изображения
-python anpr_cli.py --image path/to/image.jpg
-
-# Обработка видеофайла
-python anpr_cli.py --video path/to/video.mp4
-
-# С веб-камеры
-python anpr_cli.py --camera 0
-```
-
 ## 🖥️ Интерфейс приложения
 
 ### 1. Вкладка "Наблюдение"
@@ -97,7 +84,7 @@ python anpr_cli.py --camera 0
 
 ```
 ┌─────────────────────────────────────────────┐
-│ Presentation Layer (GUI/CLI)                │ ← main_window.py, app.py, anpr_cli.py
+│ Presentation Layer (GUI)                    │ ← main_window.py, app.py
 ├─────────────────────────────────────────────┤
 │ Application Layer (Coordinators)            │ ← channel_worker.py, factory.py
 ├─────────────────────────────────────────────┤
@@ -178,7 +165,6 @@ flowchart LR
 ```
 ANPR-System-v0.3/
 ├── app.py                    # Точка входа (GUI)
-├── anpr_cli.py              # Командный интерфейс
 ├── requirements.txt         # Зависимости Python
 ├── settings.json           # Конфигурация приложения
 │
