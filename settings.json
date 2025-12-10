@@ -43,6 +43,9 @@
     "cooldown_seconds": 10,
     "ocr_min_confidence": 0.9
   },
+  "plate_validation": {
+    "allowed_countries": ["RU", "BY", "KZ"]
+  },
   "logging": {
     "level": "INFO",
     "file": "data/app.log",

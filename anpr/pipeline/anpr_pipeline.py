@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import time
 from collections import Counter
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
 
 from anpr.config import ModelConfig
+from anpr.postprocessing import PlatePostProcessor
 from anpr.recognition.crnn_recognizer import CRNNRecognizer
 
 
@@ -47,15 +48,19 @@ class ANPRPipeline:
     def __init__(
         self,
         recognizer: CRNNRecognizer,
+        postprocessor: PlatePostProcessor,
         best_shots: int,
         cooldown_seconds: int = 0,
         min_confidence: float = ModelConfig.OCR_CONFIDENCE_THRESHOLD,
+        allowed_countries: Optional[List[str]] = None,
     ) -> None:
         self.recognizer = recognizer
+        self.postprocessor = postprocessor
         self.aggregator = TrackAggregator(best_shots)
         self.cooldown_seconds = max(0, cooldown_seconds)
         self.min_confidence = max(0.0, min(1.0, min_confidence))
         self._last_seen: Dict[str, float] = {}
+        self.allowed_countries = [code.upper() for code in allowed_countries] if allowed_countries else None
 
     def _on_cooldown(self, plate: str) -> bool:
         last_seen = self._last_seen.get(plate)
@@ -134,10 +139,20 @@ class ANPRPipeline:
                 detection["confidence"] = confidence
                 continue
 
+            raw_text = current_text
             if "track_id" in detection:
-                detection["text"] = self.aggregator.add_result(detection["track_id"], current_text)
+                raw_text = self.aggregator.add_result(detection["track_id"], current_text)
+            detection["raw_text"] = raw_text
+
+            if raw_text:
+                validation = self.postprocessor.process(raw_text, allowed_countries=self.allowed_countries)
+                detection["text"] = validation.normalized_text if validation.is_valid else ""
+                detection["country"] = validation.country_code
+                detection["country_name"] = validation.country_name
+                detection["plate_format"] = validation.plate_format
+                detection["validation_reason"] = validation.reason
             else:
-                detection["text"] = current_text
+                detection["text"] = ""
 
             detection["confidence"] = confidence
 
