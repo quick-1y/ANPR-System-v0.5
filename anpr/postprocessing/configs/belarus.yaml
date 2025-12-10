@@ -1,0 +1,30 @@
+name: "Беларусь"
+code: "BY"
+priority: 2
+uses_cyrillic: true
+strip_characters: "- _"
+stop_words: ["TEST", "SAMPLE"]
+max_repeated: 4
+
+license_plate_formats:
+  - name: "standard_car"
+    regex: "^[ABCEHKMOPTXYАВСЕНКМОРТХУ]{2}[0-9]{4}$"
+    description: "Стандартный легковой"
+  - name: "transit"
+    regex: "^[ABCEHKMOPTXYАВСЕНКМОРТХУ]{2}[0-9]{6}$"
+    description: "Транзит"
+
+valid_characters:
+  letters: "ABCEHKMOPTXYАВСЕНКМОРТХУ"
+  digits: "0123456789"
+
+corrections:
+  common_mistakes:
+    - from: "0"
+      to: "О"
+    - from: "1"
+      to: "Т"
+    - from: "8"
+      to: "В"
+    - from: "2"
+      to: "Z"
