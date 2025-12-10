@@ -206,10 +206,10 @@ class ChannelWorker(QtCore.QThread):
         return adjusted
 
     @staticmethod
-    def _to_qimage(frame: cv2.Mat) -> Optional[QtGui.QImage]:
+    def _to_qimage(frame: Optional[cv2.Mat], *, is_rgb: bool = False) -> Optional[QtGui.QImage]:
         if frame is None or frame.size == 0:
             return None
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        rgb_frame = frame if is_rgb else cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         height, width, channels = rgb_frame.shape
         bytes_per_line = channels * width
         return QtGui.QImage(
@@ -251,6 +251,7 @@ class ChannelWorker(QtCore.QThread):
         results: list[dict],
         channel_name: str,
         frame: cv2.Mat,
+        rgb_frame: Optional[cv2.Mat] = None,
     ) -> None:
         for res in results:
             if res.get("unreadable"):
@@ -273,7 +274,7 @@ class ChannelWorker(QtCore.QThread):
                 frame_path, plate_path = self._build_screenshot_paths(channel_name, event["plate"])
                 event["frame_path"] = self._save_bgr_image(frame_path, frame)
                 event["plate_path"] = self._save_bgr_image(plate_path, plate_crop)
-                event["frame_image"] = self._to_qimage(frame)
+                event["frame_image"] = self._to_qimage(rgb_frame, is_rgb=True)
                 event["plate_image"] = self._to_qimage(plate_crop) if plate_crop is not None else None
                 event["id"] = await storage.insert_event_async(
                     channel=event["channel"],
@@ -348,6 +349,7 @@ class ChannelWorker(QtCore.QThread):
 
             last_frame_ts = time.monotonic()
 
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             roi_frame, roi_rect = self._extract_region(frame)
             motion_detected = self._motion_detected(roi_frame)
 
@@ -363,9 +365,10 @@ class ChannelWorker(QtCore.QThread):
                     detections = await asyncio.to_thread(detector.track, roi_frame)
                     detections = self._offset_detections(detections, roi_rect)
                     results = await asyncio.to_thread(pipeline.process_frame, frame, detections)
-                    await self._process_events(storage, source, results, channel_name, frame)
+                    await self._process_events(
+                        storage, source, results, channel_name, frame, rgb_frame
+                    )
 
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             height, width, channel = rgb_frame.shape
             bytes_per_line = 3 * width
             # Копируем буфер, чтобы предотвратить обращение Qt к уже освобожденной памяти
