@@ -5,10 +5,10 @@ alphabet: "cyrillic"
 
 license_plate_formats:
   - name: "standard_car"
-    regex: "^[ABCEHKMOPTX]{2}\d{4}[1-7]$"
+    regex: '^[ABCEHKMOPTX]{2}\d{4}[1-7]$'
     description: "Автомобиль"
   - name: "transit"
-    regex: "^T\d{6}$"
+    regex: '^T\d{6}$'
     description: "Транзит"
 
 valid_characters:

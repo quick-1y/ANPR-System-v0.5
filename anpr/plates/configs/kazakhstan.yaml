@@ -5,10 +5,10 @@ alphabet: "latin"
 
 license_plate_formats:
   - name: "standard_car"
-    regex: "^\d{3}[A-Z]{2}\d{2}$"
+    regex: '^\d{3}[A-Z]{2}\d{2}$'
     description: "Автомобиль"
   - name: "diplomatic"
-    regex: "^\d{3}D[A-Z]\d{3}$"
+    regex: '^\d{3}D[A-Z]\d{3}$'
     description: "Дипломатические"
 
 valid_characters:
