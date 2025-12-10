@@ -8,11 +8,14 @@ import threading
 from anpr.config import ModelConfig
 from anpr.detection.yolo_detector import YOLODetector
 from anpr.pipeline.anpr_pipeline import ANPRPipeline
+from anpr.plates import PlatePostProcessor
+from anpr.plates.registry import CountryRegistry
 from anpr.recognition.crnn_recognizer import CRNNRecognizer
 
 
 _RECOGNIZER_LOCK = threading.Lock()
 _RECOGNIZER_SINGLETON: CRNNRecognizer | None = None
+_REGISTRY: CountryRegistry | None = None
 
 
 def _get_shared_recognizer() -> CRNNRecognizer:
@@ -35,15 +38,29 @@ def _get_shared_recognizer() -> CRNNRecognizer:
     return _RECOGNIZER_SINGLETON
 
 
-def build_components(best_shots: int, cooldown_seconds: int, min_confidence: float) -> Tuple[ANPRPipeline, YOLODetector]:
+def _get_registry() -> CountryRegistry:
+    global _REGISTRY
+    if _REGISTRY is None:
+        _REGISTRY = CountryRegistry(ModelConfig.PLATE_CONFIG_DIR)
+    return _REGISTRY
+
+
+def build_components(
+    best_shots: int,
+    cooldown_seconds: int,
+    min_confidence: float,
+    allowed_countries: tuple[str, ...],
+) -> Tuple[ANPRPipeline, YOLODetector]:
     """Создаёт независимые компоненты пайплайна (детектор, OCR и агрегация)."""
 
     detector = YOLODetector(ModelConfig.YOLO_MODEL_PATH, ModelConfig.DEVICE)
     recognizer = _get_shared_recognizer()
+    postprocessor = PlatePostProcessor(_get_registry(), allowed_countries)
     pipeline = ANPRPipeline(
         recognizer,
         best_shots,
         cooldown_seconds,
         min_confidence=min_confidence,
+        postprocessor=postprocessor,
     )
     return pipeline, detector
