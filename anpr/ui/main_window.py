@@ -17,12 +17,39 @@ from storage import EventDatabase
 logger = get_logger(__name__)
 
 
+class PixmapPool:
+    """Простой пул QPixmap для повторного использования буферов по размеру."""
+
+    def __init__(self, max_per_size: int = 5) -> None:
+        self._pool: Dict[Tuple[int, int], List[QtGui.QPixmap]] = {}
+        self._max_per_size = max_per_size
+
+    def acquire(self, size: QtCore.QSize) -> QtGui.QPixmap:
+        key = (size.width(), size.height())
+        pixmaps = self._pool.get(key)
+        if pixmaps:
+            pixmap = pixmaps.pop()
+        else:
+            pixmap = QtGui.QPixmap(size)
+        if pixmap.size() != size:
+            pixmap = QtGui.QPixmap(size)
+        return pixmap
+
+    def release(self, pixmap: QtGui.QPixmap) -> None:
+        key = (pixmap.width(), pixmap.height())
+        pixmaps = self._pool.setdefault(key, [])
+        if len(pixmaps) < self._max_per_size:
+            pixmaps.append(pixmap)
+
+
 class ChannelView(QtWidgets.QWidget):
     """Отображает поток канала с подсказками и индикатором движения."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, pixmap_pool: Optional[PixmapPool]) -> None:
         super().__init__()
         self.name = name
+        self._pixmap_pool = pixmap_pool
+        self._current_pixmap: Optional[QtGui.QPixmap] = None
 
         self.video_label = QtWidgets.QLabel("Нет сигнала")
         self.video_label.setAlignment(QtCore.Qt.AlignCenter)
@@ -78,6 +105,9 @@ class ChannelView(QtWidgets.QWidget):
         self.status_hint.move(rect.left() + margin, rect.bottom() - status_size.height() - margin)
 
     def set_pixmap(self, pixmap: QtGui.QPixmap) -> None:
+        if self._pixmap_pool and self._current_pixmap is not None:
+            self._pixmap_pool.release(self._current_pixmap)
+        self._current_pixmap = pixmap
         self.video_label.setPixmap(pixmap)
 
     def set_motion_active(self, active: bool) -> None:
@@ -343,6 +373,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.settings = settings or SettingsManager()
         self.db = EventDatabase(self.settings.get_db_path())
 
+        self._pixmap_pool = PixmapPool()
         self.channel_workers: List[ChannelWorker] = []
         self.channel_labels: Dict[str, ChannelView] = {}
         self.event_images: Dict[int, Tuple[Optional[QtGui.QImage], Optional[QtGui.QImage]]] = {}
@@ -490,7 +521,7 @@ class MainWindow(QtWidgets.QMainWindow):
         index = 0
         for row in range(rows):
             for col in range(cols):
-                label = ChannelView(f"Канал {index+1}")
+                label = ChannelView(f"Канал {index+1}", self._pixmap_pool)
                 if index < len(channels):
                     channel_name = channels[index].get("name", f"Канал {index+1}")
                     self.channel_labels[channel_name] = label
@@ -536,9 +567,23 @@ class MainWindow(QtWidgets.QMainWindow):
         if not label:
             return
         target_size = label.video_label.contentsRect().size()
-        pixmap = QtGui.QPixmap.fromImage(image).scaled(
-            target_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
-        )
+        if target_size.isEmpty():
+            return
+
+        pixmap = self._pixmap_pool.acquire(target_size)
+        pixmap.fill(QtCore.Qt.black)
+
+        painter = QtGui.QPainter(pixmap)
+        painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
+
+        source_rect = image.rect()
+        scaled_size = source_rect.size().scaled(target_size, QtCore.Qt.KeepAspectRatio)
+        x_offset = (target_size.width() - scaled_size.width()) // 2
+        y_offset = (target_size.height() - scaled_size.height()) // 2
+        target_rect = QtCore.QRect(QtCore.QPoint(x_offset, y_offset), scaled_size)
+        painter.drawImage(target_rect, image, source_rect)
+        painter.end()
+
         label.set_pixmap(pixmap)
 
     @staticmethod
