@@ -8,8 +8,6 @@
 
 from __future__ import annotations
 
-import os
-
 import torch
 
 
@@ -27,8 +25,6 @@ class ModelConfig:
     DETECTION_CONFIDENCE_THRESHOLD: float = 0.5
 
     TRACK_BEST_SHOTS: int = 3
-
-    PLATE_CONFIG_DIR: str = os.path.join(os.path.dirname(__file__), "postprocessing", "configs")
 
     DEVICE: torch.device = torch.device("cpu")
 
