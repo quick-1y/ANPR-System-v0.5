@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # /anpr/workers/channel_worker.py
 import asyncio
+import json
 import os
 import time
 import uuid
@@ -276,6 +277,7 @@ class ChannelWorker(QtCore.QThread):
                     "plate_format": res.get("plate_format"),
                     "confidence": res.get("confidence", 0.0),
                     "source": source,
+                    "debug_log": res.get("debug_log", []),
                 }
                 x1, y1, x2, y2 = res.get("bbox", (0, 0, 0, 0))
                 plate_crop = frame[y1:y2, x1:x2] if frame is not None else None
@@ -295,6 +297,7 @@ class ChannelWorker(QtCore.QThread):
                     raw_plate=event.get("raw_plate"),
                     country=event.get("country"),
                     plate_format=event.get("plate_format"),
+                    debug_log=json.dumps(event.get("debug_log") or [], ensure_ascii=False),
                 )
                 self.event_ready.emit(event)
                 logger.info(

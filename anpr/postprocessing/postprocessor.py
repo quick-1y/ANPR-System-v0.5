@@ -19,6 +19,7 @@ class PlateValidationResult:
     plate_format: Optional[str]
     is_valid: bool
     reason: Optional[str] = None
+    debug_log: List[str] | None = None
 
 
 class PlatePostProcessor:
@@ -73,24 +74,35 @@ class PlatePostProcessor:
         return False
 
     def process(self, text: str, allowed_countries: Optional[List[str]] = None) -> PlateValidationResult:
+        steps: List[str] = []
         cleaned_text = text.strip()
+        steps.append(f"input: '{text}'")
         if not cleaned_text:
-            return PlateValidationResult("", "", None, None, None, False, reason="empty")
+            steps.append("reject: empty input after stripping")
+            return PlateValidationResult("", "", None, None, None, False, reason="empty", debug_log=steps)
 
         profiles = filter_profiles(self.profiles, allowed_countries)
         for profile in profiles:
             candidate = self._sanitize(cleaned_text, profile.strip_chars)
+            steps.append(
+                f"{profile.code}: sanitize -> '{candidate}' (strip='{profile.strip_chars}')"
+            )
             candidate = self._apply_corrections(candidate, profile)
+            steps.append(f"{profile.code}: corrections -> '{candidate}'")
 
             if candidate.upper() in self._stop_words or candidate.upper() in profile.stop_words:
-                return PlateValidationResult(cleaned_text, candidate, None, None, None, False, "stop_word")
+                steps.append(f"{profile.code}: reject stop-word '{candidate}'")
+                return PlateValidationResult(cleaned_text, candidate, None, None, None, False, "stop_word", steps)
             if self._is_repetitive(candidate, profile):
-                return PlateValidationResult(cleaned_text, candidate, None, None, None, False, "repetitive")
+                steps.append(f"{profile.code}: reject repetitive sequence '{candidate}'")
+                return PlateValidationResult(cleaned_text, candidate, None, None, None, False, "repetitive", steps)
             if self._has_illegal_symbols(candidate, profile):
+                steps.append(f"{profile.code}: skip due to illegal symbols in '{candidate}'")
                 continue
 
             for fmt in profile.formats:
                 if fmt.regex.match(candidate):
+                    steps.append(f"{profile.code}: matched format '{fmt.name}' with '{candidate}'")
                     return PlateValidationResult(
                         raw_text=cleaned_text,
                         normalized_text=candidate,
@@ -98,6 +110,8 @@ class PlatePostProcessor:
                         country_name=profile.name,
                         plate_format=fmt.name,
                         is_valid=True,
+                        debug_log=steps,
                     )
 
-        return PlateValidationResult(cleaned_text, cleaned_text, None, None, None, False, "no_match")
+        steps.append("reject: no profile matched")
+        return PlateValidationResult(cleaned_text, cleaned_text, None, None, None, False, "no_match", steps)

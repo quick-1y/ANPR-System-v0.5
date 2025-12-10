@@ -132,16 +132,28 @@ class ANPRPipeline:
 
         for detection_idx, (current_text, confidence) in zip(detection_indices, batch_results):
             detection = detections[detection_idx]
+            stage_log = detection.setdefault("debug_log", [])
+            stage_log.append(
+                "detector: bbox=%s, track_id=%s" % (detection.get("bbox"), detection.get("track_id"))
+            )
 
             if confidence < self.min_confidence:
+                stage_log.append(
+                    f"ocr: confidence {confidence:.2f} below threshold {self.min_confidence:.2f}"
+                )
                 detection["text"] = "Нечитаемо"
                 detection["unreadable"] = True
                 detection["confidence"] = confidence
                 continue
 
             raw_text = current_text
+            stage_log.append(f"ocr: '{current_text}' (conf={confidence:.2f})")
             if "track_id" in detection:
                 raw_text = self.aggregator.add_result(detection["track_id"], current_text)
+                if raw_text:
+                    stage_log.append(f"aggregator: emitted '{raw_text}'")
+                else:
+                    stage_log.append("aggregator: waiting for quorum")
             detection["raw_text"] = raw_text
 
             if raw_text:
@@ -151,6 +163,12 @@ class ANPRPipeline:
                 detection["country_name"] = validation.country_name
                 detection["plate_format"] = validation.plate_format
                 detection["validation_reason"] = validation.reason
+                if validation.debug_log:
+                    stage_log.extend(f"postprocess: {msg}" for msg in validation.debug_log)
+                if validation.is_valid:
+                    stage_log.append("result: accepted")
+                else:
+                    stage_log.append(f"result: rejected ({validation.reason})")
             else:
                 detection["text"] = ""
 

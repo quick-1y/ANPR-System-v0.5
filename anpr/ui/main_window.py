@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # /anpr/ui/main_window.py
+import json
 import os
 from datetime import datetime
 
@@ -280,6 +281,19 @@ class EventDetailView(QtWidgets.QWidget):
         meta_layout.addRow("Уверенность:", self.conf_label)
         bottom_row.addWidget(meta_group, 1)
 
+        log_group = QtWidgets.QGroupBox("Журнал этапов")
+        log_group.setStyleSheet(
+            "QGroupBox { background-color: #000; color: white; border: 1px solid #2e2e2e; padding: 6px; }"
+        )
+        log_layout = QtWidgets.QVBoxLayout(log_group)
+        self.log_list = QtWidgets.QListWidget()
+        self.log_list.setStyleSheet(
+            "QListWidget { background-color: #111; color: #ddd; border: 1px solid #333; }"
+            "QListWidget::item { padding: 2px 4px; }"
+        )
+        log_layout.addWidget(self.log_list)
+        bottom_row.addWidget(log_group, 1)
+
         layout.addLayout(bottom_row, stretch=1)
 
     def _build_preview(
@@ -311,6 +325,7 @@ class EventDetailView(QtWidgets.QWidget):
         self.country_label.setText("—")
         self.format_label.setText("—")
         self.conf_label.setText("—")
+        self.log_list.clear()
         for group in (self.frame_preview, self.plate_preview):
             group.display_label.setPixmap(QtGui.QPixmap())  # type: ignore[attr-defined]
             group.display_label.setText("Нет изображения")  # type: ignore[attr-defined]
@@ -339,6 +354,15 @@ class EventDetailView(QtWidgets.QWidget):
 
         self._set_image(self.frame_preview, frame_image, keep_aspect=True)
         self._set_image(self.plate_preview, plate_image, keep_aspect=True)
+        self._set_log(event.get("debug_log"))
+
+    def _set_log(self, log_entries: Optional[List]) -> None:
+        self.log_list.clear()
+        if not log_entries:
+            self.log_list.addItem("Лог пуст")
+            return
+        for idx, entry in enumerate(log_entries, start=1):
+            self.log_list.addItem(f"{idx}. {entry}")
 
     def _set_image(
         self,
@@ -519,6 +543,19 @@ class MainWindow(QtWidgets.QMainWindow):
         except ValueError:
             return value
 
+    @staticmethod
+    def _normalize_debug_log(raw_log) -> List[str]:
+        if isinstance(raw_log, str):
+            try:
+                parsed = json.loads(raw_log)
+                if isinstance(parsed, list):
+                    return [str(item) for item in parsed]
+            except json.JSONDecodeError:
+                return [line.strip() for line in raw_log.splitlines() if line.strip()]
+        elif isinstance(raw_log, (list, tuple)):
+            return [str(item) for item in raw_log]
+        return []
+
     def _draw_grid(self) -> None:
         for i in reversed(range(self.grid_layout.count())):
             item = self.grid_layout.takeAt(i)
@@ -618,6 +655,7 @@ class MainWindow(QtWidgets.QMainWindow):
         event_id = int(event.get("id", 0))
         frame_image = event.get("frame_image")
         plate_image = event.get("plate_image")
+        event["debug_log"] = self._normalize_debug_log(event.get("debug_log"))
         if event_id:
             self.event_images[event_id] = (frame_image, plate_image)
             self.event_cache[event_id] = event
@@ -715,11 +753,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def _refresh_events_table(self, select_id: Optional[int] = None) -> None:
         rows = self.db.fetch_recent(limit=200)
         self.events_table.setRowCount(0)
-        self.event_cache = {row["id"]: dict(row) for row in rows}
-        valid_ids = set(self.event_cache.keys())
-
+        self.event_cache = {}
         for row_data in rows:
-            self._insert_event_row(dict(row_data))
+            event_dict = dict(row_data)
+            event_dict["debug_log"] = self._normalize_debug_log(event_dict.get("debug_log"))
+            self.event_cache[event_dict["id"]] = event_dict
+            self._insert_event_row(event_dict)
+
+        valid_ids = set(self.event_cache.keys())
 
         self._cleanup_event_images(valid_ids)
 
