@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Tuple
+
+import numpy as np
 
 import torch
 import torch.ao.quantization.quantize_fx as quantize_fx
@@ -43,38 +45,57 @@ class CRNNRecognizer:
         model_quantized = quantize_fx.convert_fx(model_prepared)
 
         model_quantized.load_state_dict(torch.load(model_path, map_location=device))
-        self.model = model_quantized
+        self.model = model_quantized.to(device)
         logger.info("Распознаватель OCR (INT8) успешно загружен (model=%s, device=%s)", model_path, device)
 
     @torch.no_grad()
+    def recognize_batch(self, plate_images: Iterable[np.ndarray]) -> List[Tuple[str, float]]:
+        """Распознаёт батч изображений номерных знаков."""
+
+        plate_images = list(plate_images)
+        if not plate_images:
+            return []
+
+        batch = torch.stack([self.transform(img) for img in plate_images]).to(self.device)
+        preds = self.model(batch)
+        return self._decode_batch(preds)
+
+    @torch.no_grad()
     def recognize(self, plate_image) -> Tuple[str, float]:
-        preprocessed_plate = self.transform(plate_image).unsqueeze(0).to(self.device)
-        preds = self.model(preprocessed_plate)
-        return self._decode_with_confidence(preds)
+        batch_result = self.recognize_batch([plate_image])
+        if not batch_result:
+            return "", 0.0
+        return batch_result[0]
 
-    def _decode_with_confidence(self, log_probs: torch.Tensor) -> Tuple[str, float]:
-        probs = log_probs.permute(1, 0, 2)[0]
-        time_steps = probs.size(0)
+    def _decode_batch(self, log_probs: torch.Tensor) -> List[Tuple[str, float]]:
+        batch_probs = log_probs.permute(1, 0, 2)
+        results: List[Tuple[str, float]] = []
 
-        decoded_chars: List[str] = []
-        char_confidences: List[float] = []
-        last_char_idx = 0
+        for probs in batch_probs:
+            time_steps = probs.size(0)
 
-        for t in range(time_steps):
-            timestep_log_probs = probs[t]
-            char_idx = int(torch.argmax(timestep_log_probs).item())
-            char_conf = float(torch.exp(torch.max(timestep_log_probs)).item())
+            decoded_chars: List[str] = []
+            char_confidences: List[float] = []
+            last_char_idx = 0
 
-            if char_idx != 0 and char_idx != last_char_idx:
-                decoded_chars.append(self.int_to_char.get(char_idx, ""))
-                char_confidences.append(char_conf)
+            for t in range(time_steps):
+                timestep_log_probs = probs[t]
+                char_idx = int(torch.argmax(timestep_log_probs).item())
+                char_conf = float(torch.exp(torch.max(timestep_log_probs)).item())
 
-            last_char_idx = char_idx
+                if char_idx != 0 and char_idx != last_char_idx:
+                    decoded_chars.append(self.int_to_char.get(char_idx, ""))
+                    char_confidences.append(char_conf)
 
-        text = "".join(decoded_chars)
-        if not char_confidences:
-            return text, 0.0
+                last_char_idx = char_idx
 
-        avg_confidence = sum(char_confidences) / len(char_confidences)
-        return text, avg_confidence
+            text = "".join(decoded_chars)
+            if not char_confidences:
+                results.append((text, 0.0))
+                continue
+
+            avg_confidence = sum(char_confidences) / len(char_confidences)
+            results.append((text, avg_confidence))
+
+        return results
 
