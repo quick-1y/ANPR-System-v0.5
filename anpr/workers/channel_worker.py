@@ -4,6 +4,7 @@ import asyncio
 import os
 import time
 import uuid
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
@@ -106,6 +107,53 @@ class ChannelRuntimeConfig:
         )
 
 
+_INFERENCE_PIPELINE = None
+_INFERENCE_DETECTOR = None
+_INFERENCE_CONFIG: Optional[dict] = None
+
+
+def _init_inference_components(config: dict) -> None:
+    global _INFERENCE_PIPELINE, _INFERENCE_DETECTOR, _INFERENCE_CONFIG
+    _INFERENCE_CONFIG = config
+    _INFERENCE_PIPELINE, _INFERENCE_DETECTOR = build_components(
+        config["best_shots"], config["cooldown_seconds"], config["min_confidence"]
+    )
+
+
+def _offset_detections_process(
+    detections: list[dict], roi_rect: Tuple[int, int, int, int]
+) -> list[dict]:
+    x1, y1, _, _ = roi_rect
+    adjusted: list[dict] = []
+    for det in detections:
+        box = det.get("bbox")
+        if not box:
+            continue
+        det_copy = det.copy()
+        det_copy["bbox"] = [
+            int(box[0] + x1),
+            int(box[1] + y1),
+            int(box[2] + x1),
+            int(box[3] + y1),
+        ]
+        adjusted.append(det_copy)
+    return adjusted
+
+
+def _run_inference_task(
+    frame: cv2.Mat, roi_frame: cv2.Mat, roi_rect: Tuple[int, int, int, int]
+) -> Tuple[list[dict], list[dict]]:
+    if _INFERENCE_PIPELINE is None or _INFERENCE_DETECTOR is None:
+        if _INFERENCE_CONFIG is None:
+            raise RuntimeError("Inference components are not initialized")
+        _init_inference_components(_INFERENCE_CONFIG)
+
+    detections = _INFERENCE_DETECTOR.track(roi_frame)
+    detections = _offset_detections_process(detections, roi_rect)
+    results = _INFERENCE_PIPELINE.process_frame(frame, detections)
+    return detections, results
+
+
 class InferenceLimiter:
     """Пропускает лишние кадры для инференса детектора."""
 
@@ -150,6 +198,11 @@ class ChannelWorker(QtCore.QThread):
         )
         self.motion_detector = MotionDetector(motion_config)
         self._inference_limiter = InferenceLimiter(self.config.detector_frame_stride)
+        self._executor = ProcessPoolExecutor(
+            max_workers=1,
+            initializer=_init_inference_components,
+            initargs=(self._inference_config(),),
+        )
 
     def _open_capture(self, source: str) -> Optional[cv2.VideoCapture]:
         capture = cv2.VideoCapture(int(source) if source.isnumeric() else source)
@@ -177,10 +230,12 @@ class ChannelWorker(QtCore.QThread):
             await asyncio.sleep(max(0.1, self.reconnect_policy.retry_interval_seconds))
         return None
 
-    def _build_pipeline(self) -> Tuple[object, object]:
-        return build_components(
-            self.config.best_shots, self.config.cooldown_seconds, self.config.min_confidence
-        )
+    def _inference_config(self) -> dict:
+        return {
+            "best_shots": self.config.best_shots,
+            "cooldown_seconds": self.config.cooldown_seconds,
+            "min_confidence": self.config.min_confidence,
+        }
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:
         x1, y1, x2, y2 = self.config.region.to_rect(frame.shape)
@@ -192,18 +247,17 @@ class ChannelWorker(QtCore.QThread):
 
         return self.motion_detector.update(roi_frame)
 
-    @staticmethod
-    def _offset_detections(detections: list[dict], roi_rect: Tuple[int, int, int, int]) -> list[dict]:
-        x1, y1, _, _ = roi_rect
-        adjusted: list[dict] = []
-        for det in detections:
-            box = det.get("bbox")
-            if not box:
-                continue
-            det_copy = det.copy()
-            det_copy["bbox"] = [int(box[0] + x1), int(box[1] + y1), int(box[2] + x1), int(box[3] + y1)]
-            adjusted.append(det_copy)
-        return adjusted
+    async def _run_inference(
+        self, frame: cv2.Mat, roi_frame: cv2.Mat, roi_rect: Tuple[int, int, int, int]
+    ) -> Tuple[list[dict], list[dict]]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            _run_inference_task,
+            frame,
+            roi_frame,
+            roi_rect,
+        )
 
     @staticmethod
     def _to_qimage(frame: Optional[cv2.Mat], *, is_rgb: bool = False) -> Optional[QtGui.QImage]:
@@ -295,7 +349,6 @@ class ChannelWorker(QtCore.QThread):
                 )
 
     async def _loop(self) -> None:
-        pipeline, detector = await asyncio.to_thread(self._build_pipeline)
         storage = AsyncEventDatabase(self.db_path)
 
         source = self.config.source
@@ -362,9 +415,9 @@ class ChannelWorker(QtCore.QThread):
                     self.status_ready.emit(channel_name, "Движение обнаружено")
                 waiting_for_motion = False
                 if self._inference_limiter.allow():
-                    detections = await asyncio.to_thread(detector.track, roi_frame)
-                    detections = self._offset_detections(detections, roi_rect)
-                    results = await asyncio.to_thread(pipeline.process_frame, frame, detections)
+                    detections, results = await self._run_inference(
+                        frame, roi_frame, roi_rect
+                    )
                     await self._process_events(
                         storage, source, results, channel_name, frame, rgb_frame
                     )
@@ -380,12 +433,19 @@ class ChannelWorker(QtCore.QThread):
 
         capture.release()
 
+    def _shutdown_executor(self) -> None:
+        if self._executor is not None:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            self._executor = None
+
     def run(self) -> None:
         try:
             asyncio.run(self._loop())
         except Exception as exc:  # noqa: BLE001
             self.status_ready.emit(self.config.name, f"Ошибка: {exc}")
             logger.exception("Канал %s аварийно остановлен", self.config.name)
+        finally:
+            self._shutdown_executor()
 
     def stop(self) -> None:
         self._running = False
