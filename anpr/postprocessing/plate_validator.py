@@ -102,6 +102,27 @@ class PlateValidator:
     def _apply_corrections(self, raw: str, rules: CountryRules) -> tuple[str, bool]:
         normalized = self._strip_separators(raw.upper())
         corrected = False
+        # Базовая нормализация похожих символов (кириллица -> латиница),
+        # чтобы не отбрасывать корректные номера из-за различий алфавитов OCR.
+        base_translation = str.maketrans(
+            {
+                "А": "A",
+                "В": "B",
+                "Е": "E",
+                "К": "K",
+                "М": "M",
+                "Н": "H",
+                "О": "O",
+                "Р": "P",
+                "С": "C",
+                "Т": "T",
+                "У": "Y",
+                "Х": "X",
+            }
+        )
+        translated = normalized.translate(base_translation)
+        corrected = corrected or translated != normalized
+        normalized = translated
         if rules.digit_to_letter:
             translation = str.maketrans({k: v for k, v in rules.digit_to_letter.items()})
             translated = normalized.translate(translation)
