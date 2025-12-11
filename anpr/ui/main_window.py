@@ -588,21 +588,10 @@ class MainWindow(QtWidgets.QMainWindow):
         if target_size.isEmpty():
             return
 
-        pixmap = label.acquire_pixmap(target_size)
-        pixmap.fill(QtCore.Qt.black)
-
-        painter = QtGui.QPainter(pixmap)
-        painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
-
-        source_rect = image.rect()
-        scaled_size = source_rect.size().scaled(target_size, QtCore.Qt.KeepAspectRatio)
-        x_offset = (target_size.width() - scaled_size.width()) // 2
-        y_offset = (target_size.height() - scaled_size.height()) // 2
-        target_rect = QtCore.QRect(QtCore.QPoint(x_offset, y_offset), scaled_size)
-        painter.drawImage(target_rect, image, source_rect)
-        painter.end()
-
-        label.set_pixmap(pixmap)
+        scaled_image = image.scaled(
+            target_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+        )
+        label.video_label.setPixmap(QtGui.QPixmap.fromImage(scaled_image))
 
     @staticmethod
     def _load_image_from_path(path: Optional[str]) -> Optional[QtGui.QImage]:
