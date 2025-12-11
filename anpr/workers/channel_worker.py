@@ -116,7 +116,11 @@ def _init_inference_components(config: dict) -> None:
     global _INFERENCE_PIPELINE, _INFERENCE_DETECTOR, _INFERENCE_CONFIG
     _INFERENCE_CONFIG = config
     _INFERENCE_PIPELINE, _INFERENCE_DETECTOR = build_components(
-        config["best_shots"], config["cooldown_seconds"], config["min_confidence"]
+        config["best_shots"],
+        config["cooldown_seconds"],
+        config["min_confidence"],
+        plate_config_dir=config["plate_config_dir"],
+        enabled_countries=config.get("enabled_countries"),
     )
 
 
@@ -180,6 +184,7 @@ class ChannelWorker(QtCore.QThread):
         db_path: str,
         screenshot_dir: str,
         reconnect_conf: Optional[Dict[str, Any]] = None,
+        plate_config: Optional[Dict[str, Any]] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -187,6 +192,7 @@ class ChannelWorker(QtCore.QThread):
         self.reconnect_policy = ReconnectPolicy.from_dict(reconnect_conf)
         self.db_path = db_path
         self.screenshot_dir = screenshot_dir
+        self.plate_config = plate_config or {}
         os.makedirs(self.screenshot_dir, exist_ok=True)
         self._running = True
 
@@ -235,6 +241,8 @@ class ChannelWorker(QtCore.QThread):
             "best_shots": self.config.best_shots,
             "cooldown_seconds": self.config.cooldown_seconds,
             "min_confidence": self.config.min_confidence,
+            "plate_config_dir": self.plate_config.get("config_dir", "configs/countries"),
+            "enabled_countries": tuple(self.plate_config.get("enabled_countries", ()) or ()),
         }
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:
@@ -320,6 +328,8 @@ class ChannelWorker(QtCore.QThread):
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "channel": channel_name,
                     "plate": res.get("text", ""),
+                    "country": res.get("country"),
+                    "country_name": res.get("country_name"),
                     "confidence": res.get("confidence", 0.0),
                     "source": source,
                 }
@@ -333,6 +343,8 @@ class ChannelWorker(QtCore.QThread):
                 event["id"] = await storage.insert_event_async(
                     channel=event["channel"],
                     plate=event["plate"],
+                    country=event.get("country"),
+                    country_name=event.get("country_name"),
                     confidence=event["confidence"],
                     source=event["source"],
                     timestamp=event["timestamp"],
