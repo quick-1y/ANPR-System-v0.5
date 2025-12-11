@@ -38,6 +38,15 @@
     "database_file": "anpr.db",
     "screenshots_dir": "data/screenshots"
   },
+  "plates": {
+    "config_dir": "anpr/plate_postprocessing/configs",
+    "enabled_countries": [
+      "RU",
+      "BY",
+      "KZ",
+      "UA"
+    ]
+  },
   "tracking": {
     "best_shots": 10,
     "cooldown_seconds": 10,
