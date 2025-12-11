@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 
 from anpr.config import ModelConfig
+from anpr.postprocessing import PlatePostProcessor
 from anpr.recognition.crnn_recognizer import CRNNRecognizer
 
 
@@ -50,12 +51,14 @@ class ANPRPipeline:
         best_shots: int,
         cooldown_seconds: int = 0,
         min_confidence: float = ModelConfig.OCR_CONFIDENCE_THRESHOLD,
+        postprocessor: PlatePostProcessor | None = None,
     ) -> None:
         self.recognizer = recognizer
         self.aggregator = TrackAggregator(best_shots)
         self.cooldown_seconds = max(0, cooldown_seconds)
         self.min_confidence = max(0.0, min(1.0, min_confidence))
         self._last_seen: Dict[str, float] = {}
+        self._postprocessor = postprocessor
 
     def _on_cooldown(self, plate: str) -> bool:
         last_seen = self._last_seen.get(plate)
@@ -140,6 +143,17 @@ class ANPRPipeline:
                 detection["text"] = current_text
 
             detection["confidence"] = confidence
+
+            if self._postprocessor and detection.get("text"):
+                processed = self._postprocessor.process(detection["text"])
+                if processed:
+                    detection["text"] = processed.plate
+                    detection["country"] = processed.country
+                    detection["format"] = processed.format_name
+                    detection["corrected"] = processed.corrected
+                else:
+                    detection["text"] = ""
+                    detection["country"] = ""
 
             if self.cooldown_seconds > 0 and detection.get("text"):
                 if self._on_cooldown(detection["text"]):
