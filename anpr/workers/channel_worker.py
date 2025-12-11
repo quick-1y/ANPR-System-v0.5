@@ -205,6 +205,7 @@ class ChannelWorker(QtCore.QThread):
             initializer=_init_inference_components,
             initargs=(self._inference_config(),),
         )
+        self._inference_task: Optional[asyncio.Task] = None
 
     def _open_capture(self, source: str) -> Optional[cv2.VideoCapture]:
         capture = cv2.VideoCapture(int(source) if source.isnumeric() else source)
@@ -356,6 +357,22 @@ class ChannelWorker(QtCore.QThread):
                     res.get("track_id", "-"),
                 )
 
+    async def _inference_and_process(
+        self,
+        storage: AsyncEventDatabase,
+        source: str,
+        channel_name: str,
+        frame: cv2.Mat,
+        roi_frame: cv2.Mat,
+        roi_rect: Tuple[int, int, int, int],
+        rgb_frame: cv2.Mat,
+    ) -> None:
+        try:
+            detections, results = await self._run_inference(frame, roi_frame, roi_rect)
+            await self._process_events(storage, source, results, channel_name, frame, rgb_frame)
+        except Exception:  # noqa: BLE001
+            logger.exception("Ошибка инференса для канала %s", channel_name)
+
     async def _loop(self) -> None:
         storage = AsyncEventDatabase(self.db_path)
 
@@ -423,12 +440,23 @@ class ChannelWorker(QtCore.QThread):
                     self.status_ready.emit(channel_name, "Движение обнаружено")
                 waiting_for_motion = False
                 if self._inference_limiter.allow():
-                    detections, results = await self._run_inference(
-                        frame, roi_frame, roi_rect
-                    )
-                    await self._process_events(
-                        storage, source, results, channel_name, frame, rgb_frame
-                    )
+                    if self._inference_task is None or self._inference_task.done():
+                        self._inference_task = asyncio.create_task(
+                            self._inference_and_process(
+                                storage,
+                                source,
+                                channel_name,
+                                frame.copy(),
+                                roi_frame.copy(),
+                                roi_rect,
+                                rgb_frame.copy(),
+                            )
+                        )
+                    else:
+                        logger.debug(
+                            "Канал %s: пропуск инференса, предыдущая задача еще выполняется",
+                            channel_name,
+                        )
 
             height, width, channel = rgb_frame.shape
             bytes_per_line = 3 * width
@@ -440,6 +468,12 @@ class ChannelWorker(QtCore.QThread):
             self.frame_ready.emit(channel_name, q_image)
 
         capture.release()
+
+        if self._inference_task is not None:
+            try:
+                await asyncio.wait_for(self._inference_task, timeout=1)
+            except Exception:  # noqa: BLE001
+                logger.warning("Задача инференса для канала %s не завершена корректно", channel_name)
 
     def _shutdown_executor(self) -> None:
         if self._executor is not None:
