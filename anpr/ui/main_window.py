@@ -105,10 +105,28 @@ class ChannelView(QtWidgets.QWidget):
         self.status_hint.move(rect.left() + margin, rect.bottom() - status_size.height() - margin)
 
     def set_pixmap(self, pixmap: QtGui.QPixmap) -> None:
+        if pixmap is not self._current_pixmap:
+            if self._pixmap_pool and self._current_pixmap is not None:
+                self._pixmap_pool.release(self._current_pixmap)
+            self._current_pixmap = pixmap
+        self.video_label.setPixmap(pixmap)
+
+    def acquire_pixmap(self, size: QtCore.QSize) -> QtGui.QPixmap:
+        """Возвращает готовый QPixmap нужного размера, переиспользуя текущий."""
+
+        if self._current_pixmap is not None and self._current_pixmap.size() == size:
+            return self._current_pixmap
+
         if self._pixmap_pool and self._current_pixmap is not None:
             self._pixmap_pool.release(self._current_pixmap)
-        self._current_pixmap = pixmap
-        self.video_label.setPixmap(pixmap)
+            self._current_pixmap = None
+
+        if self._pixmap_pool:
+            self._current_pixmap = self._pixmap_pool.acquire(size)
+        else:
+            self._current_pixmap = QtGui.QPixmap(size)
+
+        return self._current_pixmap
 
     def set_motion_active(self, active: bool) -> None:
         self.motion_indicator.setVisible(active)
@@ -570,7 +588,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if target_size.isEmpty():
             return
 
-        pixmap = self._pixmap_pool.acquire(target_size)
+        pixmap = label.acquire_pixmap(target_size)
         pixmap.fill(QtCore.Qt.black)
 
         painter = QtGui.QPainter(pixmap)
