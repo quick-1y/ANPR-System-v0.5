@@ -33,15 +33,15 @@ class PlatePostProcessor:
 
     def _apply_corrections(self, text: str, country: CountryConfig) -> str:
         corrected = text
-        for src, dst in country.corrections.digit_to_letter.items():
-            corrected = corrected.replace(src, dst)
-        for src, dst in country.corrections.letter_to_digit.items():
-            corrected = corrected.replace(src, dst)
         for mistake in country.corrections.common_mistakes:
             src = mistake.get("from", "")
             dst = mistake.get("to", "")
             if src:
                 corrected = corrected.replace(src, dst)
+        for src, dst in country.corrections.digit_to_letter.items():
+            corrected = corrected.replace(src, dst)
+        for src, dst in country.corrections.letter_to_digit.items():
+            corrected = corrected.replace(src, dst)
         return corrected
 
     def _valid_characters(self, text: str, country: CountryConfig) -> bool:
@@ -61,27 +61,35 @@ class PlatePostProcessor:
     def _check_stop_words(self, text: str, stop_words: List[str]) -> bool:
         return any(text == stop_word for stop_word in stop_words)
 
+    def _variants(self, normalized: str, country: CountryConfig) -> List[str]:
+        variants = [normalized]
+        corrected = self._apply_corrections(normalized, country)
+        if corrected and corrected not in variants:
+            variants.append(corrected)
+        return variants
+
     def process(self, raw_text: str) -> PlatePostprocessResult:
         normalized = self._normalize(raw_text)
         if not self.countries:
             return PlatePostprocessResult(raw_text, normalized, normalized, None, True, None)
+
         for country in self.countries:
-            candidate = self._apply_corrections(normalized, country)
-            if not candidate:
-                continue
+            for candidate in self._variants(normalized, country):
+                if not candidate:
+                    continue
 
-            if self._check_stop_words(candidate, country.stop_words):
-                return PlatePostprocessResult(raw_text, normalized, "", country.code, False, None)
+                if self._check_stop_words(candidate, country.stop_words):
+                    return PlatePostprocessResult(raw_text, normalized, "", country.code, False, None)
 
-            if self._contains_invalid_sequences(candidate, country.invalid_sequences):
-                continue
+                if self._contains_invalid_sequences(candidate, country.invalid_sequences):
+                    continue
 
-            if country.valid_letters and not self._valid_characters(candidate, country):
-                continue
+                if country.valid_letters and not self._valid_characters(candidate, country):
+                    continue
 
-            format_name = self._match_country(candidate, country)
-            if format_name:
-                return PlatePostprocessResult(raw_text, normalized, candidate, country.code, True, format_name)
+                format_name = self._match_country(candidate, country)
+                if format_name:
+                    return PlatePostprocessResult(raw_text, normalized, candidate, country.code, True, format_name)
 
         return PlatePostprocessResult(raw_text, normalized, normalized, None, False, None)
 

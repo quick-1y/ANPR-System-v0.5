@@ -150,11 +150,16 @@ class ANPRPipeline:
             if self.postprocessor and detection.get("text"):
                 processed = self.postprocessor.process(detection["text"])
                 detection["original_text"] = detection.get("text")
-                detection["text"] = processed.plate if processed.is_valid else ""
+                if processed.is_valid:
+                    detection["text"] = processed.plate
+                elif processed.plate:
+                    detection["text"] = processed.plate or detection.get("text")
+                else:
+                    detection["text"] = ""
                 detection["country"] = processed.country
                 detection["format"] = processed.format_name
                 detection["validated"] = processed.is_valid
-                if not processed.is_valid and "track_id" in detection:
+                if not detection["text"] and "track_id" in detection:
                     self.aggregator.clear_last(detection["track_id"])
 
             if self.cooldown_seconds > 0 and detection.get("text"):
