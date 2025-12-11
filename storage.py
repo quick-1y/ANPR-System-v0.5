@@ -34,6 +34,8 @@ class EventDatabase:
             conn.execute("ALTER TABLE events ADD COLUMN frame_path TEXT")
         if not _column_exists("plate_path"):
             conn.execute("ALTER TABLE events ADD COLUMN plate_path TEXT")
+        if not _column_exists("country"):
+            conn.execute("ALTER TABLE events ADD COLUMN country TEXT")
 
     def _init_db(self) -> None:
         with self._connect() as conn:
@@ -44,6 +46,7 @@ class EventDatabase:
                     timestamp TEXT NOT NULL,
                     channel TEXT NOT NULL,
                     plate TEXT NOT NULL,
+                    country TEXT,
                     confidence REAL,
                     source TEXT,
                     frame_path TEXT,
@@ -58,6 +61,7 @@ class EventDatabase:
         self,
         channel: str,
         plate: str,
+        country: Optional[str] = None,
         confidence: float = 0.0,
         source: str = "",
         timestamp: Optional[str] = None,
@@ -68,14 +72,19 @@ class EventDatabase:
         with self._connect() as conn:
             cursor = conn.execute(
                 (
-                    "INSERT INTO events (timestamp, channel, plate, confidence, source, frame_path, plate_path)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?)"
+                    "INSERT INTO events (timestamp, channel, plate, country, confidence, source, frame_path, plate_path)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
                 ),
-                (ts, channel, plate, confidence, source, frame_path, plate_path),
+                (ts, channel, plate, country, confidence, source, frame_path, plate_path),
             )
             conn.commit()
             self.logger.info(
-                "Event saved: %s (%s, conf=%.2f, src=%s)", plate, channel, confidence or 0.0, source
+                "Event saved: %s (%s, country=%s, conf=%.2f, src=%s)",
+                plate,
+                channel,
+                country or "?",
+                confidence or 0.0,
+                source,
             )
             return cursor.lastrowid
 
@@ -172,6 +181,7 @@ class AsyncEventDatabase:
                     timestamp TEXT NOT NULL,
                     channel TEXT NOT NULL,
                     plate TEXT NOT NULL,
+                    country TEXT,
                     confidence REAL,
                     source TEXT,
                     frame_path TEXT,
@@ -193,6 +203,8 @@ class AsyncEventDatabase:
             await conn.execute("ALTER TABLE events ADD COLUMN frame_path TEXT")
         if not await _column_exists("plate_path"):
             await conn.execute("ALTER TABLE events ADD COLUMN plate_path TEXT")
+        if not await _column_exists("country"):
+            await conn.execute("ALTER TABLE events ADD COLUMN country TEXT")
 
     async def insert_event_async(
         self,
@@ -203,22 +215,24 @@ class AsyncEventDatabase:
         timestamp: Optional[str] = None,
         frame_path: Optional[str] = None,
         plate_path: Optional[str] = None,
+        country: Optional[str] = None,
     ) -> int:
         await self._ensure_schema()
         ts = timestamp or datetime.now(timezone.utc).isoformat()
         async with aiosqlite.connect(self.db_path) as conn:
             cursor = await conn.execute(
                 (
-                    "INSERT INTO events (timestamp, channel, plate, confidence, source, frame_path, plate_path)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?)"
+                    "INSERT INTO events (timestamp, channel, plate, country, confidence, source, frame_path, plate_path)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
                 ),
-                (ts, channel, plate, confidence, source, frame_path, plate_path),
+                (ts, channel, plate, country, confidence, source, frame_path, plate_path),
             )
             await conn.commit()
             self.logger.info(
-                "[async] Event saved: %s (%s, conf=%.2f, src=%s)",
+                "[async] Event saved: %s (%s, country=%s, conf=%.2f, src=%s)",
                 plate,
                 channel,
+                country or "?",
                 confidence or 0.0,
                 source,
             )

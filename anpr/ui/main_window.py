@@ -2,6 +2,7 @@
 # /anpr/ui/main_window.py
 import os
 from datetime import datetime
+from pathlib import Path
 
 import cv2
 import psutil
@@ -9,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from anpr.postprocessing.country_config import CountryConfigLoader
 from anpr.workers.channel_worker import ChannelWorker
 from logging_manager import get_logger
 from settings_manager import SettingsManager
@@ -265,10 +267,12 @@ class EventDetailView(QtWidgets.QWidget):
         meta_layout = QtWidgets.QFormLayout(meta_group)
         self.time_label = QtWidgets.QLabel("—")
         self.channel_label = QtWidgets.QLabel("—")
+        self.country_label = QtWidgets.QLabel("—")
         self.plate_label = QtWidgets.QLabel("—")
         self.conf_label = QtWidgets.QLabel("—")
         meta_layout.addRow("Дата/Время:", self.time_label)
         meta_layout.addRow("Канал:", self.channel_label)
+        meta_layout.addRow("Страна:", self.country_label)
         meta_layout.addRow("Гос. номер:", self.plate_label)
         meta_layout.addRow("Уверенность:", self.conf_label)
         bottom_row.addWidget(meta_group, 1)
@@ -299,6 +303,7 @@ class EventDetailView(QtWidgets.QWidget):
     def clear(self) -> None:
         self.time_label.setText("—")
         self.channel_label.setText("—")
+        self.country_label.setText("—")
         self.plate_label.setText("—")
         self.conf_label.setText("—")
         for group in (self.frame_preview, self.plate_preview):
@@ -317,6 +322,7 @@ class EventDetailView(QtWidgets.QWidget):
 
         self.time_label.setText(event.get("timestamp", "—"))
         self.channel_label.setText(event.get("channel", "—"))
+        self.country_label.setText(event.get("country") or "—")
         plate = event.get("plate") or "—"
         self.plate_label.setText(plate)
         conf = event.get("confidence")
@@ -378,6 +384,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.channel_labels: Dict[str, ChannelView] = {}
         self.event_images: Dict[int, Tuple[Optional[QtGui.QImage], Optional[QtGui.QImage]]] = {}
         self.event_cache: Dict[int, Dict] = {}
+        self.flag_cache: Dict[str, Optional[QtGui.QIcon]] = {}
+        self.flag_dir = Path(__file__).resolve().parents[2] / "images" / "flags"
 
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setStyleSheet(
@@ -461,8 +469,8 @@ class MainWindow(QtWidgets.QMainWindow):
             "QGroupBox { background-color: rgb(40,40,40); color: white; border: 1px solid #2e2e2e; padding: 6px; }"
         )
         events_layout = QtWidgets.QVBoxLayout(events_group)
-        self.events_table = QtWidgets.QTableWidget(0, 3)
-        self.events_table.setHorizontalHeaderLabels(["Дата/Время", "Гос. номер", "Канал"])
+        self.events_table = QtWidgets.QTableWidget(0, 4)
+        self.events_table.setHorizontalHeaderLabels(["Дата/Время", "Гос. номер", "Страна", "Канал"])
         self.events_table.setStyleSheet(self.TABLE_STYLE)
         self.events_table.horizontalHeader().setStretchLastSection(True)
         self.events_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
@@ -536,6 +544,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._stop_workers()
         self.channel_workers = []
         reconnect_conf = self.settings.get_reconnect()
+        plate_settings = self.settings.get_plate_settings()
         for channel_conf in self.settings.get_channels():
             source = str(channel_conf.get("source", "")).strip()
             channel_name = channel_conf.get("name", "Канал")
@@ -549,6 +558,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.settings.get_db_path(),
                 self.settings.get_screenshot_dir(),
                 reconnect_conf,
+                plate_settings,
             )
             worker.frame_ready.connect(self._update_frame)
             worker.event_ready.connect(self._handle_event)
@@ -611,6 +621,20 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.event_images.pop(stale_id, None)
         self._prune_image_cache()
 
+    def _get_flag_icon(self, country: Optional[str]) -> Optional[QtGui.QIcon]:
+        if not country:
+            return None
+        code = str(country).lower()
+        if code in self.flag_cache:
+            return self.flag_cache[code]
+        flag_path = self.flag_dir / f"{code}.png"
+        if flag_path.exists():
+            icon = QtGui.QIcon(str(flag_path))
+            self.flag_cache[code] = icon
+            return icon
+        self.flag_cache[code] = None
+        return None
+
     def _prune_image_cache(self) -> None:
         """Ограничивает размер кеша изображений, удаляя самые старые записи."""
 
@@ -632,12 +656,19 @@ class MainWindow(QtWidgets.QMainWindow):
         plate = event.get("plate", "—")
         channel = event.get("channel", "—")
         event_id = int(event.get("id") or 0)
+        country_code = event.get("country") or "—"
 
         id_item = QtWidgets.QTableWidgetItem(timestamp)
         id_item.setData(QtCore.Qt.UserRole, event_id)
         self.events_table.setItem(row_index, 0, id_item)
         self.events_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(plate))
-        self.events_table.setItem(row_index, 2, QtWidgets.QTableWidgetItem(channel))
+        country_item = QtWidgets.QTableWidgetItem(country_code if country_code != "—" else "")
+        country_icon = self._get_flag_icon(event.get("country"))
+        if country_icon:
+            country_item.setIcon(country_icon)
+        country_item.setTextAlignment(QtCore.Qt.AlignCenter)
+        self.events_table.setItem(row_index, 2, country_item)
+        self.events_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(channel))
 
     def _trim_events_table(self, max_rows: int = 200) -> None:
         while self.events_table.rowCount() > max_rows:
@@ -661,10 +692,12 @@ class MainWindow(QtWidgets.QMainWindow):
             label.set_motion_active("обнаружено" in normalized)
 
     def _on_event_selected(self) -> None:
-        selected = self.events_table.selectedItems()
-        if not selected:
+        row = self.events_table.currentRow()
+        if row < 0:
             return
-        event_id_item = selected[0]
+        event_id_item = self.events_table.item(row, 0)
+        if event_id_item is None:
+            return
         event_id = int(event_id_item.data(QtCore.Qt.UserRole) or 0)
         self._show_event_details(event_id)
 
@@ -735,9 +768,9 @@ class MainWindow(QtWidgets.QMainWindow):
         button_row.addWidget(search_btn)
         layout.addLayout(button_row)
 
-        self.search_table = QtWidgets.QTableWidget(0, 5)
+        self.search_table = QtWidgets.QTableWidget(0, 6)
         self.search_table.setHorizontalHeaderLabels(
-            ["Дата/Время", "Канал", "Номер", "Уверенность", "Источник"]
+            ["Дата/Время", "Канал", "Страна", "Номер", "Уверенность", "Источник"]
         )
         self.search_table.horizontalHeader().setStretchLastSection(True)
         self.search_table.setStyleSheet(self.TABLE_STYLE)
@@ -761,11 +794,17 @@ class MainWindow(QtWidgets.QMainWindow):
             formatted_time = self._format_timestamp(row_data["timestamp"])
             self.search_table.setItem(row_index, 0, QtWidgets.QTableWidgetItem(formatted_time))
             self.search_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(row_data["channel"]))
-            self.search_table.setItem(row_index, 2, QtWidgets.QTableWidgetItem(row_data["plate"]))
+            country_item = QtWidgets.QTableWidgetItem(row_data["country"] or "")
+            country_icon = self._get_flag_icon(row_data["country"])
+            if country_icon:
+                country_item.setIcon(country_icon)
+            country_item.setTextAlignment(QtCore.Qt.AlignCenter)
+            self.search_table.setItem(row_index, 2, country_item)
+            self.search_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(row_data["plate"]))
             self.search_table.setItem(
-                row_index, 3, QtWidgets.QTableWidgetItem(f"{row_data['confidence'] or 0:.2f}")
+                row_index, 4, QtWidgets.QTableWidgetItem(f"{row_data['confidence'] or 0:.2f}")
             )
-            self.search_table.setItem(row_index, 4, QtWidgets.QTableWidgetItem(row_data["source"]))
+            self.search_table.setItem(row_index, 5, QtWidgets.QTableWidgetItem(row_data["source"]))
 
     # ------------------ Настройки ------------------
     def _build_settings_tab(self) -> QtWidgets.QWidget:
@@ -845,11 +884,36 @@ class MainWindow(QtWidgets.QMainWindow):
         screenshot_container.setLayout(screenshot_row)
         storage_form.addRow("Папка для скриншотов:", screenshot_container)
 
+        plate_group = QtWidgets.QGroupBox("Валидация номеров")
+        plate_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        plate_form = QtWidgets.QFormLayout(plate_group)
+
+        plate_dir_row = QtWidgets.QHBoxLayout()
+        self.country_config_dir_input = QtWidgets.QLineEdit()
+        browse_country_btn = QtWidgets.QPushButton("Выбрать...")
+        browse_country_btn.clicked.connect(self._choose_country_dir)
+        self.country_config_dir_input.editingFinished.connect(self._reload_country_templates)
+        plate_dir_row.addWidget(self.country_config_dir_input)
+        plate_dir_row.addWidget(browse_country_btn)
+        plate_dir_container = QtWidgets.QWidget()
+        plate_dir_container.setLayout(plate_dir_row)
+        plate_form.addRow("Каталог шаблонов:", plate_dir_container)
+
+        self.country_templates_list = QtWidgets.QListWidget()
+        self.country_templates_list.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        self.country_templates_list.setStyleSheet(self.LIST_STYLE)
+        plate_form.addRow("Активные страны:", self.country_templates_list)
+
+        refresh_countries_btn = QtWidgets.QPushButton("Обновить список стран")
+        refresh_countries_btn.clicked.connect(self._reload_country_templates)
+        plate_form.addRow("", refresh_countries_btn)
+
         save_general_btn = QtWidgets.QPushButton("Сохранить общие настройки")
         save_general_btn.clicked.connect(self._save_general_settings)
 
         layout.addWidget(reconnect_group)
         layout.addWidget(storage_group)
+        layout.addWidget(plate_group)
         layout.addWidget(save_general_btn, alignment=QtCore.Qt.AlignLeft)
         layout.addStretch()
 
@@ -1012,6 +1076,9 @@ class MainWindow(QtWidgets.QMainWindow):
         periodic = reconnect.get("periodic", {})
         self.db_dir_input.setText(self.settings.get_db_dir())
         self.screenshot_dir_input.setText(self.settings.get_screenshot_dir())
+        plate_settings = self.settings.get_plate_settings()
+        self.country_config_dir_input.setText(plate_settings.get("config_dir", "config/countries"))
+        self._reload_country_templates(plate_settings.get("enabled_countries", []))
 
         self.reconnect_on_loss_checkbox.setChecked(bool(signal_loss.get("enabled", True)))
         self.frame_timeout_input.setValue(int(signal_loss.get("frame_timeout_seconds", 5)))
@@ -1029,6 +1096,42 @@ class MainWindow(QtWidgets.QMainWindow):
         directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Выбор папки базы данных")
         if directory:
             self.db_dir_input.setText(directory)
+
+    def _choose_country_dir(self) -> None:
+        directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Выбор каталога шаблонов номеров")
+        if directory:
+            self.country_config_dir_input.setText(directory)
+            self._reload_country_templates()
+
+    def _reload_country_templates(self, enabled: Optional[List[str]] = None) -> None:
+        plate_settings = self.settings.get_plate_settings()
+        config_dir = self.country_config_dir_input.text().strip() or plate_settings.get("config_dir", "config/countries")
+        loader = CountryConfigLoader(config_dir)
+        loader.ensure_dir()
+        available = loader.available_configs()
+        enabled_codes = set(enabled or plate_settings.get("enabled_countries", []))
+
+        self.country_templates_list.clear()
+        if not available:
+            item = QtWidgets.QListWidgetItem("Конфигурации стран не найдены")
+            item.setFlags(QtCore.Qt.NoItemFlags)
+            self.country_templates_list.addItem(item)
+            return
+
+        for cfg in available:
+            item = QtWidgets.QListWidgetItem(f"{cfg['code']} — {cfg['name']}")
+            item.setData(QtCore.Qt.UserRole, cfg["code"])
+            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+            item.setCheckState(QtCore.Qt.Checked if cfg["code"] in enabled_codes else QtCore.Qt.Unchecked)
+            self.country_templates_list.addItem(item)
+
+    def _collect_enabled_countries(self) -> List[str]:
+        codes: List[str] = []
+        for idx in range(self.country_templates_list.count()):
+            item = self.country_templates_list.item(idx)
+            if item and item.flags() & QtCore.Qt.ItemIsUserCheckable and item.checkState() == QtCore.Qt.Checked:
+                codes.append(str(item.data(QtCore.Qt.UserRole)))
+        return codes
 
     def _save_general_settings(self) -> None:
         reconnect = {
@@ -1049,6 +1152,12 @@ class MainWindow(QtWidgets.QMainWindow):
         screenshot_dir = self.screenshot_dir_input.text().strip() or "data/screenshots"
         self.settings.save_screenshot_dir(screenshot_dir)
         os.makedirs(screenshot_dir, exist_ok=True)
+        plate_settings = {
+            "config_dir": self.country_config_dir_input.text().strip() or "config/countries",
+            "enabled_countries": self._collect_enabled_countries(),
+        }
+        os.makedirs(plate_settings["config_dir"], exist_ok=True)
+        self.settings.save_plate_settings(plate_settings)
         self.db = EventDatabase(self.settings.get_db_path())
         self._refresh_events_table()
         self._start_channels()
