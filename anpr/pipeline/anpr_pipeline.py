@@ -12,6 +12,7 @@ import numpy as np
 
 from anpr.config import ModelConfig
 from anpr.recognition.crnn_recognizer import CRNNRecognizer
+from anpr.validation import PlatePostProcessor
 
 
 class TrackAggregator:
@@ -47,11 +48,13 @@ class ANPRPipeline:
     def __init__(
         self,
         recognizer: CRNNRecognizer,
+        postprocessor: PlatePostProcessor,
         best_shots: int,
         cooldown_seconds: int = 0,
         min_confidence: float = ModelConfig.OCR_CONFIDENCE_THRESHOLD,
     ) -> None:
         self.recognizer = recognizer
+        self.postprocessor = postprocessor
         self.aggregator = TrackAggregator(best_shots)
         self.cooldown_seconds = max(0, cooldown_seconds)
         self.min_confidence = max(0.0, min(1.0, min_confidence))
@@ -134,12 +137,27 @@ class ANPRPipeline:
                 detection["confidence"] = confidence
                 continue
 
+            normalized_candidate = self.postprocessor.normalize_candidate(current_text)
+
             if "track_id" in detection:
-                detection["text"] = self.aggregator.add_result(detection["track_id"], current_text)
+                detection["text"] = self.aggregator.add_result(
+                    detection["track_id"], normalized_candidate
+                )
             else:
-                detection["text"] = current_text
+                detection["text"] = normalized_candidate
 
             detection["confidence"] = confidence
+
+            if detection.get("text"):
+                validation = self.postprocessor.validate(detection["text"])
+                if validation.is_valid:
+                    detection["text"] = validation.normalized
+                    detection["country_code"] = validation.country_code
+                    detection["country_name"] = validation.country_name
+                    detection["format"] = validation.format_name
+                else:
+                    detection["text"] = ""
+                    detection["invalid_reason"] = validation.reason
 
             if self.cooldown_seconds > 0 and detection.get("text"):
                 if self._on_cooldown(detection["text"]):
