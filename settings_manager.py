@@ -45,6 +45,7 @@ class SettingsManager:
                 "database_file": "anpr.db",
                 "screenshots_dir": "data/screenshots",
             },
+            "plate_countries": ["RU", "KZ", "UA", "AM", "AZ", "TM"],
             "tracking": {
                 "best_shots": 3,
                 "cooldown_seconds": 5,
@@ -73,6 +74,7 @@ class SettingsManager:
         tracking_defaults = data.get("tracking", {})
         reconnect_defaults = self._reconnect_defaults()
         storage_defaults = self._storage_defaults()
+        country_defaults = self._country_defaults()
         for channel in data.get("channels", []):
             if self._fill_channel_defaults(channel, tracking_defaults):
                 changed = True
@@ -81,6 +83,10 @@ class SettingsManager:
             changed = True
 
         if self._fill_storage_defaults(data, storage_defaults):
+            changed = True
+
+        if "plate_countries" not in data:
+            data["plate_countries"] = country_defaults
             changed = True
 
         if changed:
@@ -120,6 +126,10 @@ class SettingsManager:
             "database_file": "anpr.db",
             "screenshots_dir": "data/screenshots",
         }
+
+    @staticmethod
+    def _country_defaults() -> List[str]:
+        return ["RU", "KZ", "UA", "AM", "AZ", "TM"]
 
     def _fill_channel_defaults(self, channel: Dict[str, Any], tracking_defaults: Dict[str, Any]) -> bool:
         defaults = self._channel_defaults(tracking_defaults)
@@ -187,6 +197,18 @@ class SettingsManager:
         if changed:
             self.save_channels(channels)
         return channels
+
+    def get_plate_countries(self) -> List[str]:
+        countries = self.settings.get("plate_countries")
+        if countries is None:
+            countries = self._country_defaults()
+            self.settings["plate_countries"] = countries
+            self._save(self.settings)
+        return [str(code).upper() for code in countries]
+
+    def save_plate_countries(self, codes: List[str]) -> None:
+        self.settings["plate_countries"] = [str(code).upper() for code in codes]
+        self._save(self.settings)
 
     def save_channels(self, channels: List[Dict[str, Any]]) -> None:
         self.settings["channels"] = channels

@@ -38,6 +38,7 @@
     "database_file": "anpr.db",
     "screenshots_dir": "data/screenshots"
   },
+  "plate_countries": ["RU", "KZ", "UA", "AM", "AZ", "TM"],
   "tracking": {
     "best_shots": 10,
     "cooldown_seconds": 10,

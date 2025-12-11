@@ -1,0 +1,36 @@
+name: "Российская Федерация"
+code: "RU"
+priority: 1
+
+license_plate_formats:
+  - name: "standard_car"
+    regex: '^[ABEKMHOPCTYX]{1}\d{3}[ABEKMHOPCTYX]{2}\d{2,3}$'
+  - name: "transit"
+    regex: '^[ABEKMHOPCTYX]{2}\d{6}$'
+  - name: "trailer"
+    regex: '^\d{4}[ABEKMHOPCTYX]{2}\d{2,3}$'
+
+valid_characters:
+  letters: "ABEKMHOPCTYX"
+  digits: "0123456789"
+
+corrections:
+  digit_to_letter:
+    "0": "O"
+    "1": "T"
+    "4": "A"
+    "6": "B"
+    "8": "B"
+  common_mistakes:
+    - from: "D"
+      to: "О"
+    - from: "Q"
+      to: "О"
+
+stop_words:
+  - "ТЕСТ"
+  - "SAMPLE"
+
+invalid_sequences:
+  - "0000"
+  - "EEEE"
