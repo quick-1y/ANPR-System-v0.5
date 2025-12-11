@@ -43,15 +43,6 @@
     "cooldown_seconds": 10,
     "ocr_min_confidence": 0.9
   },
-  "plate_formats": {
-    "config_dir": "configs/countries",
-    "enabled_countries": [
-      "RU",
-      "UA",
-      "BY",
-      "KZ"
-    ]
-  },
   "logging": {
     "level": "INFO",
     "file": "data/app.log",
