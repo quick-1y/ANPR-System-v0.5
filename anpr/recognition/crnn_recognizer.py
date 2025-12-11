@@ -14,7 +14,7 @@ from torchvision import transforms
 
 from anpr.config import ModelConfig
 from anpr.recognition.crnn import CRNN
-from logging_manager import get_logger
+from anpr.infrastructure.logging_manager import get_logger
 
 logger = get_logger(__name__)
 

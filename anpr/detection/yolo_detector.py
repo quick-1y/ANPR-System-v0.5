@@ -9,7 +9,7 @@ import numpy as np
 from ultralytics import YOLO
 
 from anpr.config import ModelConfig
-from logging_manager import get_logger
+from anpr.infrastructure.logging_manager import get_logger
 
 logger = get_logger(__name__)
 

@@ -176,46 +176,62 @@ flowchart LR
 ## 📁 Структура проекта
 
 ```
-ANPR-System-v0.3/
-├── app.py                    # Точка входа (GUI)
-├── requirements.txt         # Зависимости Python
-├── settings.json           # Конфигурация приложения
+ANPR-System-v0.5/
+├── app.py                     # Точка входа (GUI)
+├── requirements.txt          # Зависимости Python
+├── settings.json             # Конфигурация приложения
 │
-├── anpr/                   # Основной пакет
-│   ├── __init__.py
-│   ├── config.py           # Константы и настройки
-│   │
-│   ├── detection/          # Детекция объектов
-│   │   ├── __init__.py
-│   │   ├── yolo_detector.py    # YOLOv8 детектор
-│   │   └── motion_detector.py  # Детектор движения
-│   │
-│   ├── pipeline/           # Пайплайн обработки
-│   │   ├── __init__.py
-│   │   ├── anpr_pipeline.py    # Основной пайплайн
-│   │   └── factory.py          # Фабрика компонентов
-│   │
-│   ├── recognition/        # Распознавание текста
-│   │   ├── __init__.py
-│   │   ├── crnn.py             # Архитектура CRNN
-│   │   └── crnn_recognizer.py  # OCR-движок
-│   │
-│   ├── ui/                 # Пользовательский интерфейс
-│   │   ├── __init__.py
-│   │   └── main_window.py      # Главное окно PyQt5
-│   │
-│   └── workers/            # Фоновые процессы
-│       ├── __init__.py
-│       └── channel_worker.py   # Обработчик каналов
+├── config/                   # Форматы номеров стран
+│   └── countries/
+│       ├── belarus.yaml
+│       ├── kazakhstan.yaml
+│       ├── russia.yaml
+│       └── ukraine.yaml
 │
-├── data/                   # Данные приложения
-│   ├── db/                # База данных SQLite
-│   └── screenshots/       # Скриншоты событий
+├── models/                   # Папка для весов моделей
+│   ├── ocr_crnn/
+│   └── yolo/
 │
-└── utils/                 # Вспомогательные модули
-    ├── logging_manager.py    # Менеджер логирования
-    ├── settings_manager.py   # Управление настройками
-    └── storage.py            # Работа с БД
+├── images/                   # Статические ресурсы (например, флаги)
+│   └── flags/
+│
+└── anpr/                     # Основной пакет
+    ├── __init__.py
+    ├── config.py             # Константы и настройки
+    │
+    ├── infrastructure/       # Инфраструктурный слой
+    │   ├── __init__.py
+    │   ├── logging_manager.py  # Менеджер логирования
+    │   ├── settings_manager.py # Управление настройками
+    │   └── storage.py          # Работа с БД
+    │
+    ├── detection/            # Детекция объектов
+    │   ├── __init__.py
+    │   ├── motion_detector.py
+    │   └── yolo_detector.py
+    │
+    ├── pipeline/             # Пайплайн обработки
+    │   ├── __init__.py
+    │   ├── anpr_pipeline.py
+    │   └── factory.py
+    │
+    ├── postprocessing/       # Валидация и нормализация номеров
+    │   ├── __init__.py
+    │   ├── country_config.py
+    │   └── validator.py
+    │
+    ├── recognition/          # Распознавание текста
+    │   ├── __init__.py
+    │   ├── crnn.py
+    │   └── crnn_recognizer.py
+    │
+    ├── ui/                   # Пользовательский интерфейс
+    │   ├── __init__.py
+    │   └── main_window.py
+    │
+    └── workers/              # Фоновые процессы
+        ├── __init__.py
+        └── channel_worker.py
 ```
 
 ## 🛠️ Разработка
