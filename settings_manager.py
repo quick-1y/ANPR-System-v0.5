@@ -50,6 +50,10 @@ class SettingsManager:
                 "cooldown_seconds": 5,
                 "ocr_min_confidence": 0.6,
             },
+            "plates": {
+                "config_dir": "config/countries",
+                "enabled_countries": ["RU", "UA", "BY", "KZ"],
+            },
             "logging": {
                 "level": "INFO",
                 "file": "data/app.log",
@@ -73,6 +77,7 @@ class SettingsManager:
         tracking_defaults = data.get("tracking", {})
         reconnect_defaults = self._reconnect_defaults()
         storage_defaults = self._storage_defaults()
+        plate_defaults = self._plate_defaults()
         for channel in data.get("channels", []):
             if self._fill_channel_defaults(channel, tracking_defaults):
                 changed = True
@@ -81,6 +86,9 @@ class SettingsManager:
             changed = True
 
         if self._fill_storage_defaults(data, storage_defaults):
+            changed = True
+
+        if self._fill_plate_defaults(data, plate_defaults):
             changed = True
 
         if changed:
@@ -119,6 +127,13 @@ class SettingsManager:
             "db_dir": "data/db",
             "database_file": "anpr.db",
             "screenshots_dir": "data/screenshots",
+        }
+
+    @staticmethod
+    def _plate_defaults() -> Dict[str, Any]:
+        return {
+            "config_dir": "config/countries",
+            "enabled_countries": ["RU", "UA", "BY", "KZ"],
         }
 
     def _fill_channel_defaults(self, channel: Dict[str, Any], tracking_defaults: Dict[str, Any]) -> bool:
@@ -170,6 +185,20 @@ class SettingsManager:
                 storage[key] = val
                 changed = True
         data["storage"] = storage
+        return changed
+
+    def _fill_plate_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
+        if "plates" not in data:
+            data["plates"] = defaults
+            return True
+
+        changed = False
+        plates = data.get("plates", {})
+        for key, val in defaults.items():
+            if key not in plates:
+                plates[key] = val
+                changed = True
+        data["plates"] = plates
         return changed
 
     def _save(self, data: Dict[str, Any]) -> None:
@@ -265,6 +294,15 @@ class SettingsManager:
         tracking = self.settings.get("tracking", {})
         tracking["ocr_min_confidence"] = float(min_conf)
         self.settings["tracking"] = tracking
+        self._save(self.settings)
+
+    def get_plate_settings(self) -> Dict[str, Any]:
+        if self._fill_plate_defaults(self.settings, self._plate_defaults()):
+            self._save(self.settings)
+        return self.settings.get("plates", {})
+
+    def save_plate_settings(self, plate_settings: Dict[str, Any]) -> None:
+        self.settings["plates"] = plate_settings
         self._save(self.settings)
 
     def get_logging_config(self) -> Dict[str, Any]:
