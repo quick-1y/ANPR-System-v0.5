@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import time
 from collections import Counter
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
 
 from anpr.config import ModelConfig
+from anpr.postprocessing.validator import PlatePostProcessor
 from anpr.recognition.crnn_recognizer import CRNNRecognizer
 
 
@@ -40,6 +41,9 @@ class TrackAggregator:
             return consensus
         return ""
 
+    def clear_last(self, track_id: int) -> None:
+        self.last_emitted.pop(track_id, None)
+
 
 class ANPRPipeline:
     """Основной класс распознавания."""
@@ -50,12 +54,14 @@ class ANPRPipeline:
         best_shots: int,
         cooldown_seconds: int = 0,
         min_confidence: float = ModelConfig.OCR_CONFIDENCE_THRESHOLD,
+        postprocessor: Optional[PlatePostProcessor] = None,
     ) -> None:
         self.recognizer = recognizer
         self.aggregator = TrackAggregator(best_shots)
         self.cooldown_seconds = max(0, cooldown_seconds)
         self.min_confidence = max(0.0, min(1.0, min_confidence))
         self._last_seen: Dict[str, float] = {}
+        self.postprocessor = postprocessor
 
     def _on_cooldown(self, plate: str) -> bool:
         last_seen = self._last_seen.get(plate)
@@ -140,6 +146,21 @@ class ANPRPipeline:
                 detection["text"] = current_text
 
             detection["confidence"] = confidence
+
+            if self.postprocessor and detection.get("text"):
+                processed = self.postprocessor.process(detection["text"])
+                detection["original_text"] = detection.get("text")
+                if processed.is_valid:
+                    detection["text"] = processed.plate
+                elif processed.plate:
+                    detection["text"] = processed.plate or detection.get("text")
+                else:
+                    detection["text"] = ""
+                detection["country"] = processed.country
+                detection["format"] = processed.format_name
+                detection["validated"] = processed.is_valid
+                if not detection["text"] and "track_id" in detection:
+                    self.aggregator.clear_last(detection["track_id"])
 
             if self.cooldown_seconds > 0 and detection.get("text"):
                 if self._on_cooldown(detection["text"]):
