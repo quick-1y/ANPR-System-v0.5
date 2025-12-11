@@ -1,0 +1,43 @@
+name: "Украина"
+code: "UA"
+priority: 9
+min_length: 6
+max_length: 10
+
+license_plate_formats:
+  - name: "standard_car"
+    regex: '^[АВЕІКМНОРСТХABEKMHOPCTYX]{2}\d{4}[АВЕІКМНОРСТХABEKMHOPCTYX]{2}$'
+
+valid_characters:
+  letters: "АВЕІКМНОРСТХABEKMHOPCTYX"
+  digits: "0123456789"
+
+corrections:
+  digit_to_letter:
+    "0": "О"
+    "1": "І"
+    "3": "З"
+    "4": "А"
+    "5": "S"
+    "6": "Б"
+    "8": "В"
+  letter_to_digit:
+    "О": "0"
+    "І": "1"
+    "З": "3"
+    "А": "4"
+    "В": "8"
+  common_mistakes:
+    - from: "H"
+      to: "Н"
+    - from: "X"
+      to: "Х"
+
+stop_words:
+  - "TEST"
+  - "SAMPLE"
+
+invalid_sequences:
+  - "0000"
+  - "1111"
+  - "AAAA"

@@ -50,6 +50,10 @@ class SettingsManager:
                 "cooldown_seconds": 5,
                 "ocr_min_confidence": 0.6,
             },
+            "plate_formats": {
+                "config_dir": "configs/countries",
+                "enabled_countries": ["RU", "UA", "BY", "KZ"],
+            },
             "logging": {
                 "level": "INFO",
                 "file": "data/app.log",
@@ -81,6 +85,10 @@ class SettingsManager:
             changed = True
 
         if self._fill_storage_defaults(data, storage_defaults):
+            changed = True
+
+        if "plate_formats" not in data:
+            data["plate_formats"] = self._default().get("plate_formats", {})
             changed = True
 
         if changed:
@@ -197,6 +205,13 @@ class SettingsManager:
 
     def save_grid(self, grid: str) -> None:
         self.settings["grid"] = grid
+        self._save(self.settings)
+
+    def get_plate_formats(self) -> Dict[str, Any]:
+        return self.settings.get("plate_formats", self._default().get("plate_formats", {}))
+
+    def save_plate_formats(self, plate_formats: Dict[str, Any]) -> None:
+        self.settings["plate_formats"] = plate_formats
         self._save(self.settings)
 
     def get_reconnect(self) -> Dict[str, Any]:

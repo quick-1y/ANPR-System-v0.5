@@ -1,0 +1,40 @@
+name: "Казахстан"
+code: "KZ"
+priority: 7
+min_length: 7
+max_length: 9
+
+license_plate_formats:
+  - name: "standard_car"
+    regex: '^\d{3}[ABEKMHOPCTYX]{2}\d{2}$'
+  - name: "two_line"
+    regex: '^[ABEKMHOPCTYX]{3}\d{3}[A-Z]{2}$'
+
+valid_characters:
+  letters: "ABEKMHOPCTYX"
+  digits: "0123456789"
+
+corrections:
+  digit_to_letter:
+    "0": "О"
+    "3": "З"
+    "4": "А"
+    "6": "Б"
+    "8": "В"
+  letter_to_digit:
+    "О": "0"
+    "З": "3"
+    "А": "4"
+    "Б": "6"
+    "В": "8"
+  common_mistakes:
+    - from: "D"
+      to: "О"
+
+stop_words:
+  - "TEST"
+  - "SAMPLE"
+
+invalid_sequences:
+  - "0000"
+  - "111"
