@@ -12,9 +12,9 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from anpr.postprocessing.country_config import CountryConfigLoader
 from anpr.workers.channel_worker import ChannelWorker
-from logging_manager import get_logger
-from settings_manager import SettingsManager
-from storage import EventDatabase
+from anpr.infrastructure.logging_manager import get_logger
+from anpr.infrastructure.settings_manager import SettingsManager
+from anpr.infrastructure.storage import EventDatabase
 
 logger = get_logger(__name__)
 

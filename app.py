@@ -5,9 +5,9 @@ import warnings
 
 from PyQt5 import QtWidgets
 
+from anpr.infrastructure.logging_manager import LoggingManager, get_logger
+from anpr.infrastructure.settings_manager import SettingsManager
 from anpr.ui.main_window import MainWindow
-from logging_manager import LoggingManager, get_logger
-from settings_manager import SettingsManager
 
 # Silence noisy quantization warnings emitted by torch on repeated startups.
 warnings.filterwarnings(

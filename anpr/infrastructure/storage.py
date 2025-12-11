@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# /storage.py
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -7,7 +6,7 @@ from typing import List, Optional, Sequence
 
 import aiosqlite
 
-from logging_manager import get_logger
+from .logging_manager import get_logger
 
 
 class EventDatabase:

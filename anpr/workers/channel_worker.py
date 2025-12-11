@@ -14,8 +14,8 @@ from PyQt5 import QtCore, QtGui
 
 from anpr.detection.motion_detector import MotionDetector, MotionDetectorConfig
 from anpr.pipeline.factory import build_components
-from logging_manager import get_logger
-from storage import AsyncEventDatabase
+from anpr.infrastructure.logging_manager import get_logger
+from anpr.infrastructure.storage import AsyncEventDatabase
 
 logger = get_logger(__name__)
 
