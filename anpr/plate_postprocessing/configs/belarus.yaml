@@ -1,0 +1,39 @@
+name: "Республика Беларусь"
+code: "BY"
+priority: 2
+
+license_plate_formats:
+  - name: "standard"
+    regex: '^\d{4}[A-Z]{2}-\d$'
+  - name: "transit"
+    regex: '^T\d{6}$'
+
+valid_characters:
+  letters: "ABCEHIKMOPTX"
+  digits: "0123456789"
+
+corrections:
+  digit_to_letter:
+    "0": "O"
+    "1": "I"
+    "4": "A"
+    "5": "S"
+    "8": "B"
+  letter_to_digit:
+    "O": "0"
+    "I": "1"
+    "S": "5"
+  common_mistakes:
+    - from: "D"
+      to: "O"
+
+stop_words:
+  - "TEST"
+  - "SAMPLE"
+
+invalid_sequences:
+  - "0000"
+  - "1111"
+
+min_length: 7
+max_length: 9

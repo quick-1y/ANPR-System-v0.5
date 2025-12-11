@@ -45,6 +45,10 @@ class SettingsManager:
                 "database_file": "anpr.db",
                 "screenshots_dir": "data/screenshots",
             },
+            "plates": {
+                "config_dir": "anpr/plate_postprocessing/configs",
+                "enabled_countries": ["RU", "BY", "KZ", "UA"],
+            },
             "tracking": {
                 "best_shots": 3,
                 "cooldown_seconds": 5,
@@ -73,6 +77,7 @@ class SettingsManager:
         tracking_defaults = data.get("tracking", {})
         reconnect_defaults = self._reconnect_defaults()
         storage_defaults = self._storage_defaults()
+        plates_defaults = self._plates_defaults()
         for channel in data.get("channels", []):
             if self._fill_channel_defaults(channel, tracking_defaults):
                 changed = True
@@ -81,6 +86,9 @@ class SettingsManager:
             changed = True
 
         if self._fill_storage_defaults(data, storage_defaults):
+            changed = True
+
+        if self._fill_plates_defaults(data, plates_defaults):
             changed = True
 
         if changed:
@@ -119,6 +127,13 @@ class SettingsManager:
             "db_dir": "data/db",
             "database_file": "anpr.db",
             "screenshots_dir": "data/screenshots",
+        }
+
+    @staticmethod
+    def _plates_defaults() -> Dict[str, Any]:
+        return {
+            "config_dir": "anpr/plate_postprocessing/configs",
+            "enabled_countries": ["RU", "BY", "KZ", "UA"],
         }
 
     def _fill_channel_defaults(self, channel: Dict[str, Any], tracking_defaults: Dict[str, Any]) -> bool:
@@ -170,6 +185,20 @@ class SettingsManager:
                 storage[key] = val
                 changed = True
         data["storage"] = storage
+        return changed
+
+    def _fill_plates_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
+        if "plates" not in data:
+            data["plates"] = defaults
+            return True
+
+        changed = False
+        plates = data.get("plates", {})
+        for key, val in defaults.items():
+            if key not in plates:
+                plates[key] = val
+                changed = True
+        data["plates"] = plates
         return changed
 
     def _save(self, data: Dict[str, Any]) -> None:
@@ -236,6 +265,22 @@ class SettingsManager:
     def get_screenshot_dir(self) -> str:
         storage = self.settings.get("storage", {})
         return storage.get("screenshots_dir", "data/screenshots")
+
+    def get_plate_config(self) -> Dict[str, Any]:
+        plates = self.settings.get("plates", {})
+        if self._fill_plates_defaults(self.settings, self._plates_defaults()):
+            self._save(self.settings)
+        return plates
+
+    def get_enabled_countries(self) -> List[str]:
+        plates = self.get_plate_config()
+        return [code.upper() for code in plates.get("enabled_countries", [])]
+
+    def save_enabled_countries(self, countries: List[str]) -> None:
+        plates = self.settings.get("plates", {})
+        plates["enabled_countries"] = [c.upper() for c in countries]
+        self.settings["plates"] = plates
+        self._save(self.settings)
 
     def get_best_shots(self) -> int:
         tracking = self.settings.get("tracking", {})
