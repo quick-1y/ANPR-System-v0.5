@@ -8,6 +8,7 @@ import threading
 from anpr.config import ModelConfig
 from anpr.detection.yolo_detector import YOLODetector
 from anpr.pipeline.anpr_pipeline import ANPRPipeline
+from anpr.postprocessing import PlatePostProcessor, PlateValidator
 from anpr.recognition.crnn_recognizer import CRNNRecognizer
 
 
@@ -35,15 +36,24 @@ def _get_shared_recognizer() -> CRNNRecognizer:
     return _RECOGNIZER_SINGLETON
 
 
-def build_components(best_shots: int, cooldown_seconds: int, min_confidence: float) -> Tuple[ANPRPipeline, YOLODetector]:
+def build_components(
+    best_shots: int,
+    cooldown_seconds: int,
+    min_confidence: float,
+    allowed_countries: tuple[str, ...] = (),
+) -> Tuple[ANPRPipeline, YOLODetector]:
     """Создаёт независимые компоненты пайплайна (детектор, OCR и агрегация)."""
 
     detector = YOLODetector(ModelConfig.YOLO_MODEL_PATH, ModelConfig.DEVICE)
     recognizer = _get_shared_recognizer()
+    validator = PlateValidator(
+        config_dir="anpr/postprocessing/configs", allowed_countries=allowed_countries or None
+    )
     pipeline = ANPRPipeline(
         recognizer,
         best_shots,
         cooldown_seconds,
         min_confidence=min_confidence,
+        postprocessor=PlatePostProcessor(validator),
     )
     return pipeline, detector

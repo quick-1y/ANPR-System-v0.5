@@ -1,0 +1,32 @@
+name: "Украина"
+code: "UA"
+priority: 2
+
+license_plate_formats:
+  - name: "standard"
+    regex: '^[ABCEHIKMOPTX]{2}\d{4}[ABCEHIKMOPTX]{2}$'
+  - name: "transit"
+    regex: '^\d{4}[ABCEHIKMOPTX]{2}$'
+
+valid_characters:
+  letters: "ABCEHIKMOPTX"
+  digits: "0123456789"
+
+corrections:
+  digit_to_letter:
+    "0": "O"
+    "1": "I"
+    "3": "Z"
+    "4": "A"
+    "6": "B"
+    "8": "B"
+  common_mistakes:
+    - from: "Й"
+      to: "И"
+
+stop_words:
+  - "TEST"
+
+invalid_sequences:
+  - "1111"
+  - "2222"
