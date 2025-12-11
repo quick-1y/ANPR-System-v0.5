@@ -50,10 +50,6 @@ class SettingsManager:
                 "cooldown_seconds": 5,
                 "ocr_min_confidence": 0.6,
             },
-            "plate_formats": {
-                "config_dir": "anpr/validation/configs",
-                "enabled_countries": ["RU", "KZ", "UA"],
-            },
             "logging": {
                 "level": "INFO",
                 "file": "data/app.log",
@@ -77,7 +73,6 @@ class SettingsManager:
         tracking_defaults = data.get("tracking", {})
         reconnect_defaults = self._reconnect_defaults()
         storage_defaults = self._storage_defaults()
-        plate_defaults = self._plate_formats_defaults()
         for channel in data.get("channels", []):
             if self._fill_channel_defaults(channel, tracking_defaults):
                 changed = True
@@ -86,9 +81,6 @@ class SettingsManager:
             changed = True
 
         if self._fill_storage_defaults(data, storage_defaults):
-            changed = True
-
-        if self._fill_plate_formats_defaults(data, plate_defaults):
             changed = True
 
         if changed:
@@ -127,13 +119,6 @@ class SettingsManager:
             "db_dir": "data/db",
             "database_file": "anpr.db",
             "screenshots_dir": "data/screenshots",
-        }
-
-    @staticmethod
-    def _plate_formats_defaults() -> Dict[str, Any]:
-        return {
-            "config_dir": "anpr/validation/configs",
-            "enabled_countries": ["RU", "KZ", "UA"],
         }
 
     def _fill_channel_defaults(self, channel: Dict[str, Any], tracking_defaults: Dict[str, Any]) -> bool:
@@ -185,28 +170,6 @@ class SettingsManager:
                 storage[key] = val
                 changed = True
         data["storage"] = storage
-        return changed
-
-    def _fill_plate_formats_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
-        existing = data.get("plate_formats")
-        if existing is None and data.get("plate_validation"):
-            legacy = data.get("plate_validation", {})
-            data["plate_formats"] = {
-                "config_dir": legacy.get("config_dir", defaults.get("config_dir")),
-                "enabled_countries": legacy.get("allowed_countries", []),
-            }
-            return True
-
-        if existing is None:
-            data["plate_formats"] = defaults
-            return True
-
-        changed = False
-        for key, val in defaults.items():
-            if key not in existing:
-                existing[key] = val
-                changed = True
-        data["plate_formats"] = existing
         return changed
 
     def _save(self, data: Dict[str, Any]) -> None:
@@ -306,15 +269,6 @@ class SettingsManager:
 
     def get_logging_config(self) -> Dict[str, Any]:
         return self.settings.get("logging", {})
-
-    def get_plate_formats(self) -> Dict[str, Any]:
-        if self._fill_plate_formats_defaults(self.settings, self._plate_formats_defaults()):
-            self._save(self.settings)
-        return self.settings.get("plate_formats", self._plate_formats_defaults())
-
-    def save_plate_formats(self, plate_conf: Dict[str, Any]) -> None:
-        self.settings["plate_formats"] = plate_conf
-        self._save(self.settings)
 
     def refresh(self) -> None:
         self.settings = self._load()
