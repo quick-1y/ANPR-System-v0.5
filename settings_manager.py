@@ -45,15 +45,12 @@ class SettingsManager:
                 "database_file": "anpr.db",
                 "screenshots_dir": "data/screenshots",
             },
-            "plates": {
-                "config_dir": "anpr/plate_postprocessing/configs",
-                "enabled_countries": ["RU", "BY", "KZ", "UA"],
-            },
             "tracking": {
                 "best_shots": 3,
                 "cooldown_seconds": 5,
                 "ocr_min_confidence": 0.6,
             },
+            "plate_validation": {"allowed_countries": ["RU", "BY", "KZ"]},
             "logging": {
                 "level": "INFO",
                 "file": "data/app.log",
@@ -77,7 +74,7 @@ class SettingsManager:
         tracking_defaults = data.get("tracking", {})
         reconnect_defaults = self._reconnect_defaults()
         storage_defaults = self._storage_defaults()
-        plates_defaults = self._plates_defaults()
+        validation_defaults = self._validation_defaults()
         for channel in data.get("channels", []):
             if self._fill_channel_defaults(channel, tracking_defaults):
                 changed = True
@@ -88,7 +85,7 @@ class SettingsManager:
         if self._fill_storage_defaults(data, storage_defaults):
             changed = True
 
-        if self._fill_plates_defaults(data, plates_defaults):
+        if self._fill_validation_defaults(data, validation_defaults):
             changed = True
 
         if changed:
@@ -130,11 +127,8 @@ class SettingsManager:
         }
 
     @staticmethod
-    def _plates_defaults() -> Dict[str, Any]:
-        return {
-            "config_dir": "anpr/plate_postprocessing/configs",
-            "enabled_countries": ["RU", "BY", "KZ", "UA"],
-        }
+    def _validation_defaults() -> Dict[str, Any]:
+        return {"allowed_countries": ["RU", "BY", "KZ"]}
 
     def _fill_channel_defaults(self, channel: Dict[str, Any], tracking_defaults: Dict[str, Any]) -> bool:
         defaults = self._channel_defaults(tracking_defaults)
@@ -187,18 +181,17 @@ class SettingsManager:
         data["storage"] = storage
         return changed
 
-    def _fill_plates_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
-        if "plates" not in data:
-            data["plates"] = defaults
+    def _fill_validation_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
+        if "plate_validation" not in data:
+            data["plate_validation"] = defaults
             return True
-
         changed = False
-        plates = data.get("plates", {})
-        for key, val in defaults.items():
-            if key not in plates:
-                plates[key] = val
+        validation = data.get("plate_validation", {})
+        for key, value in defaults.items():
+            if key not in validation:
+                validation[key] = value
                 changed = True
-        data["plates"] = plates
+        data["plate_validation"] = validation
         return changed
 
     def _save(self, data: Dict[str, Any]) -> None:
@@ -226,6 +219,22 @@ class SettingsManager:
 
     def save_grid(self, grid: str) -> None:
         self.settings["grid"] = grid
+        self._save(self.settings)
+
+    def get_validation(self) -> Dict[str, Any]:
+        validation = self.settings.get("plate_validation") or self._validation_defaults()
+        if self._fill_validation_defaults(self.settings, self._validation_defaults()):
+            self._save(self.settings)
+        return validation
+
+    def get_allowed_countries(self) -> List[str]:
+        validation = self.get_validation()
+        return list(validation.get("allowed_countries", []))
+
+    def save_allowed_countries(self, countries: List[str]) -> None:
+        validation = self.get_validation()
+        validation["allowed_countries"] = countries
+        self.settings["plate_validation"] = validation
         self._save(self.settings)
 
     def get_reconnect(self) -> Dict[str, Any]:
@@ -265,22 +274,6 @@ class SettingsManager:
     def get_screenshot_dir(self) -> str:
         storage = self.settings.get("storage", {})
         return storage.get("screenshots_dir", "data/screenshots")
-
-    def get_plate_config(self) -> Dict[str, Any]:
-        plates = self.settings.get("plates", {})
-        if self._fill_plates_defaults(self.settings, self._plates_defaults()):
-            self._save(self.settings)
-        return plates
-
-    def get_enabled_countries(self) -> List[str]:
-        plates = self.get_plate_config()
-        return [code.upper() for code in plates.get("enabled_countries", [])]
-
-    def save_enabled_countries(self, countries: List[str]) -> None:
-        plates = self.settings.get("plates", {})
-        plates["enabled_countries"] = [c.upper() for c in countries]
-        self.settings["plates"] = plates
-        self._save(self.settings)
 
     def get_best_shots(self) -> int:
         tracking = self.settings.get("tracking", {})

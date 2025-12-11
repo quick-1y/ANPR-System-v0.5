@@ -1,0 +1,32 @@
+name: "Казахстан"
+code: "KZ"
+priority: 3
+alphabet: "latin"
+
+license_plate_formats:
+  - name: "standard_car"
+    regex: '^\d{3}[A-Z]{2}\d{2}$'
+    description: "Автомобиль"
+  - name: "diplomatic"
+    regex: '^\d{3}D[A-Z]\d{3}$'
+    description: "Дипломатические"
+
+valid_characters:
+  letters: "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  digits: "0123456789"
+
+corrections:
+  digit_to_letter:
+    "0": "O"
+    "1": "I"
+    "5": "S"
+    "8": "B"
+  common_mistakes:
+    - from: "Q"
+      to: "O"
+
+stop_words:
+  - "TEST"
+
+invalid_sequences:
+  - "0000"
