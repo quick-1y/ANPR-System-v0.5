@@ -105,28 +105,10 @@ class ChannelView(QtWidgets.QWidget):
         self.status_hint.move(rect.left() + margin, rect.bottom() - status_size.height() - margin)
 
     def set_pixmap(self, pixmap: QtGui.QPixmap) -> None:
-        if pixmap is not self._current_pixmap:
-            if self._pixmap_pool and self._current_pixmap is not None:
-                self._pixmap_pool.release(self._current_pixmap)
-            self._current_pixmap = pixmap
-        self.video_label.setPixmap(pixmap)
-
-    def acquire_pixmap(self, size: QtCore.QSize) -> QtGui.QPixmap:
-        """Возвращает готовый QPixmap нужного размера, переиспользуя текущий."""
-
-        if self._current_pixmap is not None and self._current_pixmap.size() == size:
-            return self._current_pixmap
-
         if self._pixmap_pool and self._current_pixmap is not None:
             self._pixmap_pool.release(self._current_pixmap)
-            self._current_pixmap = None
-
-        if self._pixmap_pool:
-            self._current_pixmap = self._pixmap_pool.acquire(size)
-        else:
-            self._current_pixmap = QtGui.QPixmap(size)
-
-        return self._current_pixmap
+        self._current_pixmap = pixmap
+        self.video_label.setPixmap(pixmap)
 
     def set_motion_active(self, active: bool) -> None:
         self.motion_indicator.setVisible(active)
@@ -588,10 +570,21 @@ class MainWindow(QtWidgets.QMainWindow):
         if target_size.isEmpty():
             return
 
-        scaled_image = image.scaled(
-            target_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
-        )
-        label.video_label.setPixmap(QtGui.QPixmap.fromImage(scaled_image))
+        pixmap = self._pixmap_pool.acquire(target_size)
+        pixmap.fill(QtCore.Qt.black)
+
+        painter = QtGui.QPainter(pixmap)
+        painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
+
+        source_rect = image.rect()
+        scaled_size = source_rect.size().scaled(target_size, QtCore.Qt.KeepAspectRatio)
+        x_offset = (target_size.width() - scaled_size.width()) // 2
+        y_offset = (target_size.height() - scaled_size.height()) // 2
+        target_rect = QtCore.QRect(QtCore.QPoint(x_offset, y_offset), scaled_size)
+        painter.drawImage(target_rect, image, source_rect)
+        painter.end()
+
+        label.set_pixmap(pixmap)
 
     @staticmethod
     def _load_image_from_path(path: Optional[str]) -> Optional[QtGui.QImage]:
