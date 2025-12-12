@@ -389,6 +389,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize(1280, 800)
 
         self.settings = settings or SettingsManager()
+        self.current_grid = self.settings.get_grid()
+        if self.current_grid not in self.GRID_VARIANTS:
+            self.current_grid = self.GRID_VARIANTS[0]
         self.db = EventDatabase(self.settings.get_db_path())
 
         self._pixmap_pool = PixmapPool()
@@ -399,6 +402,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.event_cache: Dict[int, Dict] = {}
         self.flag_cache: Dict[str, Optional[QtGui.QIcon]] = {}
         self.flag_dir = Path(__file__).resolve().parents[2] / "images" / "flags"
+        self.country_display_names = self._load_country_names()
+        self.grid_buttons: Dict[str, QtWidgets.QPushButton] = {}
 
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setStyleSheet(
@@ -457,12 +462,41 @@ class MainWindow(QtWidgets.QMainWindow):
 
         left_column = QtWidgets.QVBoxLayout()
         controls = QtWidgets.QHBoxLayout()
-        controls.addWidget(QtWidgets.QLabel("Сетка:"))
-        self.grid_selector = QtWidgets.QComboBox()
-        self.grid_selector.addItems(self.GRID_VARIANTS)
-        self.grid_selector.setCurrentText(self.settings.get_grid())
-        self.grid_selector.currentTextChanged.connect(self._on_grid_changed)
-        controls.addWidget(self.grid_selector)
+        controls.setSpacing(8)
+
+        grid_frame = QtWidgets.QFrame()
+        grid_frame.setStyleSheet(
+            f"QFrame {{ background-color: {self.SURFACE_COLOR}; border: 1px solid #1f2937; border-radius: 12px; padding: 10px 14px; }}"
+            "QPushButton { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 10px; padding: 8px 12px; }"
+            "QPushButton:hover { border-color: #22d3ee; color: #22d3ee; }"
+            "QPushButton:checked { background-color: rgba(34,211,238,0.14); color: #22d3ee; border: 1px solid #22d3ee; }"
+        )
+        grid_layout = QtWidgets.QHBoxLayout(grid_frame)
+        grid_layout.setContentsMargins(4, 4, 4, 4)
+        grid_layout.setSpacing(12)
+
+        grid_text = QtWidgets.QVBoxLayout()
+        title = QtWidgets.QLabel("Сетка камер")
+        title.setStyleSheet("color: #e5e7eb; font-weight: 800;")
+        subtitle = QtWidgets.QLabel("Быстрый выбор раскладки для каналов")
+        subtitle.setStyleSheet("color: #9ca3af; font-size: 12px;")
+        subtitle.setWordWrap(True)
+        grid_text.addWidget(title)
+        grid_text.addWidget(subtitle)
+        grid_layout.addLayout(grid_text, 1)
+
+        buttons_row = QtWidgets.QHBoxLayout()
+        buttons_row.setSpacing(6)
+        for variant in self.GRID_VARIANTS:
+            btn = QtWidgets.QPushButton(variant.replace("x", "×"))
+            btn.setCheckable(True)
+            btn.setChecked(variant == self.current_grid)
+            btn.clicked.connect(lambda checked, v=variant: self._select_grid(v))
+            self.grid_buttons[variant] = btn
+            buttons_row.addWidget(btn)
+        grid_layout.addLayout(buttons_row, 2)
+
+        controls.addWidget(grid_frame)
         controls.addStretch()
         left_column.addLayout(controls)
 
@@ -487,7 +521,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.events_table = QtWidgets.QTableWidget(0, 4)
         self.events_table.setHorizontalHeaderLabels(["Дата/Время", "Гос. номер", "Страна", "Канал"])
         self.events_table.setStyleSheet(self.TABLE_STYLE)
-        self.events_table.horizontalHeader().setStretchLastSection(True)
+        header = self.events_table.horizontalHeader()
+        header.setMinimumSectionSize(90)
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QtWidgets.QHeaderView.Stretch)
         self.events_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.events_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.events_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -536,7 +575,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.channel_labels.clear()
         channels = self.settings.get_channels()
-        rows, cols = map(int, self.grid_selector.currentText().split("x"))
+        rows, cols = map(int, self.current_grid.split("x"))
         for col in range(cols):
             self.grid_layout.setColumnStretch(col, 1)
         for row in range(rows):
@@ -551,7 +590,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.grid_layout.addWidget(label, row, col)
                 index += 1
 
-    def _on_grid_changed(self, grid: str) -> None:
+    def _select_grid(self, grid: str) -> None:
+        self.current_grid = grid
+        for variant, btn in self.grid_buttons.items():
+            btn.setChecked(variant == grid)
         self.settings.save_grid(grid)
         self._draw_grid()
 
@@ -679,6 +721,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.flag_cache[code] = None
         return None
 
+    def _get_country_name(self, country: Optional[str]) -> str:
+        if not country:
+            return "—"
+        code = str(country).upper()
+        return self.country_display_names.get(code, code)
+
     def _prune_image_cache(self) -> None:
         """Ограничивает размер кеша изображений, удаляя самые старые записи."""
 
@@ -702,16 +750,20 @@ class MainWindow(QtWidgets.QMainWindow):
         plate = event.get("plate", "—")
         channel = event.get("channel", "—")
         event_id = int(event.get("id") or 0)
-        country_code = event.get("country") or "—"
+        country_code = (event.get("country") or "").upper()
 
         id_item = QtWidgets.QTableWidgetItem(timestamp)
         id_item.setData(QtCore.Qt.UserRole, event_id)
         self.events_table.setItem(row_index, 0, id_item)
         self.events_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(plate))
-        country_item = QtWidgets.QTableWidgetItem(country_code if country_code != "—" else "")
+        country_item = QtWidgets.QTableWidgetItem("")
+        country_item.setData(QtCore.Qt.UserRole, country_code)
         country_icon = self._get_flag_icon(event.get("country"))
         if country_icon:
             country_item.setIcon(country_icon)
+        country_name = self._get_country_name(country_code)
+        if country_name != "—":
+            country_item.setToolTip(country_name)
         country_item.setTextAlignment(QtCore.Qt.AlignCenter)
         self.events_table.setItem(row_index, 2, country_item)
         self.events_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(channel))
@@ -760,6 +812,7 @@ class MainWindow(QtWidgets.QMainWindow):
         display_event = dict(event) if event else None
         if display_event:
             display_event["timestamp"] = self._format_timestamp(display_event.get("timestamp", ""))
+            display_event["country"] = self._get_country_name(display_event.get("country"))
         self.event_detail.set_event(display_event, frame_image, plate_image)
 
     def _refresh_events_table(self, select_id: Optional[int] = None) -> None:
@@ -1212,6 +1265,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.country_config_dir_input.setText(directory)
             self._reload_country_templates()
 
+    def _load_country_names(self, config_dir: Optional[str] = None) -> Dict[str, str]:
+        config_path = config_dir or self.settings.get_plate_settings().get("config_dir", "config/countries")
+        loader = CountryConfigLoader(config_path)
+        loader.ensure_dir()
+        names: Dict[str, str] = {}
+        for cfg in loader.available_configs():
+            code = (cfg.get("code") or "").upper()
+            name = cfg.get("name") or code
+            if code:
+                names[code] = name
+        return names
+
     def _reload_country_templates(self, enabled: Optional[List[str]] = None) -> None:
         plate_settings = self.settings.get_plate_settings()
         config_dir = self.country_config_dir_input.text().strip() or plate_settings.get("config_dir", "config/countries")
@@ -1219,6 +1284,7 @@ class MainWindow(QtWidgets.QMainWindow):
         loader.ensure_dir()
         available = loader.available_configs()
         enabled_codes = set(enabled or plate_settings.get("enabled_countries", []))
+        self.country_display_names = {cfg["code"].upper(): cfg.get("name") or cfg["code"] for cfg in available if cfg.get("code")}
 
         self.country_templates_list.clear()
         if not available:
