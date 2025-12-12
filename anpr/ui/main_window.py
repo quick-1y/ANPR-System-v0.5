@@ -370,6 +370,7 @@ class MainWindow(QtWidgets.QMainWindow):
         "QPushButton:hover { background-color: #4ddcf3; }"
         "QCheckBox { color: #e5e7eb; font-size: 13px; }"
     )
+    #f?
     TABLE_STYLE = (
         "QHeaderView::section { background-color: #11131a; color: #e2e8f0; padding: 8px; font-weight: 700; border: none; }"
         "QTableWidget { background-color: #0b0c10; color: #e5e7eb; gridline-color: #1f2937; selection-background-color: #11131a; }"
