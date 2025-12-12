@@ -370,6 +370,12 @@ class MainWindow(QtWidgets.QMainWindow):
         "QPushButton:hover { background-color: #4ddcf3; }"
         "QCheckBox { color: #e5e7eb; font-size: 13px; }"
     )
+
+    PRIMARY_HOLLOW_BUTTON = (
+        "QPushButton { background-color: transparent; color: #ffffff; border: 1px solid #ffffff; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }"
+        "QPushButton:hover { background-color: #22d3ee; color: #0b0c10; }"
+        "QPushButton:pressed { background-color: #1fb6d5; color: #0b0c10; }"
+    )
     #f?
     TABLE_STYLE = (
         "QHeaderView::section { background-color: #11131a; color: #e2e8f0; padding: 8px; font-weight: 700; border: none; }"
@@ -1019,6 +1025,7 @@ class MainWindow(QtWidgets.QMainWindow):
         db_row.setSpacing(8)
         self.db_dir_input = QtWidgets.QLineEdit()
         browse_db_btn = QtWidgets.QPushButton("Выбрать...")
+        browse_db_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
         browse_db_btn.clicked.connect(self._choose_db_dir)
         db_row.addWidget(self.db_dir_input)
         db_row.addWidget(browse_db_btn)
@@ -1031,6 +1038,7 @@ class MainWindow(QtWidgets.QMainWindow):
         screenshot_row.setSpacing(8)
         self.screenshot_dir_input = QtWidgets.QLineEdit()
         browse_screenshot_btn = QtWidgets.QPushButton("Выбрать...")
+        browse_screenshot_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
         browse_screenshot_btn.clicked.connect(self._choose_screenshot_dir)
         screenshot_row.addWidget(self.screenshot_dir_input)
         screenshot_row.addWidget(browse_screenshot_btn)
@@ -1045,6 +1053,7 @@ class MainWindow(QtWidgets.QMainWindow):
         plate_dir_row.setSpacing(8)
         self.country_config_dir_input = QtWidgets.QLineEdit()
         browse_country_btn = QtWidgets.QPushButton("Выбрать...")
+        browse_country_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
         browse_country_btn.clicked.connect(self._choose_country_dir)
         self.country_config_dir_input.editingFinished.connect(self._reload_country_templates)
         plate_dir_row.addWidget(self.country_config_dir_input)
@@ -1059,6 +1068,7 @@ class MainWindow(QtWidgets.QMainWindow):
         plate_form.addRow("Активные страны:", self.country_templates_list)
 
         refresh_countries_btn = QtWidgets.QPushButton("Обновить список стран")
+        refresh_countries_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
         refresh_countries_btn.clicked.connect(self._reload_country_templates)
         plate_form.addRow("", refresh_countries_btn)
 
@@ -1069,11 +1079,7 @@ class MainWindow(QtWidgets.QMainWindow):
         save_row.setSpacing(10)
         save_general_btn = QtWidgets.QPushButton("Сохранить")
         save_general_btn.setMinimumWidth(220)
-        save_general_btn.setStyleSheet(
-            "QPushButton { background-color: #22d3ee; color: #ffffff; border-radius: 8px; padding: 10px 16px; font-weight: 700; }"
-            "QPushButton:hover { background-color: #4ddcf3; }"
-            "QPushButton:pressed { background-color: #1fb6d5; }"
-        )
+        save_general_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
         save_general_btn.clicked.connect(self._save_general_settings)
         save_row.addWidget(save_general_btn, 0)
         save_row.addStretch(1)
