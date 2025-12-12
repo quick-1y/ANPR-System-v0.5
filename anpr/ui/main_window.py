@@ -2107,65 +2107,6 @@ def _build_general_settings(self):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить настройки: {str(e)}")
             
-    def _save_all_settings(self) -> None:
-        """Сохраняет все настройки из всех секций."""
-        try:
-            # 1. Сохраняем общие настройки
-            reconnect = {
-                "signal_loss": {
-                    "enabled": self.reconnect_enabled.isChecked(),
-                    "frame_timeout_seconds": int(self.reconnect_timeout.value()),
-                    "retry_interval_seconds": int(self.reconnect_interval.value()),
-                },
-                "periodic": {
-                    "enabled": self.reconnect_periodic.isChecked(),
-                    "interval_minutes": int(self.reconnect_period.value()),
-                },
-            }
-            self.settings.save_reconnect(reconnect)
-            
-            # 2. Сохраняем настройки хранилища
-            db_dir = self.db_path.text().strip() or "data/db"
-            os.makedirs(db_dir, exist_ok=True)
-            self.settings.save_db_dir(db_dir)
-            
-            screenshot_dir = self.ss_path.text().strip() or "data/screenshots"
-            self.settings.save_screenshot_dir(screenshot_dir)
-            os.makedirs(screenshot_dir, exist_ok=True)
-            
-            # 3. Сохраняем настройки распознавания
-            plate_settings = {
-                "config_dir": self.country_dir.text().strip() or "config/countries",
-                "enabled_countries": self._collect_enabled_countries(),
-            }
-            os.makedirs(plate_settings["config_dir"], exist_ok=True)
-            self.settings.save_plate_settings(plate_settings)
-            
-            # 4. Сохраняем сетку отображения
-            if hasattr(self, 'grid_selector'):
-                self.settings.save_grid(self.grid_selector.currentText())
-            
-            # 5. Обновляем приложение
-            self.db = EventDatabase(self.settings.get_db_path())
-            self._refresh_events_table()
-            self._start_channels()
-            
-            # 6. Перерисовываем сетку
-            if hasattr(self, 'grid_selector'):
-                self._draw_grid()
-            
-            QtWidgets.QMessageBox.information(
-                self, 
-                "Сохранено", 
-                "Все настройки успешно сохранены и применены."
-            )
-            
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(
-                self, 
-                "Ошибка", 
-                f"Не удалось сохранить настройки: {str(e)}"
-            )
     def _load_general_settings(self) -> None:
         """Загружает настройки в интерфейс."""
         reconnect = self.settings.get_reconnect()
