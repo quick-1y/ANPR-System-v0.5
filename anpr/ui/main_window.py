@@ -2106,6 +2106,7 @@ def _build_general_settings(self):
             
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить настройки: {str(e)}")
+            
     def _save_all_settings(self) -> None:
         """Сохраняет все настройки из всех секций."""
         try:
