@@ -20,6 +20,31 @@ from anpr.infrastructure.storage import EventDatabase
 logger = get_logger(__name__)
 
 
+class PixmapPool:
+    """Простой пул QPixmap для повторного использования буферов по размеру."""
+
+    def __init__(self, max_per_size: int = 5) -> None:
+        self._pool: Dict[Tuple[int, int], List[QtGui.QPixmap]] = {}
+        self._max_per_size = max_per_size
+
+    def acquire(self, size: QtCore.QSize) -> QtGui.QPixmap:
+        key = (size.width(), size.height())
+        pixmaps = self._pool.get(key)
+        if pixmaps:
+            pixmap = pixmaps.pop()
+        else:
+            pixmap = QtGui.QPixmap(size)
+        if pixmap.size() != size:
+            pixmap = QtGui.QPixmap(size)
+        return pixmap
+
+    def release(self, pixmap: QtGui.QPixmap) -> None:
+        key = (pixmap.width(), pixmap.height())
+        pixmaps = self._pool.setdefault(key, [])
+        if len(pixmaps) < self._max_per_size:
+            pixmaps.append(pixmap)
+
+
 class ModernToggleSwitch(QtWidgets.QWidget):
     """Современный переключатель (toggle switch)."""
     
@@ -143,32 +168,7 @@ class SettingRow(QtWidgets.QWidget):
         layout.addWidget(self.label)
         layout.addWidget(widget, 1)
         
-        # Сохраняем виджет как атрибут
-        self.widget = widget 
-
-class PixmapPool:
-    """Простой пул QPixmap для повторного использования буферов по размеру."""
-
-    def __init__(self, max_per_size: int = 5) -> None:
-        self._pool: Dict[Tuple[int, int], List[QtGui.QPixmap]] = {}
-        self._max_per_size = max_per_size
-
-    def acquire(self, size: QtCore.QSize) -> QtGui.QPixmap:
-        key = (size.width(), size.height())
-        pixmaps = self._pool.get(key)
-        if pixmaps:
-            pixmap = pixmaps.pop()
-        else:
-            pixmap = QtGui.QPixmap(size)
-        if pixmap.size() != size:
-            pixmap = QtGui.QPixmap(size)
-        return pixmap
-
-    def release(self, pixmap: QtGui.QPixmap) -> None:
-        key = (pixmap.width(), pixmap.height())
-        pixmaps = self._pool.setdefault(key, [])
-        if len(pixmaps) < self._max_per_size:
-            pixmaps.append(pixmap)
+        self.widget = widget  # Сохраняем виджет как атрибут
 
 
 class ChannelView(QtWidgets.QWidget):
@@ -1576,79 +1576,75 @@ class MainWindow(QtWidgets.QMainWindow):
         index = list(self.settings_sections.keys()).index(section_key)
         self.settings_stack.setCurrentIndex(index)
 
-def _build_general_settings(self):
-    """Общие настройки приложения."""
-    widget = QtWidgets.QWidget()
-    layout = QtWidgets.QVBoxLayout(widget)
-    layout.setSpacing(16)
-    layout.setContentsMargins(24, 24, 24, 24)
-    
-    # Основные настройки
-    general_card = ModernCardWidget()
-    general_layout = QtWidgets.QVBoxLayout(general_card)
-    
-    general_header = QtWidgets.QLabel("Основные параметры")
-    general_header.setStyleSheet("font-size: 14px; font-weight: bold; color: #00B4D8;")
-    general_layout.addWidget(general_header)
-    
-    # Виджет настройки сетки
-    grid_combo = QtWidgets.QComboBox()  # <-- Создаем комбобокс отдельно
-    grid_combo.addItems(self.GRID_VARIANTS)
-    grid_combo.setCurrentText(self.settings.get_grid())
-    grid_combo.currentTextChanged.connect(
-        lambda text: self.settings.save_grid(text)
-    )
-    
-    grid_row = SettingRow(
-        "Сетка отображения:",
-        grid_combo,  # <-- Передаем готовый комбобокс
-        "Расположение видеопотоков на экране"
-    )
-    general_layout.addWidget(grid_row)
-    
-    # Язык интерфейса
-    lang_combo = QtWidgets.QComboBox()
-    lang_combo.addItems(["Русский", "English", "Español"])
-    lang_row = SettingRow(
-        "Язык интерфейса:",
-        lang_combo,
-        "Язык пользовательского интерфейса"
-    )
-    general_layout.addWidget(lang_row)
-    
-    # Тема оформления
-    theme_combo = QtWidgets.QComboBox()
-    theme_combo.addItems(["Темная", "Светлая", "Авто"])
-    theme_row = SettingRow(
-        "Тема оформления:",
-        theme_combo,
-        "Цветовая схема приложения"
-    )
-    general_layout.addWidget(theme_row)
-    
-    layout.addWidget(general_card)
-    
-    # Настройки уведомлений
-    notify_card = ModernCardWidget()
-    notify_layout = QtWidgets.QVBoxLayout(notify_card)
-    
-    notify_header = QtWidgets.QLabel("🔔 Уведомления")
-    notify_header.setStyleSheet("font-size: 14px; font-weight: bold; color: #00B4D8;")
-    notify_layout.addWidget(notify_header)
-    
-    # Переключатели уведомлений
-    self.notify_sound = ModernToggleSwitch()
-    self.notify_popup = ModernToggleSwitch()
-    self.notify_email = ModernToggleSwitch()
-    
-    notify_layout.addWidget(SettingRow("Звуковые уведомления:", self.notify_sound))
-    notify_layout.addWidget(SettingRow("Всплывающие окна:", self.notify_popup))
-    notify_layout.addWidget(SettingRow("Email уведомления:", self.notify_email))
-    
-    layout.addWidget(notify_card)
-    
-    layout.addStretch()
-    return widget
+    def _build_general_settings(self):
+        """Общие настройки приложения."""
+        widget = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(widget)
+        layout.setSpacing(16)
+        layout.setContentsMargins(24, 24, 24, 24)
+        
+        # Основные настройки
+        general_card = ModernCardWidget()
+        general_layout = QtWidgets.QVBoxLayout(general_card)
+        
+        general_header = QtWidgets.QLabel("Основные параметры")
+        general_header.setStyleSheet("font-size: 14px; font-weight: bold; color: #00B4D8;")
+        general_layout.addWidget(general_header)
+        
+        # Виджет настройки сетки
+        self.settings_grid_combo = QtWidgets.QComboBox()
+        self.settings_grid_combo.addItems(self.GRID_VARIANTS)
+        self.settings_grid_combo.setCurrentText(self.settings.get_grid())
+        grid_row = SettingRow(
+            "Сетка отображения:",
+            self.settings_grid_combo,
+            "Расположение видеопотоков на экране"
+        )
+        general_layout.addWidget(grid_row)
+        
+        # Язык интерфейса
+        lang_combo = QtWidgets.QComboBox()
+        lang_combo.addItems(["Русский", "English", "Español"])
+        lang_row = SettingRow(
+            "Язык интерфейса:",
+            lang_combo,
+            "Язык пользовательского интерфейса"
+        )
+        general_layout.addWidget(lang_row)
+        
+        # Тема оформления
+        theme_combo = QtWidgets.QComboBox()
+        theme_combo.addItems(["Темная", "Светлая", "Авто"])
+        theme_row = SettingRow(
+            "Тема оформления:",
+            theme_combo,
+            "Цветовая схема приложения"
+        )
+        general_layout.addWidget(theme_row)
+        
+        layout.addWidget(general_card)
+        
+        # Настройки уведомлений
+        notify_card = ModernCardWidget()
+        notify_layout = QtWidgets.QVBoxLayout(notify_card)
+        
+        notify_header = QtWidgets.QLabel("🔔 Уведомления")
+        notify_header.setStyleSheet("font-size: 14px; font-weight: bold; color: #00B4D8;")
+        notify_layout.addWidget(notify_header)
+        
+        # Переключатели уведомлений
+        self.notify_sound = ModernToggleSwitch()
+        self.notify_popup = ModernToggleSwitch()
+        self.notify_email = ModernToggleSwitch()
+        
+        notify_layout.addWidget(SettingRow("Звуковые уведомления:", self.notify_sound))
+        notify_layout.addWidget(SettingRow("Всплывающие окна:", self.notify_popup))
+        notify_layout.addWidget(SettingRow("Email уведомления:", self.notify_email))
+        
+        layout.addWidget(notify_card)
+        
+        layout.addStretch()
+        return widget
 
     def _build_recognition_settings(self):
         """Настройки распознавания."""
@@ -1708,6 +1704,7 @@ def _build_general_settings(self):
         # Каталог шаблонов
         dir_layout = QtWidgets.QHBoxLayout()
         self.country_dir = QtWidgets.QLineEdit()
+        self.country_dir.setText(self.settings.get_plate_settings().get("config_dir", "config/countries"))
         browse_btn = QtWidgets.QPushButton("Обзор...")
         browse_btn.clicked.connect(self._choose_country_dir)
         dir_layout.addWidget(self.country_dir, 1)
@@ -1771,6 +1768,7 @@ def _build_general_settings(self):
         # Путь к БД
         db_path_layout = QtWidgets.QHBoxLayout()
         self.db_path = QtWidgets.QLineEdit()
+        self.db_path.setText(self.settings.get_db_dir())
         db_browse_btn = QtWidgets.QPushButton("Обзор...")
         db_browse_btn.clicked.connect(self._choose_db_dir)
         db_path_layout.addWidget(self.db_path, 1)
@@ -1787,6 +1785,7 @@ def _build_general_settings(self):
         self.cleanup_days = QtWidgets.QSpinBox()
         self.cleanup_days.setRange(1, 365)
         self.cleanup_days.setSuffix(" дней")
+        self.cleanup_days.setValue(30)
         db_layout.addWidget(SettingRow(
             "Хранить записи:",
             self.cleanup_days,
@@ -1811,6 +1810,7 @@ def _build_general_settings(self):
         # Путь к скриншотам
         ss_path_layout = QtWidgets.QHBoxLayout()
         self.ss_path = QtWidgets.QLineEdit()
+        self.ss_path.setText(self.settings.get_screenshot_dir())
         ss_browse_btn = QtWidgets.QPushButton("Обзор...")
         ss_browse_btn.clicked.connect(self._choose_screenshot_dir)
         ss_path_layout.addWidget(self.ss_path, 1)
@@ -1827,6 +1827,7 @@ def _build_general_settings(self):
         self.ss_quality = QtWidgets.QSpinBox()
         self.ss_quality.setRange(1, 100)
         self.ss_quality.setSuffix("%")
+        self.ss_quality.setValue(85)
         ss_layout.addWidget(SettingRow(
             "Качество JPEG:",
             self.ss_quality,
@@ -1866,6 +1867,7 @@ def _build_general_settings(self):
         self.reconnect_timeout = QtWidgets.QSpinBox()
         self.reconnect_timeout.setRange(1, 300)
         self.reconnect_timeout.setSuffix(" сек")
+        self.reconnect_timeout.setValue(5)
         recon_layout.addWidget(SettingRow(
             "Таймаут ожидания:",
             self.reconnect_timeout,
@@ -1875,6 +1877,7 @@ def _build_general_settings(self):
         self.reconnect_interval = QtWidgets.QSpinBox()
         self.reconnect_interval.setRange(1, 300)
         self.reconnect_interval.setSuffix(" сек")
+        self.reconnect_interval.setValue(5)
         recon_layout.addWidget(SettingRow(
             "Интервал попыток:",
             self.reconnect_interval,
@@ -1890,6 +1893,7 @@ def _build_general_settings(self):
         self.reconnect_period = QtWidgets.QSpinBox()
         self.reconnect_period.setRange(1, 1440)
         self.reconnect_period.setSuffix(" мин")
+        self.reconnect_period.setValue(60)
         recon_layout.addWidget(SettingRow(
             "Период переподключения:",
             self.reconnect_period,
@@ -1909,6 +1913,7 @@ def _build_general_settings(self):
         # Ограничение потоков
         self.thread_limit = QtWidgets.QSpinBox()
         self.thread_limit.setRange(1, 16)
+        self.thread_limit.setValue(4)
         perf_layout.addWidget(SettingRow(
             "Макс. потоков:",
             self.thread_limit,
@@ -1919,6 +1924,7 @@ def _build_general_settings(self):
         self.cache_size = QtWidgets.QSpinBox()
         self.cache_size.setRange(10, 1000)
         self.cache_size.setSuffix(" MB")
+        self.cache_size.setValue(256)
         perf_layout.addWidget(SettingRow(
             "Размер кэша:",
             self.cache_size,
@@ -1929,6 +1935,7 @@ def _build_general_settings(self):
         self.update_freq = QtWidgets.QSpinBox()
         self.update_freq.setRange(1, 60)
         self.update_freq.setSuffix(" FPS")
+        self.update_freq.setValue(30)
         perf_layout.addWidget(SettingRow(
             "Частота обновления:",
             self.update_freq,
@@ -1948,6 +1955,7 @@ def _build_general_settings(self):
         # Уровень логирования
         self.log_level = QtWidgets.QComboBox()
         self.log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+        self.log_level.setCurrentText("INFO")
         log_layout.addWidget(SettingRow(
             "Уровень логирования:",
             self.log_level,
@@ -1958,6 +1966,7 @@ def _build_general_settings(self):
         self.log_size = QtWidgets.QSpinBox()
         self.log_size.setRange(1, 100)
         self.log_size.setSuffix(" MB")
+        self.log_size.setValue(10)
         log_layout.addWidget(SettingRow(
             "Макс. размер лога:",
             self.log_size,
@@ -2017,6 +2026,94 @@ def _build_general_settings(self):
                     f"Не удалось очистить записи: {str(e)}"
                 )
 
+    def _save_all_settings(self) -> None:
+        """Сохраняет все настройки."""
+        try:
+            # 1. Сохраняем общие настройки
+            reconnect = {
+                "signal_loss": {
+                    "enabled": self.reconnect_enabled.isChecked(),
+                    "frame_timeout_seconds": int(self.reconnect_timeout.value()),
+                    "retry_interval_seconds": int(self.reconnect_interval.value()),
+                },
+                "periodic": {
+                    "enabled": self.reconnect_periodic.isChecked(),
+                    "interval_minutes": int(self.reconnect_period.value()),
+                },
+            }
+            self.settings.save_reconnect(reconnect)
+            
+            # 2. Сохраняем настройки хранилища
+            db_dir = self.db_path.text().strip() or "data/db"
+            os.makedirs(db_dir, exist_ok=True)
+            self.settings.save_db_dir(db_dir)
+            
+            screenshot_dir = self.ss_path.text().strip() or "data/screenshots"
+            self.settings.save_screenshot_dir(screenshot_dir)
+            os.makedirs(screenshot_dir, exist_ok=True)
+            
+            # 3. Сохраняем настройки распознавания
+            plate_settings = {
+                "config_dir": self.country_dir.text().strip() or "config/countries",
+                "enabled_countries": self._collect_enabled_countries(),
+            }
+            os.makedirs(plate_settings["config_dir"], exist_ok=True)
+            self.settings.save_plate_settings(plate_settings)
+            
+            # 4. Сохраняем сетку отображения
+            if hasattr(self, 'settings_grid_combo'):
+                self.settings.save_grid(self.settings_grid_combo.currentText())
+                if hasattr(self, 'grid_selector'):
+                    self.grid_selector.setCurrentText(self.settings_grid_combo.currentText())
+                    self._draw_grid()
+            
+            # 5. Обновляем приложение
+            self.db = EventDatabase(self.settings.get_db_path())
+            self._refresh_events_table()
+            self._start_channels()
+            
+            QtWidgets.QMessageBox.information(self, "Сохранено", "Все настройки успешно сохранены.")
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить настройки: {str(e)}")
+
+    def _collect_enabled_countries(self) -> List[str]:
+        """Собирает список выбранных стран."""
+        codes: List[str] = []
+        if hasattr(self, 'country_list'):
+            for idx in range(self.country_list.count()):
+                item = self.country_list.item(idx)
+                if item and item.flags() & QtCore.Qt.ItemIsUserCheckable:
+                    if item.checkState() == QtCore.Qt.Checked:
+                        code = item.data(QtCore.Qt.UserRole)
+                        if code:
+                            codes.append(str(code))
+        return codes
+
+    def _reload_country_templates(self):
+        """Перезагружает список стран."""
+        config_dir = self.country_dir.text().strip() or "config/countries"
+        loader = CountryConfigLoader(config_dir)
+        loader.ensure_dir()
+        available = loader.available_configs()
+        
+        # Получаем текущие выбранные страны
+        enabled_codes = self._collect_enabled_countries()
+        
+        self.country_list.clear()
+        if not available:
+            item = QtWidgets.QListWidgetItem("Конфигурации стран не найдены")
+            item.setFlags(QtCore.Qt.NoItemFlags)
+            self.country_list.addItem(item)
+            return
+        
+        for cfg in available:
+            item = QtWidgets.QListWidgetItem(f"{cfg['code']} — {cfg['name']}")
+            item.setData(QtCore.Qt.UserRole, cfg["code"])
+            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled)
+            item.setCheckState(QtCore.Qt.Checked if cfg["code"] in enabled_codes else QtCore.Qt.Unchecked)
+            self.country_list.addItem(item)
+
     def _choose_screenshot_dir(self) -> None:
         directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Выбор папки для скриншотов")
         if directory:
@@ -2033,120 +2130,10 @@ def _build_general_settings(self):
             self.country_dir.setText(directory)
             self._reload_country_templates()
 
-    def _reload_country_templates(self, enabled: Optional[List[str]] = None) -> None:
-        plate_settings = self.settings.get_plate_settings()
-        config_dir = self.country_dir.text().strip() or plate_settings.get("config_dir", "config/countries")
-        loader = CountryConfigLoader(config_dir)
-        loader.ensure_dir()
-        available = loader.available_configs()
-        enabled_codes = set(enabled or plate_settings.get("enabled_countries", []))
-
-        self.country_list.clear()
-        if not available:
-            item = QtWidgets.QListWidgetItem("Конфигурации стран не найдены")
-            item.setFlags(QtCore.Qt.NoItemFlags)
-            self.country_list.addItem(item)
-            return
-
-        for cfg in available:
-            item = QtWidgets.QListWidgetItem(f"{cfg['code']} — {cfg['name']}")
-            item.setData(QtCore.Qt.UserRole, cfg["code"])
-            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled)
-            item.setCheckState(QtCore.Qt.Checked if cfg["code"] in enabled_codes else QtCore.Qt.Unchecked)
-            self.country_list.addItem(item)
-
-    def _collect_enabled_countries(self) -> List[str]:
-        codes: List[str] = []
-        for idx in range(self.country_list.count()):
-            item = self.country_list.item(idx)
-            if item and item.flags() & QtCore.Qt.ItemIsUserCheckable and item.checkState() == QtCore.Qt.Checked:
-                codes.append(str(item.data(QtCore.Qt.UserRole)))
-        return codes
-
-    def _save_all_settings(self) -> None:
-        """Сохраняет все настройки."""
-        try:
-            # Общие настройки
-            reconnect = {
-                "signal_loss": {
-                    "enabled": self.reconnect_enabled.isChecked(),
-                    "frame_timeout_seconds": int(self.reconnect_timeout.value()),
-                    "retry_interval_seconds": int(self.reconnect_interval.value()),
-                },
-                "periodic": {
-                    "enabled": self.reconnect_periodic.isChecked(),
-                    "interval_minutes": int(self.reconnect_period.value()),
-                },
-            }
-            self.settings.save_reconnect(reconnect)
-            
-            # Настройки хранилища
-            db_dir = self.db_path.text().strip() or "data/db"
-            os.makedirs(db_dir, exist_ok=True)
-            self.settings.save_db_dir(db_dir)
-            
-            screenshot_dir = self.ss_path.text().strip() or "data/screenshots"
-            self.settings.save_screenshot_dir(screenshot_dir)
-            os.makedirs(screenshot_dir, exist_ok=True)
-            
-            # Настройки распознавания
-            plate_settings = {
-                "config_dir": self.country_dir.text().strip() or "config/countries",
-                "enabled_countries": self._collect_enabled_countries(),
-            }
-            os.makedirs(plate_settings["config_dir"], exist_ok=True)
-            self.settings.save_plate_settings(plate_settings)
-            
-            # Обновляем приложение
-            self.db = EventDatabase(self.settings.get_db_path())
-            self._refresh_events_table()
-            self._start_channels()
-            
-            QtWidgets.QMessageBox.information(self, "Сохранено", "Все настройки успешно сохранены.")
-            
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить настройки: {str(e)}")
-            
-    def _load_general_settings(self) -> None:
-        """Загружает настройки в интерфейс."""
-        reconnect = self.settings.get_reconnect()
-        signal_loss = reconnect.get("signal_loss", {})
-        periodic = reconnect.get("periodic", {})
-        
-        # Загрузка настроек переподключения
-        self.reconnect_enabled.setChecked(bool(signal_loss.get("enabled", True)))
-        self.reconnect_timeout.setValue(int(signal_loss.get("frame_timeout_seconds", 5)))
-        self.reconnect_interval.setValue(int(signal_loss.get("retry_interval_seconds", 5)))
-        self.reconnect_periodic.setChecked(bool(periodic.get("enabled", False)))
-        self.reconnect_period.setValue(int(periodic.get("interval_minutes", 60)))
-        
-        # Загрузка настроек хранилища
-        self.db_path.setText(self.settings.get_db_dir())
-        self.ss_path.setText(self.settings.get_screenshot_dir())
-        
-        # Загрузка настроек распознавания
-        plate_settings = self.settings.get_plate_settings()
-        self.country_dir.setText(plate_settings.get("config_dir", "config/countries"))
-        self._reload_country_templates(plate_settings.get("enabled_countries", []))
-        
-        # Загрузка других настроек
-        self.min_confidence.setValue(float(self.settings.get_min_confidence()))
-        self.best_shots.setValue(int(self.settings.get_best_shots()))
-        self.cooldown.setValue(int(self.settings.get_cooldown_seconds()))
-        
-        # Производительность
-        self.cache_size.setValue(int(self.MAX_IMAGE_CACHE_BYTES / (1024 * 1024)))
-        
-        # Настройки по умолчанию
-        self.cleanup_days.setValue(30)
-        self.ss_quality.setValue(85)
-        self.thread_limit.setValue(4)
-        self.update_freq.setValue(30)
-        self.log_level.setCurrentText("INFO")
-        self.log_size.setValue(10)
-
-    # ------------------ Настройки каналов (старая версия, оставлена для совместимости) ------------------
-    def _build_channel_settings_tab(self) -> QtWidgets.QWidget:
+    # ------------------ Старые методы для совместимости ------------------
+    
+    def _build_channel_settings(self):
+        """Старая версия настроек каналов."""
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QHBoxLayout(widget)
         widget.setStyleSheet("background-color: transparent;")
