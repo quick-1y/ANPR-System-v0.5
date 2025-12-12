@@ -519,13 +519,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.events_table.setStyleSheet(self.TABLE_STYLE)
         header = self.events_table.horizontalHeader()
         header.setMinimumSectionSize(70)
-        header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.Interactive)
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.Interactive)
-        header.setSectionResizeMode(3, QtWidgets.QHeaderView.Interactive)
-        self.events_table.setColumnWidth(1, 130)
-        self.events_table.setColumnWidth(2, 80)
-        self.events_table.setColumnWidth(3, 130)
+        header.setStretchLastSection(False)
+        for index in range(4):
+            header.setSectionResizeMode(index, QtWidgets.QHeaderView.Interactive)
+        self.events_table.setColumnWidth(0, 220)
+        self.events_table.setColumnWidth(1, 120)
+        self.events_table.setColumnWidth(2, 90)
+        self.events_table.setColumnWidth(3, 120)
         self.events_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.events_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.events_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -538,6 +538,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._draw_grid()
         return widget
+
+    @staticmethod
+    def _polish_button(button: QtWidgets.QPushButton, min_width: int = 140) -> None:
+        button.setStyleSheet(MainWindow.PRIMARY_HOLLOW_BUTTON)
+        button.setMinimumWidth(min_width)
+        button.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
 
     @staticmethod
     def _prepare_optional_datetime(widget: QtWidgets.QDateTimeEdit) -> None:
@@ -1030,7 +1036,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.db_dir_input.setMinimumWidth(320)
         self.db_dir_input.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         browse_db_btn = QtWidgets.QPushButton("Выбрать...")
-        browse_db_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
+        self._polish_button(browse_db_btn, 130)
         browse_db_btn.clicked.connect(self._choose_db_dir)
         db_row.addWidget(self.db_dir_input)
         db_row.addWidget(browse_db_btn)
@@ -1046,7 +1052,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.screenshot_dir_input.setMinimumWidth(320)
         self.screenshot_dir_input.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         browse_screenshot_btn = QtWidgets.QPushButton("Выбрать...")
-        browse_screenshot_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
+        self._polish_button(browse_screenshot_btn, 130)
         browse_screenshot_btn.clicked.connect(self._choose_screenshot_dir)
         screenshot_row.addWidget(self.screenshot_dir_input)
         screenshot_row.addWidget(browse_screenshot_btn)
@@ -1064,7 +1070,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.country_config_dir_input.setMinimumWidth(320)
         self.country_config_dir_input.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         browse_country_btn = QtWidgets.QPushButton("Выбрать...")
-        browse_country_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
+        self._polish_button(browse_country_btn, 130)
         browse_country_btn.clicked.connect(self._choose_country_dir)
         self.country_config_dir_input.editingFinished.connect(self._reload_country_templates)
         plate_dir_row.addWidget(self.country_config_dir_input)
@@ -1080,7 +1086,7 @@ class MainWindow(QtWidgets.QMainWindow):
         plate_form.addRow("Активные страны:", self.country_templates_list)
 
         refresh_countries_btn = QtWidgets.QPushButton("Обновить список стран")
-        refresh_countries_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
+        self._polish_button(refresh_countries_btn, 180)
         refresh_countries_btn.clicked.connect(self._reload_country_templates)
         plate_form.addRow("", refresh_countries_btn)
 
@@ -1090,8 +1096,7 @@ class MainWindow(QtWidgets.QMainWindow):
         save_row.setContentsMargins(14, 12, 14, 12)
         save_row.setSpacing(10)
         save_general_btn = QtWidgets.QPushButton("Сохранить")
-        save_general_btn.setMinimumWidth(220)
-        save_general_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
+        self._polish_button(save_general_btn, 220)
         save_general_btn.clicked.connect(self._save_general_settings)
         save_row.addWidget(save_general_btn, 0)
         save_row.addStretch(1)
@@ -1121,10 +1126,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         list_buttons = QtWidgets.QHBoxLayout()
         add_btn = QtWidgets.QPushButton("Добавить")
-        add_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
+        self._polish_button(add_btn, 140)
         add_btn.clicked.connect(self._add_channel)
         remove_btn = QtWidgets.QPushButton("Удалить")
-        remove_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
+        self._polish_button(remove_btn, 140)
         remove_btn.clicked.connect(self._remove_channel)
         list_buttons.addWidget(add_btn)
         list_buttons.addWidget(remove_btn)
@@ -1289,16 +1294,17 @@ class MainWindow(QtWidgets.QMainWindow):
         roi_form.addRow("", roi_row_container)
 
         refresh_btn = QtWidgets.QPushButton("Обновить кадр")
-        refresh_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
+        self._polish_button(refresh_btn, 160)
         refresh_btn.clicked.connect(self._refresh_preview_frame)
         roi_form.addRow("", refresh_btn)
 
         right_panel.addWidget(tabs)
 
         save_btn = QtWidgets.QPushButton("Сохранить канал")
-        save_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
+        self._polish_button(save_btn, 200)
         save_btn.clicked.connect(self._save_channel)
-        right_panel.addWidget(save_btn)
+        save_btn.setMaximumWidth(220)
+        right_panel.addWidget(save_btn, alignment=QtCore.Qt.AlignLeft)
         right_panel.addStretch()
 
         layout.addLayout(right_panel, 2)
