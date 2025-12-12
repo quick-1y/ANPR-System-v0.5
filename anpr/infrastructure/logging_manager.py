@@ -1,3 +1,4 @@
+# /anpr/detection/yolo_detector.py
 """Централизованная настройка логирования приложения."""
 
 import logging
