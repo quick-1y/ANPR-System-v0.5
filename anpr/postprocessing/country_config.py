@@ -1,3 +1,4 @@
+#/anpr/postprocessing/country_config.py
 """Загрузка конфигураций форматов номеров из YAML."""
 from __future__ import annotations
 
