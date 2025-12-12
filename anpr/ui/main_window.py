@@ -912,24 +912,6 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
-        hero = QtWidgets.QFrame()
-        hero.setStyleSheet(
-            f"QFrame {{ background-color: {self.SURFACE_COLOR}; border: 1px solid #1f2937; border-radius: 14px; }}"
-        )
-        hero_layout = QtWidgets.QVBoxLayout(hero)
-        hero_layout.setContentsMargins(16, 16, 16, 16)
-        title = QtWidgets.QLabel("Центр управления ANPR")
-        title.setStyleSheet("font-size: 18px; font-weight: 800; color: #e5e7eb;")
-        subtitle = QtWidgets.QLabel(
-            "Настраивайте общие параметры, каналы и будущие модули из одного места."
-            " Изменения сгруппированы по категориям, чтобы упростить расширение настроек."
-        )
-        subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("color: #9ca3af; font-size: 13px;")
-        hero_layout.addWidget(title)
-        hero_layout.addWidget(subtitle)
-        layout.addWidget(hero)
-
         content = QtWidgets.QFrame()
         content.setStyleSheet(
             f"QFrame {{ background-color: {self.SURFACE_COLOR}; border: 1px solid #1f2937; border-radius: 14px; }}"
@@ -968,51 +950,43 @@ class MainWindow(QtWidgets.QMainWindow):
 
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
-        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
         widget.setStyleSheet(
-            self.GROUP_BOX_STYLE
-            + f"QWidget {{ background-color: {self.SURFACE_COLOR}; }}"
+            "QLabel { color: #cbd5e1; font-size: 13px; }"
+            "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
+            "QPushButton { background-color: #22d3ee; color: #0b0c10; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }"
+            "QPushButton:hover { background-color: #4ddcf3; }"
+            "QCheckBox { color: #e5e7eb; font-size: 13px; }"
+            f"QWidget {{ background-color: {self.SURFACE_COLOR}; }}"
         )
 
-        intro_card = QtWidgets.QFrame()
-        intro_card.setStyleSheet(
+        section_style = (
             f"QFrame {{ background-color: {self.PANEL_COLOR}; border: 1px solid #1f2937; border-radius: 12px; }}"
         )
-        intro_layout = QtWidgets.QVBoxLayout(intro_card)
-        intro_layout.setContentsMargins(12, 12, 12, 12)
-        intro_title = QtWidgets.QLabel("Общие настройки")
-        intro_title.setStyleSheet("font-size: 16px; font-weight: 800; color: #e5e7eb;")
-        intro_subtitle = QtWidgets.QLabel(
-            "Базовые параметры системы: стабильность каналов, каталоги данных и правила валидации."
-        )
-        intro_subtitle.setStyleSheet("color: #9ca3af; font-size: 13px;")
-        intro_subtitle.setWordWrap(True)
-        intro_layout.addWidget(intro_title)
-        intro_layout.addWidget(intro_subtitle)
-        layout.addWidget(intro_card)
 
-        intro_card = QtWidgets.QFrame()
-        intro_card.setStyleSheet(
-            f"QFrame {{ background-color: {self.PANEL_COLOR}; border: 1px solid #1f2937; border-radius: 12px; }}"
-        )
-        intro_layout = QtWidgets.QVBoxLayout(intro_card)
-        intro_layout.setContentsMargins(12, 12, 12, 12)
-        intro_title = QtWidgets.QLabel("Общие настройки")
-        intro_title.setStyleSheet("font-size: 16px; font-weight: 800; color: #e5e7eb;")
-        intro_subtitle = QtWidgets.QLabel(
-            "Базовые параметры системы: стабильность каналов, каталоги данных и правила валидации."
-        )
-        intro_subtitle.setStyleSheet("color: #9ca3af; font-size: 13px;")
-        intro_subtitle.setWordWrap(True)
-        intro_layout.addWidget(intro_title)
-        intro_layout.addWidget(intro_subtitle)
-        layout.addWidget(intro_card)
+        def make_section(title: str) -> tuple[QtWidgets.QFrame, QtWidgets.QFormLayout]:
+            frame = QtWidgets.QFrame()
+            frame.setStyleSheet(section_style)
+            frame_layout = QtWidgets.QVBoxLayout(frame)
+            frame_layout.setContentsMargins(14, 12, 14, 12)
+            frame_layout.setSpacing(10)
 
-        reconnect_group = QtWidgets.QGroupBox("Автоматическое переподключение")
-        reconnect_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        reconnect_form = QtWidgets.QFormLayout(reconnect_group)
-        reconnect_form.setVerticalSpacing(8)
+            header = QtWidgets.QLabel(title)
+            header.setStyleSheet("font-size: 14px; font-weight: 800; color: #e5e7eb;")
+            frame_layout.addWidget(header)
+
+            form = QtWidgets.QFormLayout()
+            form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+            form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+            form.setHorizontalSpacing(14)
+            form.setVerticalSpacing(10)
+            form.setFieldGrowthPolicy(QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
+            frame_layout.addLayout(form)
+
+            return frame, form
+
+        reconnect_group, reconnect_form = make_section("Стабильность каналов")
         self.reconnect_on_loss_checkbox = QtWidgets.QCheckBox("Переподключение при потере сигнала")
         reconnect_form.addRow(self.reconnect_on_loss_checkbox)
 
@@ -1040,12 +1014,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.periodic_interval_input.setToolTip("Плановое переподключение каждые N минут")
         reconnect_form.addRow("Интервал переподключения:", self.periodic_interval_input)
 
-        storage_group = QtWidgets.QGroupBox("Хранилище")
-        storage_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        storage_form = QtWidgets.QFormLayout(storage_group)
-        storage_form.setVerticalSpacing(8)
+        storage_group, storage_form = make_section("Хранилище")
 
         db_row = QtWidgets.QHBoxLayout()
+        db_row.setContentsMargins(0, 0, 0, 0)
+        db_row.setSpacing(8)
         self.db_dir_input = QtWidgets.QLineEdit()
         browse_db_btn = QtWidgets.QPushButton("Выбрать...")
         browse_db_btn.clicked.connect(self._choose_db_dir)
@@ -1056,6 +1029,8 @@ class MainWindow(QtWidgets.QMainWindow):
         storage_form.addRow("Папка БД:", db_container)
 
         screenshot_row = QtWidgets.QHBoxLayout()
+        screenshot_row.setContentsMargins(0, 0, 0, 0)
+        screenshot_row.setSpacing(8)
         self.screenshot_dir_input = QtWidgets.QLineEdit()
         browse_screenshot_btn = QtWidgets.QPushButton("Выбрать...")
         browse_screenshot_btn.clicked.connect(self._choose_screenshot_dir)
@@ -1065,12 +1040,11 @@ class MainWindow(QtWidgets.QMainWindow):
         screenshot_container.setLayout(screenshot_row)
         storage_form.addRow("Папка для скриншотов:", screenshot_container)
 
-        plate_group = QtWidgets.QGroupBox("Валидация номеров")
-        plate_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        plate_form = QtWidgets.QFormLayout(plate_group)
-        plate_form.setVerticalSpacing(8)
+        plate_group, plate_form = make_section("Валидация номеров")
 
         plate_dir_row = QtWidgets.QHBoxLayout()
+        plate_dir_row.setContentsMargins(0, 0, 0, 0)
+        plate_dir_row.setSpacing(8)
         self.country_config_dir_input = QtWidgets.QLineEdit()
         browse_country_btn = QtWidgets.QPushButton("Выбрать...")
         browse_country_btn.clicked.connect(self._choose_country_dir)
@@ -1090,7 +1064,11 @@ class MainWindow(QtWidgets.QMainWindow):
         refresh_countries_btn.clicked.connect(self._reload_country_templates)
         plate_form.addRow("", refresh_countries_btn)
 
-        save_row = QtWidgets.QHBoxLayout()
+        save_card = QtWidgets.QFrame()
+        save_card.setStyleSheet(section_style)
+        save_row = QtWidgets.QHBoxLayout(save_card)
+        save_row.setContentsMargins(14, 12, 14, 12)
+        save_row.setSpacing(10)
         save_general_btn = QtWidgets.QPushButton("Сохранить общие настройки")
         save_general_btn.setMinimumWidth(220)
         save_general_btn.clicked.connect(self._save_general_settings)
@@ -1102,7 +1080,7 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(reconnect_group)
         layout.addWidget(storage_group)
         layout.addWidget(plate_group)
-        layout.addLayout(save_row)
+        layout.addWidget(save_card)
         layout.addStretch()
 
         scroll.setWidget(widget)
