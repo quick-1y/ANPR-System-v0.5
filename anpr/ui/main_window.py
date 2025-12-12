@@ -370,6 +370,7 @@ class MainWindow(QtWidgets.QMainWindow):
         "QPushButton:hover { background-color: #4ddcf3; }"
         "QCheckBox { color: #e5e7eb; font-size: 13px; }"
     )
+    #f?
     TABLE_STYLE = (
         "QHeaderView::section { background-color: #11131a; color: #e2e8f0; padding: 8px; font-weight: 700; border: none; }"
         "QTableWidget { background-color: #0b0c10; color: #e5e7eb; gridline-color: #1f2937; selection-background-color: #11131a; }"
@@ -973,6 +974,23 @@ class MainWindow(QtWidgets.QMainWindow):
             self.GROUP_BOX_STYLE
             + f"QWidget {{ background-color: {self.SURFACE_COLOR}; }}"
         )
+
+        intro_card = QtWidgets.QFrame()
+        intro_card.setStyleSheet(
+            f"QFrame {{ background-color: {self.PANEL_COLOR}; border: 1px solid #1f2937; border-radius: 12px; }}"
+        )
+        intro_layout = QtWidgets.QVBoxLayout(intro_card)
+        intro_layout.setContentsMargins(12, 12, 12, 12)
+        intro_title = QtWidgets.QLabel("Общие настройки")
+        intro_title.setStyleSheet("font-size: 16px; font-weight: 800; color: #e5e7eb;")
+        intro_subtitle = QtWidgets.QLabel(
+            "Базовые параметры системы: стабильность каналов, каталоги данных и правила валидации."
+        )
+        intro_subtitle.setStyleSheet("color: #9ca3af; font-size: 13px;")
+        intro_subtitle.setWordWrap(True)
+        intro_layout.addWidget(intro_title)
+        intro_layout.addWidget(intro_subtitle)
+        layout.addWidget(intro_card)
 
         intro_card = QtWidgets.QFrame()
         intro_card.setStyleSheet(
