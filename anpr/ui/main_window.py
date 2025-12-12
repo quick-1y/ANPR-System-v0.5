@@ -376,7 +376,7 @@ class MainWindow(QtWidgets.QMainWindow):
         "QTableWidget::item { border-bottom: 1px solid #1f2937; padding: 6px; }"
         "QTableWidget::item:selected { background-color: #d7f7fc; color: #22d3ee; border: 1px solid #22d3ee; }"
     )
-    )
+    #f?
     TABLE_STYLE = (
         "QHeaderView::section { background-color: #11131a; color: #e2e8f0; padding: 8px; font-weight: 700; border: none; }"
         "QTableWidget { background-color: #0b0c10; color: #e5e7eb; gridline-color: #1f2937; selection-background-color: #11131a; }"
