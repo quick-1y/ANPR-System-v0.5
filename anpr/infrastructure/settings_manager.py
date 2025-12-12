@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#/anpr/infrastructure/settings_manager.py
 import json
 import os
 from typing import Any, Dict, List
