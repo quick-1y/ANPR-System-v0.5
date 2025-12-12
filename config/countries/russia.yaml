@@ -15,13 +15,8 @@ valid_characters:
 corrections:
   digit_to_letter:
     "0": "O"
-    "1": "T"
-    "4": "A"
-    "6": "G"
-    "8": "B"
   letter_to_digit:
     "O": "0"
-    "Z": "3"
   common_mistakes:
     - from: "D"
       to: "O"
