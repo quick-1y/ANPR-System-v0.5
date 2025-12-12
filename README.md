@@ -1,6 +1,6 @@
 # ANPR System - Automatic Number Plate Recognition
 
-![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.13+-blue.svg)
 ![PyQt5](https://img.shields.io/badge/GUI-PyQt5-green.svg)
 ![YOLOv8](https://img.shields.io/badge/Detection-YOLOv8-red.svg)
 ![CRNN](https://img.shields.io/badge/OCR-CRNN-orange.svg)
@@ -21,7 +21,7 @@
 ## 📦 Установка
 
 ### Предварительные требования
-- Python 3.8 или выше
+- Python 3.13
 - pip (менеджер пакетов Python)
 
 ### Установка зависимостей
