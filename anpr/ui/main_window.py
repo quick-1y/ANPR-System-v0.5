@@ -3,11 +3,11 @@
 import os
 from datetime import datetime
 from pathlib import Path
-from enum import Enum
+
 import cv2
 import psutil
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
@@ -20,305 +20,9 @@ from anpr.infrastructure.storage import EventDatabase
 logger = get_logger(__name__)
 
 
-class Theme(Enum):
-    DARK = "dark"
-    LIGHT = "light"
-
-
-class ModernScrollArea(QtWidgets.QScrollArea):
-    """Современная прокручиваемая область с кастомным скроллбаром."""
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWidgetResizable(True)
-        self.setFrameShape(QtWidgets.QFrame.NoFrame)
-        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-        
-        # Кастомный скроллбар
-        self.verticalScrollBar().setStyleSheet("""
-            QScrollBar:vertical {
-                background: #2d2d2d;
-                width: 12px;
-                margin: 0px;
-                border-radius: 6px;
-            }
-            QScrollBar::handle:vertical {
-                background: #555555;
-                border-radius: 6px;
-                min-height: 20px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #777777;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-        """)
-
-
-class ModernButton(QtWidgets.QPushButton):
-    """Современная кнопка с эффектами."""
-    
-    def __init__(self, text="", parent=None, icon=None, variant="default"):
-        super().__init__(text, parent)
-        self.variant = variant
-        self.setup_style()
-        
-    def setup_style(self):
-        base_style = """
-            border-radius: 6px;
-            padding: 10px 16px;
-            font-weight: 600;
-            font-size: 14px;
-            transition: all 0.2s;
-        """
-        
-        if self.variant == "primary":
-            style = f"""
-                {base_style}
-                background-color: #007AFF;
-                color: white;
-                border: none;
-            """
-            hover = "background-color: #0056CC;"
-        elif self.variant == "secondary":
-            style = f"""
-                {base_style}
-                background-color: #3A3A3C;
-                color: white;
-                border: 1px solid #48484A;
-            """
-            hover = "background-color: #48484A;"
-        elif self.variant == "success":
-            style = f"""
-                {base_style}
-                background-color: #34C759;
-                color: white;
-                border: none;
-            """
-            hover = "background-color: #2AA44F;"
-        elif self.variant == "danger":
-            style = f"""
-                {base_style}
-                background-color: #FF3B30;
-                color: white;
-                border: none;
-            """
-            hover = "background-color: #D70015;"
-        else:
-            style = f"""
-                {base_style}
-                background-color: #48484A;
-                color: white;
-                border: 1px solid #636366;
-            """
-            hover = "background-color: #636366;"
-        
-        self.setStyleSheet(f"""
-            ModernButton {{
-                {style}
-            }}
-            ModernButton:hover {{
-                {hover}
-            }}
-            ModernButton:pressed {{
-                opacity: 0.8;
-            }}
-            ModernButton:disabled {{
-                background-color: #2C2C2E;
-                color: #8E8E93;
-                border-color: #3A3A3C;
-            }}
-        """)
-
-
-class CardWidget(QtWidgets.QFrame):
-    """Карточка-виджет с тенями и скругленными углами."""
-    
-    def __init__(self, parent=None, elevated=True):
-        super().__init__(parent)
-        self.elevated = elevated
-        self.setup_style()
-        
-    def setup_style(self):
-        if self.elevated:
-            shadow = """
-                border: 1px solid #38383A;
-                border-radius: 12px;
-                background-color: #1C1C1E;
-            """
-        else:
-            shadow = """
-                border: 1px solid #2C2C2E;
-                border-radius: 12px;
-                background-color: #2C2C2E;
-            """
-        
-        self.setStyleSheet(f"""
-            CardWidget {{
-                {shadow}
-            }}
-        """)
-
-
-class SidebarButton(QtWidgets.QPushButton):
-    """Кнопка для сайдбара."""
-    
-    def __init__(self, text="", icon=None, parent=None):
-        super().__init__(text, parent)
-        self.setFixedHeight(44)
-        self.setCheckable(True)
-        
-        if icon:
-            self.setIcon(icon)
-            self.setIconSize(QtCore.QSize(20, 20))
-        
-        self.setStyleSheet("""
-            SidebarButton {
-                text-align: left;
-                padding: 10px 16px;
-                border: none;
-                background-color: transparent;
-                color: #8E8E93;
-                border-radius: 8px;
-                font-weight: 500;
-                font-size: 14px;
-            }
-            SidebarButton:hover {
-                background-color: #2C2C2E;
-                color: #FFFFFF;
-            }
-            SidebarButton:checked {
-                background-color: #007AFF;
-                color: #FFFFFF;
-            }
-            SidebarButton:checked:hover {
-                background-color: #0056CC;
-            }
-        """)
-
-
-class SettingsSection(QtWidgets.QWidget):
-    """Секция настроек с заголовком."""
-    
-    def __init__(self, title="", parent=None):
-        super().__init__(parent)
-        self.layout = QtWidgets.QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(8)
-        
-        if title:
-            title_label = QtWidgets.QLabel(title)
-            title_label.setStyleSheet("""
-                QLabel {
-                    color: #FFFFFF;
-                    font-size: 16px;
-                    font-weight: 600;
-                    padding: 8px 0;
-                }
-            """)
-            self.layout.addWidget(title_label)
-        
-        self.content_widget = QtWidgets.QWidget()
-        self.content_layout = QtWidgets.QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(0, 0, 0, 0)
-        self.content_layout.setSpacing(12)
-        self.layout.addWidget(self.content_widget)
-        
-    def add_widget(self, widget):
-        self.content_layout.addWidget(widget)
-
-
-class SettingsGroup(QtWidgets.QWidget):
-    """Группа настроек с заголовком и описанием."""
-    
-    def __init__(self, title="", description="", parent=None):
-        super().__init__(parent)
-        self.layout = QtWidgets.QVBoxLayout(self)
-        self.layout.setContentsMargins(16, 16, 16, 16)
-        self.layout.setSpacing(8)
-        
-        # Заголовок
-        if title:
-            title_label = QtWidgets.QLabel(title)
-            title_label.setStyleSheet("""
-                QLabel {
-                    color: #FFFFFF;
-                    font-size: 14px;
-                    font-weight: 600;
-                }
-            """)
-            self.layout.addWidget(title_label)
-        
-        # Описание
-        if description:
-            desc_label = QtWidgets.QLabel(description)
-            desc_label.setWordWrap(True)
-            desc_label.setStyleSheet("""
-                QLabel {
-                    color: #8E8E93;
-                    font-size: 13px;
-                    padding-bottom: 8px;
-                }
-            """)
-            self.layout.addWidget(desc_label)
-        
-        # Контент
-        self.content_widget = QtWidgets.QWidget()
-        self.content_layout = QtWidgets.QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(0, 0, 0, 0)
-        self.content_layout.setSpacing(8)
-        self.layout.addWidget(self.content_widget)
-        
-    def add_widget(self, widget):
-        self.content_layout.addWidget(widget)
-
-
-class ToggleSwitch(QtWidgets.QCheckBox):
-    """Современный переключатель."""
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setCursor(QtCore.Qt.PointingHandCursor)
-        
-        # Устанавливаем минимальные размеры для переключателя
-        self.setMinimumWidth(50)
-        self.setMinimumHeight(30)
-        
-    def paintEvent(self, event):
-        painter = QtGui.QPainter(self)
-        painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        
-        rect = QtCore.QRectF(2, 2, self.width() - 4, self.height() - 4)
-        
-        # Фон
-        if self.isChecked():
-            painter.setBrush(QtGui.QColor("#34C759"))
-            painter.setPen(QtGui.QColor("#34C759"))
-        else:
-            painter.setBrush(QtGui.QColor("#3A3A3C"))
-            painter.setPen(QtGui.QColor("#3A3A3C"))
-        painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
-        
-        # Круг
-        circle_radius = rect.height() - 4
-        if self.isChecked():
-            circle_x = rect.right() - circle_radius - 2
-        else:
-            circle_x = rect.left() + 2
-            
-        circle_rect = QtCore.QRectF(circle_x, rect.top() + 2, 
-                                   circle_radius, circle_radius)
-        
-        painter.setBrush(QtGui.QColor("#FFFFFF"))
-        painter.setPen(QtGui.QColor("#FFFFFF"))
-        painter.drawEllipse(circle_rect)
-
-
 class PixmapPool:
     """Простой пул QPixmap для повторного использования буферов по размеру."""
-    
+
     def __init__(self, max_per_size: int = 5) -> None:
         self._pool: Dict[Tuple[int, int], List[QtGui.QPixmap]] = {}
         self._max_per_size = max_per_size
@@ -342,171 +46,105 @@ class PixmapPool:
 
 
 class ChannelView(QtWidgets.QWidget):
-    """Современное отображение потока канала."""
-    
+    """Отображает поток канала с подсказками и индикатором движения."""
+
     def __init__(self, name: str, pixmap_pool: Optional[PixmapPool]) -> None:
         super().__init__()
         self.name = name
         self._pixmap_pool = pixmap_pool
         self._current_pixmap: Optional[QtGui.QPixmap] = None
-        
-        # Основной контейнер
-        self.container = CardWidget(elevated=True)
-        container_layout = QtWidgets.QVBoxLayout(self.container)
-        container_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.setSpacing(0)
-        
-        # Заголовок канала
-        self.header = QtWidgets.QWidget()
-        header_layout = QtWidgets.QHBoxLayout(self.header)
-        header_layout.setContentsMargins(12, 8, 12, 8)
-        
-        self.title_label = QtWidgets.QLabel(name)
-        self.title_label.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-weight: 600;
-                font-size: 14px;
-            }
-        """)
-        
-        self.status_indicator = QtWidgets.QLabel()
-        self.status_indicator.setFixedSize(8, 8)
-        self.status_indicator.setStyleSheet("""
-            QLabel {
-                background-color: #FF3B30;
-                border-radius: 4px;
-            }
-        """)
-        self.status_indicator.hide()
-        
-        header_layout.addWidget(self.title_label)
-        header_layout.addStretch()
-        header_layout.addWidget(self.status_indicator)
-        
-        # Видео область
-        self.video_container = QtWidgets.QWidget()
-        video_layout = QtWidgets.QVBoxLayout(self.video_container)
-        video_layout.setContentsMargins(1, 1, 1, 1)
-        
+
         self.video_label = QtWidgets.QLabel("Нет сигнала")
         self.video_label.setAlignment(QtCore.Qt.AlignCenter)
-        self.video_label.setStyleSheet("""
-            QLabel {
-                background-color: #000000;
-                color: #8E8E93;
-                font-size: 13px;
-                border-radius: 8px;
-            }
-        """)
+        self.video_label.setStyleSheet(
+            "background-color: #000; color: #ccc; border: 1px solid #2e2e2e; padding: 4px;"
+        )
         self.video_label.setMinimumSize(220, 170)
         self.video_label.setScaledContents(False)
         self.video_label.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
         )
-        video_layout.addWidget(self.video_label)
-        
-        # Футер с информацией
-        self.footer = QtWidgets.QWidget()
-        footer_layout = QtWidgets.QHBoxLayout(self.footer)
-        footer_layout.setContentsMargins(12, 8, 12, 8)
-        
-        self.plate_label = QtWidgets.QLabel("—")
-        self.plate_label.setStyleSheet("""
-            QLabel {
-                color: #34C759;
-                font-weight: 600;
-                font-size: 13px;
-            }
-        """)
-        
-        self.motion_indicator = QtWidgets.QLabel("● Движение")
-        self.motion_indicator.setStyleSheet("""
-            QLabel {
-                color: #FF9500;
-                font-size: 12px;
-            }
-        """)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.video_label)
+
+        self.motion_indicator = QtWidgets.QLabel("Движение")
+        self.motion_indicator.setParent(self.video_label)
+        self.motion_indicator.setStyleSheet(
+            "background-color: rgba(220, 53, 69, 0.85); color: white;"
+            "padding: 3px 6px; border-radius: 6px; font-weight: bold;"
+        )
+        self.motion_indicator.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
         self.motion_indicator.hide()
-        
-        footer_layout.addWidget(self.plate_label)
-        footer_layout.addStretch()
-        footer_layout.addWidget(self.motion_indicator)
-        
-        # Собираем контейнер
-        container_layout.addWidget(self.header)
-        container_layout.addWidget(self.video_container, 1)
-        container_layout.addWidget(self.footer)
-        
-        # Основной layout
-        main_layout = QtWidgets.QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(self.container)
-        
-        # Индикаторы поверх видео
-        self.overlay_widget = QtWidgets.QWidget(self.video_label)
-        self.overlay_widget.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
-        
+
+        self.last_plate = QtWidgets.QLabel("—")
+        self.last_plate.setParent(self.video_label)
+        self.last_plate.setStyleSheet(
+            "background-color: rgba(0, 0, 0, 0.55); color: white;"
+            "padding: 2px 6px; border-radius: 4px; font-weight: bold;"
+        )
+        self.last_plate.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
+        self.last_plate.hide()
+
+        self.status_hint = QtWidgets.QLabel("")
+        self.status_hint.setParent(self.video_label)
+        self.status_hint.setStyleSheet(
+            "background-color: rgba(0, 0, 0, 0.55); color: #ddd; padding: 2px 4px;"
+        )
+        self.status_hint.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
+        self.status_hint.hide()
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        rect = self.video_label.contentsRect()
+        margin = 8
+        indicator_size = self.motion_indicator.sizeHint()
+        self.motion_indicator.move(
+            rect.right() - indicator_size.width() - margin, rect.top() + margin
+        )
+        self.last_plate.move(rect.left() + margin, rect.top() + margin)
+        status_size = self.status_hint.sizeHint()
+        self.status_hint.move(rect.left() + margin, rect.bottom() - status_size.height() - margin)
+
     def set_pixmap(self, pixmap: QtGui.QPixmap) -> None:
         if self._pixmap_pool and self._current_pixmap is not None:
             self._pixmap_pool.release(self._current_pixmap)
         self._current_pixmap = pixmap
         self.video_label.setPixmap(pixmap)
-        self.status_indicator.setStyleSheet("""
-            QLabel {
-                background-color: #34C759;
-                border-radius: 4px;
-            }
-        """)
-        
+
     def set_motion_active(self, active: bool) -> None:
         self.motion_indicator.setVisible(active)
-        
+
     def set_last_plate(self, plate: str) -> None:
-        self.plate_label.setText(plate or "—")
-        
+        self.last_plate.setVisible(bool(plate))
+        self.last_plate.setText(plate or "—")
+        self.last_plate.adjustSize()
+
     def set_status(self, text: str) -> None:
+        self.status_hint.setVisible(bool(text))
+        self.status_hint.setText(text)
         if text:
-            self.status_indicator.setStyleSheet("""
-                QLabel {
-                    background-color: #FF9500;
-                    border-radius: 4px;
-                }
-            """)
-        else:
-            self.status_indicator.setStyleSheet("""
-                QLabel {
-                    background-color: #34C759;
-                    border-radius: 4px;
-                }
-            """)
+            self.status_hint.adjustSize()
 
 
 class ROIEditor(QtWidgets.QLabel):
-    """Современный редактор ROI."""
-    
+    """Виджет предпросмотра канала с настраиваемой областью распознавания."""
+
     roi_changed = QtCore.pyqtSignal(dict)
-    
+
     def __init__(self) -> None:
-        super().__init__()
-        self.setText("Загрузка кадра...")
+        super().__init__("Нет кадра")
         self.setAlignment(QtCore.Qt.AlignCenter)
         self.setMinimumSize(400, 260)
-        self.setStyleSheet("""
-            QLabel {
-                background-color: #1C1C1E;
-                color: #8E8E93;
-                border: 2px dashed #3A3A3C;
-                border-radius: 8px;
-                font-size: 14px;
-            }
-        """)
+        self.setStyleSheet(
+            "background-color: #111; color: #888; border: 1px solid #444; padding: 6px;"
+        )
         self._roi = {"x": 0, "y": 0, "width": 100, "height": 100}
         self._pixmap: Optional[QtGui.QPixmap] = None
         self._rubber_band = QtWidgets.QRubberBand(QtWidgets.QRubberBand.Rectangle, self)
-        self._rubber_band.setStyleSheet("background-color: rgba(0, 122, 255, 0.3);")
         self._origin: Optional[QtCore.QPoint] = None
-        
+
     def set_roi(self, roi: Dict[str, int]) -> None:
         self._roi = {
             "x": int(roi.get("x", 0)),
@@ -517,8 +155,8 @@ class ROIEditor(QtWidgets.QLabel):
         self._roi["width"] = min(self._roi["width"], max(1, 100 - self._roi["x"]))
         self._roi["height"] = min(self._roi["height"], max(1, 100 - self._roi["y"]))
         self.update()
-        
-    def setPixmap(self, pixmap: Optional[QtGui.QPixmap]) -> None:
+
+    def setPixmap(self, pixmap: Optional[QtGui.QPixmap]) -> None:  # noqa: N802
         self._pixmap = pixmap
         if pixmap is None:
             super().setPixmap(QtGui.QPixmap())
@@ -527,8 +165,28 @@ class ROIEditor(QtWidgets.QLabel):
         scaled = self._scaled_pixmap(self.size())
         super().setPixmap(scaled)
         self.setText("")
-        
-    def paintEvent(self, event: QtGui.QPaintEvent) -> None:
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if self._pixmap:
+            super().setPixmap(self._scaled_pixmap(event.size()))
+
+    def _scaled_pixmap(self, size: QtCore.QSize) -> QtGui.QPixmap:
+        assert self._pixmap is not None
+        return self._pixmap.scaled(
+            size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+        )
+
+    def _image_geometry(self) -> Optional[Tuple[QtCore.QPoint, QtCore.QSize]]:
+        if self._pixmap is None:
+            return None
+        pixmap = self._scaled_pixmap(self.size())
+        area = self.contentsRect()
+        x = area.x() + (area.width() - pixmap.width()) // 2
+        y = area.y() + (area.height() - pixmap.height()) // 2
+        return QtCore.QPoint(x, y), pixmap.size()
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802
         super().paintEvent(event)
         geom = self._image_geometry()
         if geom is None:
@@ -536,845 +194,193 @@ class ROIEditor(QtWidgets.QLabel):
         offset, size = geom
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        
-        # ROI прямоугольник
         roi_rect = QtCore.QRect(
             offset.x() + int(size.width() * self._roi["x"] / 100),
             offset.y() + int(size.height() * self._roi["y"] / 100),
             int(size.width() * self._roi["width"] / 100),
             int(size.height() * self._roi["height"] / 100),
         )
-        
-        # Тень
-        painter.setBrush(QtGui.QColor(0, 122, 255, 40))
-        painter.setPen(QtCore.Qt.NoPen)
-        painter.drawRoundedRect(roi_rect, 4, 4)
-        
-        # Граница
-        pen = QtGui.QPen(QtGui.QColor(0, 122, 255))
+        pen = QtGui.QPen(QtGui.QColor(0, 200, 0))
         pen.setWidth(2)
         painter.setPen(pen)
-        painter.setBrush(QtCore.Qt.NoBrush)
-        painter.drawRoundedRect(roi_rect, 4, 4)
-        
-        # Угловые маркеры
-        marker_size = 8
-        corners = [
-            roi_rect.topLeft(),
-            roi_rect.topRight(),
-            roi_rect.bottomLeft(),
-            roi_rect.bottomRight()
-        ]
-        
-        painter.setBrush(QtGui.QColor(0, 122, 255))
-        painter.setPen(QtCore.Qt.NoPen)
-        for corner in corners:
-            marker_rect = QtCore.QRect(
-                corner.x() - marker_size // 2,
-                corner.y() - marker_size // 2,
-                marker_size, marker_size
-            )
-            painter.drawEllipse(marker_rect)
+        painter.setBrush(QtGui.QColor(0, 200, 0, 40))
+        painter.drawRect(roi_rect)
+
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        geom = self._image_geometry()
+        if geom is None:
+            return
+        offset, size = geom
+        area_rect = QtCore.QRect(offset, size)
+        if not area_rect.contains(event.pos()):
+            return
+        self._origin = event.pos()
+        self._rubber_band.setGeometry(QtCore.QRect(self._origin, QtCore.QSize()))
+        self._rubber_band.show()
+
+    def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if self._origin is None:
+            return
+        rect = QtCore.QRect(self._origin, event.pos()).normalized()
+        self._rubber_band.setGeometry(rect)
+
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if self._origin is None:
+            return
+        geom = self._image_geometry()
+        self._rubber_band.hide()
+        if geom is None:
+            self._origin = None
+            return
+        offset, size = geom
+        selection = self._rubber_band.geometry().intersected(QtCore.QRect(offset, size))
+        if selection.isValid() and selection.width() > 5 and selection.height() > 5:
+            x_pct = max(0, min(100, int((selection.left() - offset.x()) * 100 / size.width())))
+            y_pct = max(0, min(100, int((selection.top() - offset.y()) * 100 / size.height())))
+            w_pct = max(1, min(100 - x_pct, int(selection.width() * 100 / size.width())))
+            h_pct = max(1, min(100 - y_pct, int(selection.height() * 100 / size.height())))
+            self._roi = {"x": x_pct, "y": y_pct, "width": w_pct, "height": h_pct}
+            self.roi_changed.emit(self._roi)
+        self._origin = None
+        self.update()
 
 
 class EventDetailView(QtWidgets.QWidget):
-    """Современное отображение деталей события."""
-    
+    """Отображение выбранного события: метаданные, кадр и область номера."""
+
     def __init__(self) -> None:
         super().__init__()
-        self.setup_ui()
-        
-    def setup_ui(self):
-        main_layout = QtWidgets.QVBoxLayout(self)
-        main_layout.setSpacing(16)
-        
-        # Основное изображение
-        self.frame_card = CardWidget(elevated=True)
-        frame_layout = QtWidgets.QVBoxLayout(self.frame_card)
-        
-        frame_title = QtWidgets.QLabel("Кадр распознавания")
-        frame_title.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 16px;
-                font-weight: 600;
-                padding: 12px 16px 8px 16px;
-            }
-        """)
-        
-        self.frame_preview = QtWidgets.QLabel("Нет изображения")
-        self.frame_preview.setAlignment(QtCore.Qt.AlignCenter)
-        self.frame_preview.setMinimumHeight(320)
-        self.frame_preview.setStyleSheet("""
-            QLabel {
-                background-color: #000000;
-                color: #8E8E93;
-                border-radius: 8px;
-                margin: 0px 16px 16px 16px;
-                font-size: 14px;
-            }
-        """)
-        self.frame_preview.setScaledContents(False)
-        
-        frame_layout.addWidget(frame_title)
-        frame_layout.addWidget(self.frame_preview, 1)
-        
-        # Нижняя панель с деталями
-        bottom_panel = QtWidgets.QHBoxLayout()
-        bottom_panel.setSpacing(16)
-        
-        # Детали номера
-        self.details_card = CardWidget(elevated=True)
-        details_layout = QtWidgets.QVBoxLayout(self.details_card)
-        details_layout.setContentsMargins(16, 16, 16, 16)
-        details_layout.setSpacing(16)
-        
-        details_title = QtWidgets.QLabel("Информация о событии")
-        details_title.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 18px;
-                font-weight: 600;
-            }
-        """)
-        details_layout.addWidget(details_title)
-        
-        # Метаданные
-        meta_grid = QtWidgets.QGridLayout()
-        meta_grid.setVerticalSpacing(12)
-        meta_grid.setHorizontalSpacing(16)
-        
-        meta_grid.addWidget(self._create_label("Время:"), 0, 0)
-        self.time_label = self._create_value_label()
-        meta_grid.addWidget(self.time_label, 0, 1)
-        
-        meta_grid.addWidget(self._create_label("Канал:"), 1, 0)
-        self.channel_label = self._create_value_label()
-        meta_grid.addWidget(self.channel_label, 1, 1)
-        
-        meta_grid.addWidget(self._create_label("Страна:"), 2, 0)
-        self.country_label = self._create_value_label()
-        meta_grid.addWidget(self.country_label, 2, 1)
-        
-        meta_grid.addWidget(self._create_label("Номер:"), 3, 0)
-        self.plate_label = self._create_value_label()
-        self.plate_label.setStyleSheet("""
-            QLabel {
-                color: #34C759;
-                font-size: 18px;
-                font-weight: 700;
-            }
-        """)
-        meta_grid.addWidget(self.plate_label, 3, 1)
-        
-        meta_grid.addWidget(self._create_label("Уверенность:"), 4, 0)
-        self.conf_label = self._create_value_label()
-        meta_grid.addWidget(self.conf_label, 4, 1)
-        
-        details_layout.addLayout(meta_grid)
-        details_layout.addStretch()
-        
-        # Изображение номера
-        self.plate_card = CardWidget(elevated=True)
-        plate_layout = QtWidgets.QVBoxLayout(self.plate_card)
-        plate_layout.setContentsMargins(16, 16, 16, 16)
-        
-        plate_title = QtWidgets.QLabel("Область номера")
-        plate_title.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 16px;
-                font-weight: 600;
-                margin-bottom: 12px;
-            }
-        """)
-        
-        self.plate_preview = QtWidgets.QLabel("Нет изображения")
-        self.plate_preview.setAlignment(QtCore.Qt.AlignCenter)
-        self.plate_preview.setMinimumHeight(180)
-        self.plate_preview.setStyleSheet("""
-            QLabel {
-                background-color: #000000;
-                color: #8E8E93;
-                border-radius: 8px;
-                font-size: 13px;
-            }
-        """)
-        self.plate_preview.setScaledContents(False)
-        
-        plate_layout.addWidget(plate_title)
-        plate_layout.addWidget(self.plate_preview, 1)
-        
-        # Собираем нижнюю панель
-        bottom_panel.addWidget(self.details_card, 1)
-        bottom_panel.addWidget(self.plate_card, 1)
-        
-        # Собираем все вместе
-        main_layout.addWidget(self.frame_card, 3)
-        main_layout.addLayout(bottom_panel, 1)
-        
-    def _create_label(self, text: str) -> QtWidgets.QLabel:
-        label = QtWidgets.QLabel(text)
-        label.setStyleSheet("""
-            QLabel {
-                color: #8E8E93;
-                font-size: 14px;
-                font-weight: 500;
-            }
-        """)
-        return label
-        
-    def _create_value_label(self) -> QtWidgets.QLabel:
-        label = QtWidgets.QLabel("—")
-        label.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 14px;
-                font-weight: 500;
-            }
-        """)
-        return label
-        
+        layout = QtWidgets.QVBoxLayout(self)
+
+        self.frame_preview = self._build_preview("Кадр распознавания", min_height=320, keep_aspect=True)
+        layout.addWidget(self.frame_preview, stretch=3)
+
+        bottom_row = QtWidgets.QHBoxLayout()
+        self.plate_preview = self._build_preview("Кадр номера", min_size=QtCore.QSize(200, 140), keep_aspect=True)
+        bottom_row.addWidget(self.plate_preview, 1)
+
+        meta_group = QtWidgets.QGroupBox("Данные распознавания")
+        meta_group.setStyleSheet(
+            "QGroupBox { background-color: #000; color: white; border: 1px solid #2e2e2e; padding: 6px; }"
+            "QLabel { color: white; }"
+        )
+        meta_group.setMinimumWidth(220)
+        meta_layout = QtWidgets.QFormLayout(meta_group)
+        self.time_label = QtWidgets.QLabel("—")
+        self.channel_label = QtWidgets.QLabel("—")
+        self.country_label = QtWidgets.QLabel("—")
+        self.plate_label = QtWidgets.QLabel("—")
+        self.conf_label = QtWidgets.QLabel("—")
+        meta_layout.addRow("Дата/Время:", self.time_label)
+        meta_layout.addRow("Канал:", self.channel_label)
+        meta_layout.addRow("Страна:", self.country_label)
+        meta_layout.addRow("Гос. номер:", self.plate_label)
+        meta_layout.addRow("Уверенность:", self.conf_label)
+        bottom_row.addWidget(meta_group, 1)
+
+        layout.addLayout(bottom_row, stretch=1)
+
+    def _build_preview(
+        self,
+        title: str,
+        min_height: int = 180,
+        min_size: Optional[QtCore.QSize] = None,
+        keep_aspect: bool = False,
+    ) -> QtWidgets.QGroupBox:
+        group = QtWidgets.QGroupBox(title)
+        wrapper = QtWidgets.QVBoxLayout(group)
+        label = QtWidgets.QLabel("Нет изображения")
+        label.setAlignment(QtCore.Qt.AlignCenter)
+        if min_size:
+            label.setMinimumSize(min_size)
+        else:
+            label.setMinimumHeight(min_height)
+        label.setStyleSheet("background-color: #111; color: #888; border: 1px solid #444;")
+        label.setScaledContents(False if keep_aspect else True)
+        wrapper.addWidget(label)
+        group.display_label = label  # type: ignore[attr-defined]
+        return group
+
     def clear(self) -> None:
         self.time_label.setText("—")
         self.channel_label.setText("—")
         self.country_label.setText("—")
         self.plate_label.setText("—")
         self.conf_label.setText("—")
-        self.frame_preview.setText("Нет изображения")
-        self.frame_preview.setPixmap(QtGui.QPixmap())
-        self.plate_preview.setText("Нет изображения")
-        self.plate_preview.setPixmap(QtGui.QPixmap())
+        for group in (self.frame_preview, self.plate_preview):
+            group.display_label.setPixmap(QtGui.QPixmap())  # type: ignore[attr-defined]
+            group.display_label.setText("Нет изображения")  # type: ignore[attr-defined]
 
+    def set_event(
+        self,
+        event: Optional[Dict],
+        frame_image: Optional[QtGui.QImage] = None,
+        plate_image: Optional[QtGui.QImage] = None,
+    ) -> None:
+        if event is None:
+            self.clear()
+            return
 
-class SettingsManagerWidget(QtWidgets.QWidget):
-    """Современный менеджер настроек с сайдбаром."""
-    
-    def __init__(self, main_window):
-        super().__init__()
-        self.main_window = main_window
-        self.setup_ui()
-        
-    def setup_ui(self):
-        main_layout = QtWidgets.QHBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        
-        # Сайдбар
-        self.sidebar = QtWidgets.QWidget()
-        self.sidebar.setFixedWidth(240)
-        self.sidebar.setStyleSheet("""
-            QWidget {
-                background-color: #1C1C1E;
-            }
-        """)
-        
-        sidebar_layout = QtWidgets.QVBoxLayout(self.sidebar)
-        sidebar_layout.setContentsMargins(16, 24, 16, 24)
-        sidebar_layout.setSpacing(8)
-        
-        # Заголовок
-        sidebar_title = QtWidgets.QLabel("Настройки")
-        sidebar_title.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 24px;
-                font-weight: 700;
-                margin-bottom: 24px;
-            }
-        """)
-        sidebar_layout.addWidget(sidebar_title)
-        
-        # Кнопки навигации
-        self.nav_buttons = []
-        self.settings_stack = QtWidgets.QStackedWidget()
-        
-        sections = [
-            ("general", "Основные", self._create_general_settings),
-            ("channels", "Каналы", self._create_channel_settings),
-            ("recognition", "Распознавание", self._create_recognition_settings),
-            ("storage", "Хранилище", self._create_storage_settings),
-            ("advanced", "Дополнительно", self._create_advanced_settings)
-        ]
-        
-        for section_id, title, create_func in sections:
-            btn = SidebarButton(title)
-            btn.clicked.connect(
-                lambda checked, s=section_id: self._show_section(s)
-            )
-            sidebar_layout.addWidget(btn)
-            self.nav_buttons.append(btn)
-            
-            section_widget = create_func()
-            self.settings_stack.addWidget(section_widget)
-        
-        sidebar_layout.addStretch()
-        
-        # Кнопка сохранения
-        save_btn = ModernButton("Сохранить все настройки", variant="primary")
-        save_btn.clicked.connect(self._save_all_settings)
-        sidebar_layout.addWidget(save_btn)
-        
-        # Область настроек
-        self.settings_area = ModernScrollArea()
-        self.settings_area.setWidget(self.settings_stack)
-        
-        main_layout.addWidget(self.sidebar)
-        main_layout.addWidget(self.settings_area, 1)
-        
-        # Показываем первую секцию
-        self.nav_buttons[0].setChecked(True)
-        self.settings_stack.setCurrentIndex(0)
-        
-    def _show_section(self, section_id: str):
-        for i, btn in enumerate(self.nav_buttons):
-            if btn.text().lower() in section_id:
-                btn.setChecked(True)
-                self.settings_stack.setCurrentIndex(i)
-            else:
-                btn.setChecked(False)
-    
-    def _create_general_settings(self) -> QtWidgets.QWidget:
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(24)
-        
-        # Секция интерфейса
-        interface_section = SettingsSection("Интерфейс")
-        
-        theme_group = SettingsGroup("Тема оформления", "Выберите цветовую схему интерфейса")
-        theme_combo = QtWidgets.QComboBox()
-        theme_combo.addItems(["Тёмная", "Светлая"])
-        theme_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #2C2C2E;
-                color: #FFFFFF;
-                border: 1px solid #3A3A3C;
-                border-radius: 6px;
-                padding: 8px 12px;
-                min-height: 36px;
-            }
-            QComboBox::drop-down {
-                border: none;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid #8E8E93;
-            }
-        """)
-        theme_group.add_widget(theme_combo)
-        interface_section.add_widget(theme_group)
-        
-        layout.addWidget(interface_section)
-        layout.addStretch()
-        
-        return widget
-    
-    def _create_channel_settings(self) -> QtWidgets.QWidget:
-        # Используем существующую реализацию, но в новой структуре
-        return self.main_window._build_channel_settings_content()
-    
-    def _create_recognition_settings(self) -> QtWidgets.QWidget:
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(24)
-        
-        # Секция алгоритмов
-        algorithm_section = SettingsSection("Алгоритмы распознавания")
-        
-        # Группа детекции
-        detection_group = SettingsGroup(
-            "Детекция номеров",
-            "Настройки детектора автомобильных номеров"
-        )
-        
-        # Добавляем настройки детекции
-        detection_form = QtWidgets.QFormLayout()
-        detection_form.setVerticalSpacing(12)
-        
-        self.conf_threshold = self._create_slider_input(
-            "Порог уверенности:", 0.0, 1.0, 0.5, 0.05
-        )
-        detection_form.addRow("Порог уверенности:", self.conf_threshold)
-        
-        self.nms_threshold = self._create_slider_input(
-            "NMS порог:", 0.0, 1.0, 0.45, 0.05
-        )
-        detection_form.addRow("NMS порог:", self.nms_threshold)
-        
-        self.detector_stride = QtWidgets.QSpinBox()
-        self.detector_stride.setRange(1, 10)
-        self.detector_stride.setValue(2)
-        self.detector_stride.setStyleSheet(self.main_window.SPINBOX_STYLE)
-        detection_form.addRow("Шаг детекции:", self.detector_stride)
-        
-        detection_group.add_widget(detection_form)
-        algorithm_section.add_widget(detection_group)
-        
-        # Группа OCR
-        ocr_group = SettingsGroup(
-            "Оптическое распознавание",
-            "Настройки OCR для чтения номеров"
-        )
-        
-        ocr_form = QtWidgets.QFormLayout()
-        ocr_form.setVerticalSpacing(12)
-        
-        self.ocr_min_confidence = self._create_slider_input(
-            "Мин. уверенность OCR:", 0.0, 1.0, 0.7, 0.05
-        )
-        ocr_form.addRow("Мин. уверенность OCR:", self.ocr_min_confidence)
-        
-        self.best_shots = QtWidgets.QSpinBox()
-        self.best_shots.setRange(1, 50)
-        self.best_shots.setValue(10)
-        self.best_shots.setStyleSheet(self.main_window.SPINBOX_STYLE)
-        ocr_form.addRow("Бестшотов на трек:", self.best_shots)
-        
-        self.cooldown = QtWidgets.QSpinBox()
-        self.cooldown.setRange(0, 3600)
-        self.cooldown.setValue(30)
-        self.cooldown.setSuffix(" сек")
-        self.cooldown.setStyleSheet(self.main_window.SPINBOX_STYLE)
-        ocr_form.addRow("Пауза повтора:", self.cooldown)
-        
-        ocr_group.add_widget(ocr_form)
-        algorithm_section.add_widget(ocr_group)
-        
-        # Группа стран
-        country_group = SettingsGroup(
-            "Конфигурации стран",
-            "Выберите страны для распознавания"
-        )
-        
-        # Поле для выбора директории
-        dir_layout = QtWidgets.QHBoxLayout()
-        self.country_dir_input = QtWidgets.QLineEdit()
-        self.country_dir_input.setStyleSheet(self.main_window.LINEEDIT_STYLE)
-        dir_layout.addWidget(self.country_dir_input, 1)
-        
-        browse_btn = ModernButton("Обзор", variant="secondary")
-        browse_btn.setFixedWidth(80)
-        browse_btn.clicked.connect(self._browse_country_dir)
-        dir_layout.addWidget(browse_btn)
-        
-        country_group.add_widget(QtWidgets.QLabel("Директория шаблонов:"))
-        dir_widget = QtWidgets.QWidget()
-        dir_widget.setLayout(dir_layout)
-        country_group.add_widget(dir_widget)
-        
-        # Список стран
-        self.country_list = QtWidgets.QListWidget()
-        self.country_list.setStyleSheet("""
-            QListWidget {
-                background-color: #2C2C2E;
-                color: #FFFFFF;
-                border: 1px solid #3A3A3C;
-                border-radius: 6px;
-                padding: 4px;
-            }
-            QListWidget::item {
-                padding: 8px 12px;
-                border-radius: 4px;
-            }
-            QListWidget::item:selected {
-                background-color: #007AFF;
-            }
-            QListWidget::item:hover:!selected {
-                background-color: #3A3A3C;
-            }
-        """)
-        self.country_list.setSelectionMode(
-            QtWidgets.QAbstractItemView.MultiSelection
-        )
-        country_group.add_widget(self.country_list)
-        
-        # Кнопка обновления
-        refresh_btn = ModernButton("Обновить список", variant="secondary")
-        refresh_btn.clicked.connect(self._reload_countries)
-        country_group.add_widget(refresh_btn)
-        
-        algorithm_section.add_widget(country_group)
-        
-        layout.addWidget(algorithm_section)
-        layout.addStretch()
-        
-        return widget
-    
-    def _create_storage_settings(self) -> QtWidgets.QWidget:
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(24)
-        
-        # Секция хранения данных
-        storage_section = SettingsSection("Хранение данных")
-        
-        # Группа базы данных
-        db_group = SettingsGroup(
-            "База данных",
-            "Настройки хранения событий"
-        )
-        
-        db_form = QtWidgets.QFormLayout()
-        db_form.setVerticalSpacing(12)
-        
-        # Директория БД
-        db_dir_layout = QtWidgets.QHBoxLayout()
-        self.db_dir_input = QtWidgets.QLineEdit()
-        self.db_dir_input.setStyleSheet(self.main_window.LINEEDIT_STYLE)
-        db_dir_layout.addWidget(self.db_dir_input, 1)
-        
-        db_browse_btn = ModernButton("Обзор", variant="secondary")
-        db_browse_btn.setFixedWidth(80)
-        db_browse_btn.clicked.connect(self._browse_db_dir)
-        db_dir_layout.addWidget(db_browse_btn)
-        
-        db_form.addRow("Директория БД:", self._wrap_layout(db_dir_layout))
-        
-        # Автоочистка
-        cleanup_group = SettingsGroup("Автоочистка")
-        
-        self.auto_cleanup = ToggleSwitch()
-        self.auto_cleanup.setChecked(True)
-        
-        self.cleanup_days = QtWidgets.QSpinBox()
-        self.cleanup_days.setRange(1, 365)
-        self.cleanup_days.setValue(30)
-        self.cleanup_days.setSuffix(" дней")
-        self.cleanup_days.setStyleSheet(self.main_window.SPINBOX_STYLE)
-        
-        cleanup_form = QtWidgets.QFormLayout()
-        cleanup_form.addRow("Включить:", self.auto_cleanup)
-        cleanup_form.addRow("Хранить данные:", self.cleanup_days)
-        
-        cleanup_group.add_widget(cleanup_form)
-        db_group.add_widget(cleanup_group)
-        
-        storage_section.add_widget(db_group)
-        
-        # Группа скриншотов
-        screenshot_group = SettingsGroup(
-            "Скриншоты",
-            "Настройки сохранения изображений"
-        )
-        
-        ss_form = QtWidgets.QFormLayout()
-        ss_form.setVerticalSpacing(12)
-        
-        # Директория скриншотов
-        ss_dir_layout = QtWidgets.QHBoxLayout()
-        self.ss_dir_input = QtWidgets.QLineEdit()
-        self.ss_dir_input.setStyleSheet(self.main_window.LINEEDIT_STYLE)
-        ss_dir_layout.addWidget(self.ss_dir_input, 1)
-        
-        ss_browse_btn = ModernButton("Обзор", variant="secondary")
-        ss_browse_btn.setFixedWidth(80)
-        ss_browse_btn.clicked.connect(self._browse_ss_dir)
-        ss_dir_layout.addWidget(ss_browse_btn)
-        
-        ss_form.addRow("Директория:", self._wrap_layout(ss_dir_layout))
-        
-        # Качество изображений
-        self.jpeg_quality = self._create_slider_input(
-            "Качество JPEG:", 10, 100, 85, 5
-        )
-        ss_form.addRow("Качество JPEG:", self.jpeg_quality)
-        
-        # Максимальный размер
-        self.max_image_size = QtWidgets.QSpinBox()
-        self.max_image_size.setRange(100, 5000)
-        self.max_image_size.setValue(1920)
-        self.max_image_size.setSuffix(" px")
-        self.max_image_size.setStyleSheet(self.main_window.SPINBOX_STYLE)
-        ss_form.addRow("Макс. размер:", self.max_image_size)
-        
-        screenshot_group.add_widget(ss_form)
-        storage_section.add_widget(screenshot_group)
-        
-        layout.addWidget(storage_section)
-        layout.addStretch()
-        
-        return widget
-    
-    def _create_advanced_settings(self) -> QtWidgets.QWidget:
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(24)
-        
-        # Секция производительности
-        perf_section = SettingsSection("Производительность")
-        
-        # Группа потоков
-        thread_group = SettingsGroup(
-            "Многопоточность",
-            "Настройки параллельной обработки"
-        )
-        
-        thread_form = QtWidgets.QFormLayout()
-        thread_form.setVerticalSpacing(12)
-        
-        self.num_threads = QtWidgets.QSpinBox()
-        self.num_threads.setRange(1, 16)
-        self.num_threads.setValue(4)
-        self.num_threads.setStyleSheet(self.main_window.SPINBOX_STYLE)
-        thread_form.addRow("Количество потоков:", self.num_threads)
-        
-        self.gpu_enabled = ToggleSwitch()
-        self.gpu_enabled.setChecked(False)
-        thread_form.addRow("Использовать GPU:", self.gpu_enabled)
-        
-        thread_group.add_widget(thread_form)
-        perf_section.add_widget(thread_group)
-        
-        # Группа логирования
-        log_group = SettingsGroup(
-            "Логирование",
-            "Настройки системы логирования"
-        )
-        
-        log_form = QtWidgets.QFormLayout()
-        log_form.setVerticalSpacing(12)
-        
-        self.log_level = QtWidgets.QComboBox()
-        self.log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR"])
-        self.log_level.setStyleSheet(self.main_window.COMBOBOX_STYLE)
-        log_form.addRow("Уровень логирования:", self.log_level)
-        
-        self.log_to_file = ToggleSwitch()
-        self.log_to_file.setChecked(True)
-        log_form.addRow("Запись в файл:", self.log_to_file)
-        
-        log_group.add_widget(log_form)
-        perf_section.add_widget(log_group)
-        
-        # Группа переподключения
-        reconnect_group = SettingsGroup(
-            "Переподключение",
-            "Настройки повторного подключения к источникам"
-        )
-        
-        reconnect_form = QtWidgets.QFormLayout()
-        reconnect_form.setVerticalSpacing(12)
-        
-        self.reconnect_enabled = ToggleSwitch()
-        self.reconnect_enabled.setChecked(True)
-        reconnect_form.addRow("Включить:", self.reconnect_enabled)
-        
-        self.reconnect_timeout = QtWidgets.QSpinBox()
-        self.reconnect_timeout.setRange(1, 300)
-        self.reconnect_timeout.setValue(5)
-        self.reconnect_timeout.setSuffix(" сек")
-        self.reconnect_timeout.setStyleSheet(self.main_window.SPINBOX_STYLE)
-        reconnect_form.addRow("Таймаут:", self.reconnect_timeout)
-        
-        self.max_reconnect_attempts = QtWidgets.QSpinBox()
-        self.max_reconnect_attempts.setRange(1, 100)
-        self.max_reconnect_attempts.setValue(10)
-        self.max_reconnect_attempts.setStyleSheet(self.main_window.SPINBOX_STYLE)
-        reconnect_form.addRow("Макс. попыток:", self.max_reconnect_attempts)
-        
-        reconnect_group.add_widget(reconnect_form)
-        perf_section.add_widget(reconnect_group)
-        
-        layout.addWidget(perf_section)
-        layout.addStretch()
-        
-        return widget
-    
-    def _create_slider_input(self, label: str, min_val: float, max_val: float, 
-                           default: float, step: float) -> QtWidgets.QWidget:
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        slider.setRange(int(min_val * 100), int(max_val * 100))
-        slider.setValue(int(default * 100))
-        slider.setStyleSheet("""
-            QSlider::groove:horizontal {
-                background: #3A3A3C;
-                height: 4px;
-                border-radius: 2px;
-            }
-            QSlider::handle:horizontal {
-                background: #007AFF;
-                width: 16px;
-                height: 16px;
-                margin: -6px 0;
-                border-radius: 8px;
-            }
-        """)
-        
-        value_label = QtWidgets.QLabel(f"{default:.2f}")
-        value_label.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 14px;
-                min-width: 40px;
-            }
-        """)
-        
-        slider.valueChanged.connect(
-            lambda v: value_label.setText(f"{v/100:.2f}")
-        )
-        
-        layout.addWidget(slider, 1)
-        layout.addWidget(value_label)
-        
-        return widget
-    
-    def _wrap_layout(self, layout: QtWidgets.QLayout) -> QtWidgets.QWidget:
-        widget = QtWidgets.QWidget()
-        widget.setLayout(layout)
-        return widget
-    
-    def _browse_country_dir(self):
-        directory = QtWidgets.QFileDialog.getExistingDirectory(
-            self, "Выбор каталога шаблонов стран"
-        )
-        if directory:
-            self.country_dir_input.setText(directory)
-    
-    def _browse_db_dir(self):
-        directory = QtWidgets.QFileDialog.getExistingDirectory(
-            self, "Выбор директории базы данных"
-        )
-        if directory:
-            self.db_dir_input.setText(directory)
-    
-    def _browse_ss_dir(self):
-        directory = QtWidgets.QFileDialog.getExistingDirectory(
-            self, "Выбор директории скриншотов"
-        )
-        if directory:
-            self.ss_dir_input.setText(directory)
-    
-    def _reload_countries(self):
-        # Здесь будет загрузка списка стран из директории
-        pass
-    
-    def _save_all_settings(self):
-        # Здесь будет сохранение всех настроек
-        QtWidgets.QMessageBox.information(
-            self, "Сохранено", "Все настройки успешно сохранены"
-        )
+        self.time_label.setText(event.get("timestamp", "—"))
+        self.channel_label.setText(event.get("channel", "—"))
+        self.country_label.setText(event.get("country") or "—")
+        plate = event.get("plate") or "—"
+        self.plate_label.setText(plate)
+        conf = event.get("confidence")
+        self.conf_label.setText(f"{float(conf):.2f}" if conf is not None else "—")
+
+        self._set_image(self.frame_preview, frame_image, keep_aspect=True)
+        self._set_image(self.plate_preview, plate_image, keep_aspect=True)
+
+    def _set_image(
+        self,
+        group: QtWidgets.QGroupBox,
+        image: Optional[QtGui.QImage],
+        keep_aspect: bool = False,
+    ) -> None:
+        label: QtWidgets.QLabel = group.display_label  # type: ignore[attr-defined]
+        if image is None:
+            label.setPixmap(QtGui.QPixmap())
+            label.setText("Нет изображения")
+            return
+        label.setText("")
+        pixmap = QtGui.QPixmap.fromImage(image)
+        if keep_aspect:
+            pixmap = pixmap.scaled(label.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+        label.setPixmap(pixmap)
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    """Главное окно приложения ANPR с современным дизайном."""
-    
-    # Константы стилей
-    STYLESHEET = """
-        QMainWindow {
-            background-color: #000000;
-        }
-        
-        QTabWidget::pane {
-            border: none;
-            background-color: #000000;
-        }
-        
-        QTabBar::tab {
-            background-color: #1C1C1E;
-            color: #8E8E93;
-            padding: 12px 24px;
-            margin-right: 2px;
-            border-top-left-radius: 8px;
-            border-top-right-radius: 8px;
-            font-weight: 500;
-            font-size: 14px;
-        }
-        
-        QTabBar::tab:selected {
-            background-color: #2C2C2E;
-            color: #FFFFFF;
-        }
-        
-        QTabBar::tab:hover:!selected {
-            background-color: #2C2C2E;
-            color: #FFFFFF;
-        }
-    """
-    
-    # Стили для виджетов
-    LINEEDIT_STYLE = """
-        QLineEdit {
-            background-color: #2C2C2E;
-            color: #FFFFFF;
-            border: 1px solid #3A3A3C;
-            border-radius: 6px;
-            padding: 8px 12px;
-            min-height: 36px;
-        }
-        QLineEdit:focus {
-            border-color: #007AFF;
-        }
-    """
-    
-    SPINBOX_STYLE = """
-        QSpinBox {
-            background-color: #2C2C2E;
-            color: #FFFFFF;
-            border: 1px solid #3A3A3C;
-            border-radius: 6px;
-            padding: 8px 12px;
-            min-height: 36px;
-        }
-        QSpinBox:focus {
-            border-color: #007AFF;
-        }
-        QSpinBox::up-button, QSpinBox::down-button {
-            background-color: #3A3A3C;
-            border: none;
-            border-radius: 3px;
-            width: 20px;
-        }
-    """
-    
-    COMBOBOX_STYLE = """
-        QComboBox {
-            background-color: #2C2C2E;
-            color: #FFFFFF;
-            border: 1px solid #3A3A3C;
-            border-radius: 6px;
-            padding: 8px 12px;
-            min-height: 36px;
-        }
-        QComboBox:focus {
-            border-color: #007AFF;
-        }
-        QComboBox::drop-down {
-            border: none;
-            padding-right: 8px;
-        }
-        QComboBox::down-arrow {
-            image: none;
-            border-left: 5px solid transparent;
-            border-right: 5px solid transparent;
-            border-top: 5px solid #8E8E93;
-        }
-        QComboBox QAbstractItemView {
-            background-color: #2C2C2E;
-            color: #FFFFFF;
-            border: 1px solid #3A3A3C;
-            selection-background-color: #007AFF;
-            selection-color: #FFFFFF;
-        }
-    """
-    
+    """Главное окно приложения ANPR с вкладками наблюдения, поиска и настроек."""
+
+    GRID_VARIANTS = ["1x1", "1x2", "2x2", "2x3", "3x3"]
+    MAX_IMAGE_CACHE = 200
+    MAX_IMAGE_CACHE_BYTES = 256 * 1024 * 1024  # 256 MB
+    GROUP_BOX_STYLE = (
+        "QGroupBox { background-color: #2b2b28; color: #f0f0f0; border: 1px solid #383531; padding: 8px; margin-top: 6px; }"
+        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
+        "QLabel { color: #f0f0f0; }"
+        "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateTimeEdit { background-color: #111; color: #f0f0f0; border: 1px solid #333; padding: 4px; }"
+        "QPushButton { background-color: #00ffff; color: #000; border-radius: 4px; padding: 6px 12px; font-weight: 600; }"
+        "QPushButton:hover { background-color: #4dfefe; }"
+        "QCheckBox { color: #e0e0e0; }"
+    )
+    TABLE_STYLE = (
+        "QHeaderView::section { background-color: rgb(23,25,29); color: white; padding: 6px; }"
+        "QTableWidget { background-color: #000; color: lightgray; gridline-color: #333; }"
+        "QTableWidget::item { border-bottom: 1px solid #333; }"
+        "QTableWidget::item:selected { background-color: #00ffff; color: #000; }"
+    )
+    LIST_STYLE = "QListWidget { background-color: #111; color: #e0e0e0; border: 1px solid #333; }"
+
     def __init__(self, settings: Optional[SettingsManager] = None) -> None:
         super().__init__()
-        self.setup_window()
-        
+        self.setWindowTitle("ANPR Desktop")
+        self.resize(1280, 800)
+
         self.settings = settings or SettingsManager()
         self.db = EventDatabase(self.settings.get_db_path())
-        
+
         self._pixmap_pool = PixmapPool()
         self.channel_workers: List[ChannelWorker] = []
         self.channel_labels: Dict[str, ChannelView] = {}
@@ -1383,556 +389,960 @@ class MainWindow(QtWidgets.QMainWindow):
         self.event_cache: Dict[int, Dict] = {}
         self.flag_cache: Dict[str, Optional[QtGui.QIcon]] = {}
         self.flag_dir = Path(__file__).resolve().parents[2] / "images" / "flags"
-        
-        self.setup_ui()
-        self.setup_connections()
-        
-    def setup_window(self):
-        self.setWindowTitle("ANPR Desktop")
-        self.resize(1400, 900)
-        self.setStyleSheet(self.STYLESHEET)
-        
-        # Центрирование окна
-        screen = QtWidgets.QApplication.primaryScreen().geometry()
-        size = self.geometry()
-        self.move(
-            (screen.width() - size.width()) // 2,
-            (screen.height() - size.height()) // 2
+
+        self.tabs = QtWidgets.QTabWidget()
+        self.tabs.setStyleSheet(
+            "QTabBar::tab { background: rgb(23,25,29); color: grey; padding: 8px 16px; border: 1px solid #111; }"
+            "QTabBar::tab:selected { background: rgb(23,25,29); color: #00ffff; border-bottom: 2px solid #00ffff; }"
+            "QTabWidget::pane { border: 1px solid #111; }"
         )
-        
-    def setup_ui(self):
-        # Создаем центральный виджет
-        central_widget = QtWidgets.QWidget()
-        self.setCentralWidget(central_widget)
-        
-        # Основной layout
-        main_layout = QtWidgets.QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        
-        # Верхняя панель
-        self.setup_top_bar(main_layout)
-        
-        # Основная область с вкладками
-        self.tab_widget = QtWidgets.QTabWidget()
-        self.tab_widget.setDocumentMode(True)
-        self.tab_widget.setTabPosition(QtWidgets.QTabWidget.North)
-        
-        # Создаем вкладки
         self.observation_tab = self._build_observation_tab()
         self.search_tab = self._build_search_tab()
-        self.settings_tab = SettingsManagerWidget(self)
-        
-        self.tab_widget.addTab(self.observation_tab, "Наблюдение")
-        self.tab_widget.addTab(self.search_tab, "Поиск")
-        self.tab_widget.addTab(self.settings_tab, "Настройки")
-        
-        main_layout.addWidget(self.tab_widget, 1)
-        
-        # Статус бар
-        self.setup_status_bar()
-        
-    def setup_top_bar(self, parent_layout):
-        top_bar = QtWidgets.QWidget()
-        top_bar.setFixedHeight(60)
-        top_bar.setStyleSheet("""
-            QWidget {
-                background-color: #1C1C1E;
-                border-bottom: 1px solid #2C2C2E;
-            }
-        """)
-        
-        top_layout = QtWidgets.QHBoxLayout(top_bar)
-        top_layout.setContentsMargins(20, 0, 20, 0)
-        
-        # Логотип и название
-        logo_label = QtWidgets.QLabel("ANPR")
-        logo_label.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 24px;
-                font-weight: 700;
-            }
-        """)
-        
-        # Статистика
-        stats_widget = QtWidgets.QWidget()
-        stats_layout = QtWidgets.QHBoxLayout(stats_widget)
-        stats_layout.setSpacing(20)
-        
-        self.active_channels_label = QtWidgets.QLabel("Каналы: 0/0")
-        self.total_events_label = QtWidgets.QLabel("События: 0")
-        
-        for label in [self.active_channels_label, self.total_events_label]:
-            label.setStyleSheet("""
-                QLabel {
-                    color: #8E8E93;
-                    font-size: 14px;
-                }
-            """)
-            stats_layout.addWidget(label)
-        
-        top_layout.addWidget(logo_label)
-        top_layout.addStretch()
-        top_layout.addWidget(stats_widget)
-        
-        parent_layout.addWidget(top_bar)
-        
-    def setup_status_bar(self):
-        status_bar = self.statusBar()
-        status_bar.setStyleSheet("""
-            QStatusBar {
-                background-color: #1C1C1E;
-                color: #8E8E93;
-                border-top: 1px solid #2C2C2E;
-                padding: 4px 20px;
-            }
-        """)
-        
-        # Индикаторы производительности
-        perf_widget = QtWidgets.QWidget()
-        perf_layout = QtWidgets.QHBoxLayout(perf_widget)
-        perf_layout.setSpacing(20)
-        
-        self.cpu_label = QtWidgets.QLabel("CPU: —%")
-        self.ram_label = QtWidgets.QLabel("RAM: —%")
-        self.gpu_label = QtWidgets.QLabel("GPU: —%")
-        
-        for label in [self.cpu_label, self.ram_label, self.gpu_label]:
-            label.setStyleSheet("""
-                QLabel {
-                    color: #8E8E93;
-                    font-size: 12px;
-                    font-family: 'Monospace';
-                }
-            """)
-            perf_layout.addWidget(label)
-        
-        status_bar.addPermanentWidget(perf_widget)
-        
-        # Таймер обновления статистики
+        self.settings_tab = self._build_settings_tab()
+
+        self.tabs.addTab(self.observation_tab, "Наблюдение")
+        self.tabs.addTab(self.search_tab, "Поиск")
+        self.tabs.addTab(self.settings_tab, "Настройки")
+
+        self.setCentralWidget(self.tabs)
+        self.setStyleSheet("background-color: #49423d;")
+        self._build_status_bar()
+        self._start_system_monitoring()
+        self._refresh_events_table()
+        self._start_channels()
+
+    def _build_status_bar(self) -> None:
+        status = self.statusBar()
+        status.setStyleSheet("background-color: rgb(23,25,29); color: white; padding: 3px;")
+        status.setSizeGripEnabled(False)
+        self.cpu_label = QtWidgets.QLabel("CPU: —")
+        self.ram_label = QtWidgets.QLabel("RAM: —")
+        status.addPermanentWidget(self.cpu_label)
+        status.addPermanentWidget(self.ram_label)
+
+    def _start_system_monitoring(self) -> None:
         self.stats_timer = QtCore.QTimer(self)
+        self.stats_timer.setInterval(1000)
         self.stats_timer.timeout.connect(self._update_system_stats)
-        self.stats_timer.start(1000)
+        self.stats_timer.start()
         self._update_system_stats()
-        
-    def setup_connections(self):
-        self.tab_widget.currentChanged.connect(self._on_tab_changed)
-        
-    def _on_tab_changed(self, index):
-        # Обновляем данные при переключении вкладок
-        if index == 0:  # Наблюдение
-            self._refresh_events_table()
-        elif index == 1:  # Поиск
-            pass  # Можно добавить обновление поиска
-    
-    def _update_system_stats(self):
+
+    def _update_system_stats(self) -> None:
         cpu_percent = psutil.cpu_percent(interval=None)
         ram_percent = psutil.virtual_memory().percent
-        
-        # Форматируем значения
-        self.cpu_label.setText(f"CPU: {cpu_percent:>3.0f}%")
-        self.ram_label.setText(f"RAM: {ram_percent:>3.0f}%")
-        
-        # GPU пока не реализовано
-        self.gpu_label.setText("GPU: N/A")
-        
-        # Обновляем статистику каналов
-        active = sum(1 for w in self.channel_workers if w.is_running())
-        total = len(self.channel_workers)
-        self.active_channels_label.setText(f"Каналы: {active}/{total}")
-        
-    # Остальные методы остаются похожими, но с обновленным дизайном
-    # Для краткости опущу их полное переписывание, но основные изменения:
-    
+        self.cpu_label.setText(f"CPU: {cpu_percent:.0f}%")
+        self.ram_label.setText(f"RAM: {ram_percent:.0f}%")
+
+    # ------------------ Наблюдение ------------------
     def _build_observation_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QHBoxLayout(widget)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(16)
-        
-        # Левая панель - сетка каналов
-        left_panel = CardWidget(elevated=True)
-        left_layout = QtWidgets.QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(16, 16, 16, 16)
-        left_layout.setSpacing(16)
-        
-        # Панель управления сеткой
-        grid_controls = QtWidgets.QHBoxLayout()
-        grid_controls.addWidget(QtWidgets.QLabel("Раскладка:"))
-        
+        layout.setSpacing(10)
+
+        left_column = QtWidgets.QVBoxLayout()
+        controls = QtWidgets.QHBoxLayout()
+        controls.addWidget(QtWidgets.QLabel("Сетка:"))
         self.grid_selector = QtWidgets.QComboBox()
-        self.grid_selector.addItems(["1x1", "1x2", "2x2", "2x3", "3x3"])
+        self.grid_selector.addItems(self.GRID_VARIANTS)
         self.grid_selector.setCurrentText(self.settings.get_grid())
-        self.grid_selector.setStyleSheet(self.COMBOBOX_STYLE)
         self.grid_selector.currentTextChanged.connect(self._on_grid_changed)
-        
-        grid_controls.addWidget(self.grid_selector)
-        grid_controls.addStretch()
-        
-        left_layout.addLayout(grid_controls)
-        
-        # Сетка каналов
+        controls.addWidget(self.grid_selector)
+        controls.addStretch()
+        left_column.addLayout(controls)
+
         self.grid_widget = QtWidgets.QWidget()
         self.grid_layout = QtWidgets.QGridLayout(self.grid_widget)
-        self.grid_layout.setSpacing(12)
-        left_layout.addWidget(self.grid_widget, 1)
-        
-        layout.addWidget(left_panel, 2)
-        
-        # Правая панель - события и детали
-        right_panel = QtWidgets.QWidget()
-        right_layout = QtWidgets.QVBoxLayout(right_panel)
-        right_layout.setSpacing(16)
-        
-        # Детали события
-        self.event_detail = EventDetailView()
-        right_layout.addWidget(self.event_detail, 2)
-        
-        # Таблица событий
-        events_card = CardWidget(elevated=True)
-        events_layout = QtWidgets.QVBoxLayout(events_card)
-        events_layout.setContentsMargins(16, 16, 16, 16)
-        events_layout.setSpacing(12)
-        
-        events_title = QtWidgets.QLabel("Последние события")
-        events_title.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 18px;
-                font-weight: 600;
-            }
-        """)
-        events_layout.addWidget(events_title)
-        
-        self.events_table = QtWidgets.QTableWidget(0, 5)
-        self.events_table.setHorizontalHeaderLabels(
-            ["Время", "Канал", "Номер", "Страна", "Уверенность"]
+        self.grid_layout.setSpacing(6)
+        left_column.addWidget(self.grid_widget, stretch=4)
+
+        layout.addLayout(left_column, stretch=3)
+
+        right_column = QtWidgets.QVBoxLayout()
+        details_group = QtWidgets.QGroupBox("Информация о событии")
+        details_group.setStyleSheet(
+            "QGroupBox { background-color: #000; color: white; border: 1px solid #2e2e2e; padding: 6px; }"
         )
-        self.events_table.setStyleSheet("""
-            QTableWidget {
-                background-color: transparent;
-                color: #FFFFFF;
-                border: none;
-                gridline-color: #2C2C2E;
-                font-size: 13px;
-            }
-            QHeaderView::section {
-                background-color: #2C2C2E;
-                color: #8E8E93;
-                padding: 12px 8px;
-                border: none;
-                font-weight: 600;
-            }
-            QTableWidget::item {
-                padding: 8px;
-                border-bottom: 1px solid #2C2C2E;
-            }
-            QTableWidget::item:selected {
-                background-color: #007AFF;
-                color: #FFFFFF;
-            }
-        """)
+        details_layout = QtWidgets.QVBoxLayout(details_group)
+        self.event_detail = EventDetailView()
+        details_layout.addWidget(self.event_detail)
+        right_column.addWidget(details_group, stretch=3)
+
+        events_group = QtWidgets.QGroupBox("События")
+        events_group.setStyleSheet(
+            "QGroupBox { background-color: rgb(40,40,40); color: white; border: 1px solid #2e2e2e; padding: 6px; }"
+        )
+        events_layout = QtWidgets.QVBoxLayout(events_group)
+        self.events_table = QtWidgets.QTableWidget(0, 4)
+        self.events_table.setHorizontalHeaderLabels(["Дата/Время", "Гос. номер", "Страна", "Канал"])
+        self.events_table.setStyleSheet(self.TABLE_STYLE)
         self.events_table.horizontalHeader().setStretchLastSection(True)
         self.events_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.events_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.events_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.events_table.verticalHeader().setVisible(False)
         self.events_table.itemSelectionChanged.connect(self._on_event_selected)
-        
         events_layout.addWidget(self.events_table)
-        right_layout.addWidget(events_card, 1)
-        
-        layout.addWidget(right_panel, 1)
-        
+        right_column.addWidget(events_group, stretch=1)
+
+        layout.addLayout(right_column, stretch=2)
+
         self._draw_grid()
         return widget
-    
-    # Остальные методы (_build_search_tab, _build_channel_settings_content и т.д.)
-    # должны быть адаптированы под новый дизайн
-    
-    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
-        self._stop_workers()
-        event.accept()
-    
-    # Методы для работы с каналами, событиями и настройками
-    # остаются функционально такими же, но с обновленным стилем
-    
-    def _draw_grid(self):
-        # Очищаем сетку
+
+    @staticmethod
+    def _prepare_optional_datetime(widget: QtWidgets.QDateTimeEdit) -> None:
+        widget.setCalendarPopup(True)
+        widget.setDisplayFormat("dd.MM.yyyy HH:mm:ss")
+        min_dt = QtCore.QDateTime.fromSecsSinceEpoch(0)
+        widget.setMinimumDateTime(min_dt)
+        widget.setSpecialValueText("Не выбрано")
+        widget.setDateTime(min_dt)
+
+    @staticmethod
+    def _get_datetime_value(widget: QtWidgets.QDateTimeEdit) -> Optional[str]:
+        if widget.dateTime() == widget.minimumDateTime():
+            return None
+        return widget.dateTime().toString(QtCore.Qt.ISODate)
+
+    @staticmethod
+    def _format_timestamp(value: str) -> str:
+        if not value:
+            return "—"
+        cleaned = value.replace("Z", "+00:00") if value.endswith("Z") else value
+        try:
+            parsed = datetime.fromisoformat(cleaned)
+            return parsed.strftime("%d.%m.%Y %H:%M:%S")
+        except ValueError:
+            return value
+
+    def _draw_grid(self) -> None:
         for i in reversed(range(self.grid_layout.count())):
             item = self.grid_layout.takeAt(i)
             widget = item.widget()
             if widget:
                 widget.setParent(None)
-        
+
         self.channel_labels.clear()
         channels = self.settings.get_channels()
         rows, cols = map(int, self.grid_selector.currentText().split("x"))
-        
         for col in range(cols):
             self.grid_layout.setColumnStretch(col, 1)
         for row in range(rows):
             self.grid_layout.setRowStretch(row, 1)
-        
         index = 0
         for row in range(rows):
             for col in range(cols):
+                label = ChannelView(f"Канал {index+1}", self._pixmap_pool)
                 if index < len(channels):
                     channel_name = channels[index].get("name", f"Канал {index+1}")
-                    label = ChannelView(channel_name, self._pixmap_pool)
                     self.channel_labels[channel_name] = label
-                else:
-                    label = ChannelView(f"Канал {index+1}", self._pixmap_pool)
-                    label.container.setStyleSheet("""
-                        CardWidget {
-                            border: 2px dashed #3A3A3C;
-                            border-radius: 12px;
-                            background-color: #1C1C1E;
-                        }
-                    """)
-                    label.video_label.setText("Не настроен")
-                
                 self.grid_layout.addWidget(label, row, col)
                 index += 1
-    
-    def _build_channel_settings_content(self) -> QtWidgets.QWidget:
-        """Создает контент для настроек каналов (используется в SettingsManagerWidget)."""
+
+    def _on_grid_changed(self, grid: str) -> None:
+        self.settings.save_grid(grid)
+        self._draw_grid()
+
+    def _start_channels(self) -> None:
+        self._stop_workers()
+        self.channel_workers = []
+        reconnect_conf = self.settings.get_reconnect()
+        plate_settings = self.settings.get_plate_settings()
+        for channel_conf in self.settings.get_channels():
+            source = str(channel_conf.get("source", "")).strip()
+            channel_name = channel_conf.get("name", "Канал")
+            if not source:
+                label = self.channel_labels.get(channel_name)
+                if label:
+                    label.set_status("Нет источника")
+                continue
+            worker = ChannelWorker(
+                channel_conf,
+                self.settings.get_db_path(),
+                self.settings.get_screenshot_dir(),
+                reconnect_conf,
+                plate_settings,
+            )
+            worker.frame_ready.connect(self._update_frame)
+            worker.event_ready.connect(self._handle_event)
+            worker.status_ready.connect(self._handle_status)
+            self.channel_workers.append(worker)
+            worker.start()
+
+    def _stop_workers(self) -> None:
+        for worker in self.channel_workers:
+            worker.stop()
+            worker.wait(1000)
+        self.channel_workers = []
+
+    def _update_frame(self, channel_name: str, image: QtGui.QImage) -> None:
+        label = self.channel_labels.get(channel_name)
+        if not label:
+            return
+        target_size = label.video_label.contentsRect().size()
+        if target_size.isEmpty():
+            return
+
+        scaled_image = image.scaled(
+            target_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+        )
+        label.set_pixmap(QtGui.QPixmap.fromImage(scaled_image))
+
+    @staticmethod
+    def _load_image_from_path(path: Optional[str]) -> Optional[QtGui.QImage]:
+        if not path or not os.path.exists(path):
+            return None
+        image = cv2.imread(path)
+        if image is None:
+            return None
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        height, width, _ = rgb.shape
+        bytes_per_line = 3 * width
+        return QtGui.QImage(rgb.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888).copy()
+
+    @staticmethod
+    def _image_weight(images: Tuple[Optional[QtGui.QImage], Optional[QtGui.QImage]]) -> int:
+        frame_image, plate_image = images
+        frame_bytes = frame_image.byteCount() if frame_image else 0
+        plate_bytes = plate_image.byteCount() if plate_image else 0
+        return frame_bytes + plate_bytes
+
+    def _discard_event_images(self, event_id: int) -> None:
+        images = self.event_images.pop(event_id, None)
+        if images:
+            self._image_cache_bytes = max(0, self._image_cache_bytes - self._image_weight(images))
+
+    def _store_event_images(
+        self,
+        event_id: int,
+        images: Tuple[Optional[QtGui.QImage], Optional[QtGui.QImage]],
+    ) -> None:
+        existing = self.event_images.pop(event_id, None)
+        if existing:
+            self._image_cache_bytes = max(0, self._image_cache_bytes - self._image_weight(existing))
+
+        frame_image, plate_image = images
+        if frame_image is None and plate_image is None:
+            return
+
+        self.event_images[event_id] = (frame_image, plate_image)
+        self.event_images.move_to_end(event_id)
+        self._image_cache_bytes += self._image_weight((frame_image, plate_image))
+        self._prune_image_cache()
+
+    def _handle_event(self, event: Dict) -> None:
+        event_id = int(event.get("id", 0))
+        frame_image = event.get("frame_image")
+        plate_image = event.get("plate_image")
+        if event_id:
+            self._store_event_images(event_id, (frame_image, plate_image))
+            self.event_cache[event_id] = event
+        channel_label = self.channel_labels.get(event.get("channel", ""))
+        if channel_label:
+            channel_label.set_last_plate(event.get("plate", ""))
+        if event_id:
+            self._insert_event_row(event, position=0)
+            self._trim_events_table()
+        else:
+            self._refresh_events_table()
+        self._show_event_details(event_id)
+
+    def _cleanup_event_images(self, valid_ids: set[int]) -> None:
+        for stale_id in list(self.event_images.keys()):
+            if stale_id not in valid_ids:
+                self._discard_event_images(stale_id)
+        self._prune_image_cache()
+
+    def _get_flag_icon(self, country: Optional[str]) -> Optional[QtGui.QIcon]:
+        if not country:
+            return None
+        code = str(country).lower()
+        if code in self.flag_cache:
+            return self.flag_cache[code]
+        flag_path = self.flag_dir / f"{code}.png"
+        if flag_path.exists():
+            icon = QtGui.QIcon(str(flag_path))
+            self.flag_cache[code] = icon
+            return icon
+        self.flag_cache[code] = None
+        return None
+
+    def _prune_image_cache(self) -> None:
+        """Ограничивает размер кеша изображений, удаляя самые старые записи."""
+
+        valid_ids = set(self.event_cache.keys())
+        for event_id in list(self.event_images.keys()):
+            if event_id not in valid_ids:
+                self._discard_event_images(event_id)
+
+        while self.event_images and (
+            len(self.event_images) > self.MAX_IMAGE_CACHE
+            or self._image_cache_bytes > self.MAX_IMAGE_CACHE_BYTES
+        ):
+            stale_id, images = self.event_images.popitem(last=False)
+            self._image_cache_bytes = max(0, self._image_cache_bytes - self._image_weight(images))
+
+    def _insert_event_row(self, event: Dict, position: Optional[int] = None) -> None:
+        row_index = position if position is not None else self.events_table.rowCount()
+        self.events_table.insertRow(row_index)
+
+        timestamp = self._format_timestamp(event.get("timestamp", ""))
+        plate = event.get("plate", "—")
+        channel = event.get("channel", "—")
+        event_id = int(event.get("id") or 0)
+        country_code = event.get("country") or "—"
+
+        id_item = QtWidgets.QTableWidgetItem(timestamp)
+        id_item.setData(QtCore.Qt.UserRole, event_id)
+        self.events_table.setItem(row_index, 0, id_item)
+        self.events_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(plate))
+        country_item = QtWidgets.QTableWidgetItem(country_code if country_code != "—" else "")
+        country_icon = self._get_flag_icon(event.get("country"))
+        if country_icon:
+            country_item.setIcon(country_icon)
+        country_item.setTextAlignment(QtCore.Qt.AlignCenter)
+        self.events_table.setItem(row_index, 2, country_item)
+        self.events_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(channel))
+
+    def _trim_events_table(self, max_rows: int = 200) -> None:
+        while self.events_table.rowCount() > max_rows:
+            last_row = self.events_table.rowCount() - 1
+            item = self.events_table.item(last_row, 0)
+            event_id = int(item.data(QtCore.Qt.UserRole) or 0) if item else 0
+            self.events_table.removeRow(last_row)
+            if event_id and event_id in self.event_cache:
+                self.event_cache.pop(event_id, None)
+            if event_id and event_id in self.event_images:
+                self._discard_event_images(event_id)
+
+    def _handle_status(self, channel: str, status: str) -> None:
+        label = self.channel_labels.get(channel)
+        if label:
+            normalized = status.lower()
+            if "движ" in normalized or "motion" in normalized:
+                label.set_status("")
+            else:
+                label.set_status(status)
+            label.set_motion_active("обнаружено" in normalized)
+
+    def _on_event_selected(self) -> None:
+        row = self.events_table.currentRow()
+        if row < 0:
+            return
+        event_id_item = self.events_table.item(row, 0)
+        if event_id_item is None:
+            return
+        event_id = int(event_id_item.data(QtCore.Qt.UserRole) or 0)
+        self._show_event_details(event_id)
+
+    def _show_event_details(self, event_id: int) -> None:
+        event = self.event_cache.get(event_id)
+        images = self.event_images.get(event_id, (None, None))
+        frame_image, plate_image = images
+        if event:
+            if frame_image is None and event.get("frame_path"):
+                frame_image = self._load_image_from_path(event.get("frame_path"))
+            if plate_image is None and event.get("plate_path"):
+                plate_image = self._load_image_from_path(event.get("plate_path"))
+            self._store_event_images(event_id, (frame_image, plate_image))
+        display_event = dict(event) if event else None
+        if display_event:
+            display_event["timestamp"] = self._format_timestamp(display_event.get("timestamp", ""))
+        self.event_detail.set_event(display_event, frame_image, plate_image)
+
+    def _refresh_events_table(self, select_id: Optional[int] = None) -> None:
+        rows = self.db.fetch_recent(limit=200)
+        self.events_table.setRowCount(0)
+        self.event_cache = {row["id"]: dict(row) for row in rows}
+        valid_ids = set(self.event_cache.keys())
+
+        for row_data in rows:
+            self._insert_event_row(dict(row_data))
+
+        self._cleanup_event_images(valid_ids)
+
+        if select_id:
+            for row in range(self.events_table.rowCount()):
+                item = self.events_table.item(row, 0)
+                if item and int(item.data(QtCore.Qt.UserRole) or 0) == select_id:
+                    self.events_table.selectRow(row)
+                    break
+
+    # ------------------ Поиск ------------------
+    def _build_search_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(24)
-        
-        # Секция управления каналами
-        channels_section = SettingsSection("Управление каналами")
-        
-        # Список каналов
-        channels_group = SettingsGroup(
-            "Список каналов",
-            "Управление источниками видео"
-        )
-        
-        channels_list_layout = QtWidgets.QVBoxLayout()
-        
-        # Заголовок списка
-        list_header = QtWidgets.QWidget()
-        header_layout = QtWidgets.QHBoxLayout(list_header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        
-        list_title = QtWidgets.QLabel("Настроенные каналы")
-        list_title.setStyleSheet("""
-            QLabel {
-                color: #FFFFFF;
-                font-size: 16px;
-                font-weight: 600;
-            }
-        """)
-        
-        add_channel_btn = ModernButton("+ Добавить", variant="primary")
-        add_channel_btn.setFixedWidth(120)
-        add_channel_btn.clicked.connect(self._add_channel)
-        
-        header_layout.addWidget(list_title)
-        header_layout.addStretch()
-        header_layout.addWidget(add_channel_btn)
-        
-        channels_list_layout.addWidget(list_header)
-        
-        # Список каналов
-        self.channels_list_widget = QtWidgets.QListWidget()
-        self.channels_list_widget.setStyleSheet("""
-            QListWidget {
-                background-color: #2C2C2E;
-                color: #FFFFFF;
-                border: 1px solid #3A3A3C;
-                border-radius: 8px;
-                padding: 4px;
-                font-size: 14px;
-            }
-            QListWidget::item {
-                padding: 12px 16px;
-                border-radius: 6px;
-                margin: 2px;
-            }
-            QListWidget::item:selected {
-                background-color: #007AFF;
-            }
-            QListWidget::item:hover:!selected {
-                background-color: #3A3A3C;
-            }
-        """)
-        self.channels_list_widget.setFixedHeight(200)
-        self.channels_list_widget.itemSelectionChanged.connect(
-            self._on_channel_selected
-        )
-        
-        channels_list_layout.addWidget(self.channels_list_widget)
-        
-        # Кнопки управления
-        list_buttons = QtWidgets.QHBoxLayout()
-        remove_channel_btn = ModernButton("Удалить", variant="danger")
-        remove_channel_btn.setFixedWidth(120)
-        remove_channel_btn.clicked.connect(self._remove_channel)
-        
-        move_up_btn = ModernButton("Вверх", variant="secondary")
-        move_up_btn.setFixedWidth(80)
-        
-        move_down_btn = ModernButton("Вниз", variant="secondary")
-        move_down_btn.setFixedWidth(80)
-        
-        list_buttons.addWidget(remove_channel_btn)
-        list_buttons.addStretch()
-        list_buttons.addWidget(move_up_btn)
-        list_buttons.addWidget(move_down_btn)
-        
-        channels_list_layout.addLayout(list_buttons)
-        channels_group.add_widget(self._wrap_layout(channels_list_layout))
-        
-        channels_section.add_widget(channels_group)
-        layout.addWidget(channels_section)
-        
-        # Секция редактирования канала
-        edit_section = SettingsSection("Редактирование канала")
-        
-        # Основные настройки
-        basic_group = SettingsGroup(
-            "Основные параметры",
-            "Основные настройки источника видео"
-        )
-        
-        basic_form = QtWidgets.QFormLayout()
-        basic_form.setVerticalSpacing(12)
-        
-        self.channel_name_edit = QtWidgets.QLineEdit()
-        self.channel_name_edit.setStyleSheet(self.LINEEDIT_STYLE)
-        basic_form.addRow("Название:", self.channel_name_edit)
-        
-        self.channel_source_edit = QtWidgets.QLineEdit()
-        self.channel_source_edit.setStyleSheet(self.LINEEDIT_STYLE)
-        basic_form.addRow("Источник (RTSP/URL):", self.channel_source_edit)
-        
-        test_btn = ModernButton("Тест подключения", variant="secondary")
-        test_btn.setFixedWidth(140)
-        basic_form.addRow("", test_btn)
-        
-        basic_group.add_widget(basic_form)
-        edit_section.add_widget(basic_group)
-        
-        # Настройки распознавания
-        recognition_group = SettingsGroup(
-            "Параметры распознавания",
-            "Настройки детекции и распознавания номеров"
-        )
-        
-        recognition_form = QtWidgets.QFormLayout()
-        recognition_form.setVerticalSpacing(12)
-        
-        self.enabled_checkbox = ToggleSwitch()
-        recognition_form.addRow("Включен:", self.enabled_checkbox)
-        
-        self.min_confidence_spin = QtWidgets.QDoubleSpinBox()
-        self.min_confidence_spin.setRange(0.0, 1.0)
-        self.min_confidence_spin.setSingleStep(0.05)
-        self.min_confidence_spin.setDecimals(2)
-        self.min_confidence_spin.setStyleSheet(self.SPINBOX_STYLE)
-        recognition_form.addRow("Мин. уверенность:", self.min_confidence_spin)
-        
-        self.best_shots_spin = QtWidgets.QSpinBox()
-        self.best_shots_spin.setRange(1, 50)
-        self.best_shots_spin.setStyleSheet(self.SPINBOX_STYLE)
-        recognition_form.addRow("Бестшотов на трек:", self.best_shots_spin)
-        
-        recognition_group.add_widget(recognition_form)
-        edit_section.add_widget(recognition_group)
-        
-        layout.addWidget(edit_section)
-        
-        # ROI редактор
-        roi_section = SettingsSection("Область распознавания (ROI)")
-        
-        roi_group = SettingsGroup(
-            "Настройка области",
-            "Выделите область для распознавания номеров"
-        )
-        
-        roi_layout = QtWidgets.QVBoxLayout()
-        
-        self.roi_editor = ROIEditor()
-        self.roi_editor.setMinimumHeight(300)
-        roi_layout.addWidget(self.roi_editor)
-        
-        # Контролы ROI
-        roi_controls = QtWidgets.QGridLayout()
-        roi_controls.setVerticalSpacing(8)
-        roi_controls.setHorizontalSpacing(12)
-        
-        roi_controls.addWidget(QtWidgets.QLabel("X (%):"), 0, 0)
-        self.roi_x_spin = QtWidgets.QSpinBox()
-        self.roi_x_spin.setRange(0, 100)
-        self.roi_x_spin.setStyleSheet(self.SPINBOX_STYLE)
-        roi_controls.addWidget(self.roi_x_spin, 0, 1)
-        
-        roi_controls.addWidget(QtWidgets.QLabel("Y (%):"), 1, 0)
-        self.roi_y_spin = QtWidgets.QSpinBox()
-        self.roi_y_spin.setRange(0, 100)
-        self.roi_y_spin.setStyleSheet(self.SPINBOX_STYLE)
-        roi_controls.addWidget(self.roi_y_spin, 1, 1)
-        
-        roi_controls.addWidget(QtWidgets.QLabel("Ширина (%):"), 0, 2)
-        self.roi_w_spin = QtWidgets.QSpinBox()
-        self.roi_w_spin.setRange(1, 100)
-        self.roi_w_spin.setStyleSheet(self.SPINBOX_STYLE)
-        roi_controls.addWidget(self.roi_w_spin, 0, 3)
-        
-        roi_controls.addWidget(QtWidgets.QLabel("Высота (%):"), 1, 2)
-        self.roi_h_spin = QtWidgets.QSpinBox()
-        self.roi_h_spin.setRange(1, 100)
-        self.roi_h_spin.setStyleSheet(self.SPINBOX_STYLE)
-        roi_controls.addWidget(self.roi_h_spin, 1, 3)
-        
-        roi_layout.addLayout(roi_controls)
-        
-        # Кнопки ROI
-        roi_buttons = QtWidgets.QHBoxLayout()
-        reset_roi_btn = ModernButton("Сбросить", variant="secondary")
-        reset_roi_btn.setFixedWidth(100)
-        
-        preview_btn = ModernButton("Предпросмотр", variant="secondary")
-        preview_btn.setFixedWidth(120)
-        
-        roi_buttons.addWidget(reset_roi_btn)
-        roi_buttons.addStretch()
-        roi_buttons.addWidget(preview_btn)
-        
-        roi_layout.addLayout(roi_buttons)
-        roi_group.add_widget(self._wrap_layout(roi_layout))
-        
-        roi_section.add_widget(roi_group)
-        layout.addWidget(roi_section)
-        
-        # Кнопка сохранения
-        save_btn = ModernButton("Сохранить канал", variant="primary")
-        save_btn.setFixedHeight(44)
-        layout.addWidget(save_btn)
-        
-        layout.addStretch()
-        
-        return widget
-    
-    def _on_channel_selected(self):
-        # Обработка выбора канала в списке
-        pass
-    
-    def _add_channel(self):
-        # Добавление нового канала
-        pass
-    
-    def _remove_channel(self):
-        # Удаление выбранного канала
-        pass
-    
-    # Остальные методы класса остаются без изменений по функциональности,
-    # но должны быть адаптированы под новый дизайн
+        layout.setSpacing(12)
 
-# Для краткости опущены некоторые вспомогательные методы,
-# но они должны быть адаптированы аналогичным образом
+        widget.setStyleSheet(
+            "QLabel { color: #f0f0f0; }"
+            "QLineEdit, QDateTimeEdit { background-color: #111; color: #f0f0f0; border: 1px solid #333; padding: 4px; }"
+            "QPushButton { background-color: #00ffff; color: #000; border-radius: 4px; padding: 6px 12px; font-weight: 600; }"
+            "QPushButton:hover { background-color: #4dfefe; }"
+        )
+
+        filters_group = QtWidgets.QGroupBox("Фильтры поиска")
+        filters_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        form = QtWidgets.QFormLayout(filters_group)
+        self.search_plate = QtWidgets.QLineEdit()
+        self.search_from = QtWidgets.QDateTimeEdit()
+        self._prepare_optional_datetime(self.search_from)
+        self.search_to = QtWidgets.QDateTimeEdit()
+        self._prepare_optional_datetime(self.search_to)
+
+        form.addRow("Номер:", self.search_plate)
+        form.addRow("Дата с:", self.search_from)
+        form.addRow("Дата по:", self.search_to)
+        layout.addWidget(filters_group)
+
+        button_row = QtWidgets.QHBoxLayout()
+        button_row.addStretch()
+        search_btn = QtWidgets.QPushButton("Искать")
+        search_btn.clicked.connect(self._run_plate_search)
+        button_row.addWidget(search_btn)
+        layout.addLayout(button_row)
+
+        self.search_table = QtWidgets.QTableWidget(0, 6)
+        self.search_table.setHorizontalHeaderLabels(
+            ["Дата/Время", "Канал", "Страна", "Номер", "Уверенность", "Источник"]
+        )
+        self.search_table.horizontalHeader().setStretchLastSection(True)
+        self.search_table.setStyleSheet(self.TABLE_STYLE)
+        self.search_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.search_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.search_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.search_table.verticalHeader().setVisible(False)
+        layout.addWidget(self.search_table)
+
+        return widget
+
+    def _run_plate_search(self) -> None:
+        start = self._get_datetime_value(self.search_from)
+        end = self._get_datetime_value(self.search_to)
+        plate_fragment = self.search_plate.text()
+        rows = self.db.search_by_plate(plate_fragment, start=start or None, end=end or None)
+        self.search_table.setRowCount(0)
+        for row_data in rows:
+            row_index = self.search_table.rowCount()
+            self.search_table.insertRow(row_index)
+            formatted_time = self._format_timestamp(row_data["timestamp"])
+            self.search_table.setItem(row_index, 0, QtWidgets.QTableWidgetItem(formatted_time))
+            self.search_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(row_data["channel"]))
+            country_item = QtWidgets.QTableWidgetItem(row_data["country"] or "")
+            country_icon = self._get_flag_icon(row_data["country"])
+            if country_icon:
+                country_item.setIcon(country_icon)
+            country_item.setTextAlignment(QtCore.Qt.AlignCenter)
+            self.search_table.setItem(row_index, 2, country_item)
+            self.search_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(row_data["plate"]))
+            self.search_table.setItem(
+                row_index, 4, QtWidgets.QTableWidgetItem(f"{row_data['confidence'] or 0:.2f}")
+            )
+            self.search_table.setItem(row_index, 5, QtWidgets.QTableWidgetItem(row_data["source"]))
+
+    # ------------------ Настройки ------------------
+    def _build_settings_tab(self) -> QtWidgets.QWidget:
+        widget = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.settings_nav = QtWidgets.QListWidget()
+        self.settings_nav.setFixedWidth(180)
+        self.settings_nav.setStyleSheet(self.LIST_STYLE)
+        self.settings_nav.addItem("Общие")
+        self.settings_nav.addItem("Каналы")
+        layout.addWidget(self.settings_nav)
+
+        self.settings_stack = QtWidgets.QStackedWidget()
+        self.settings_stack.addWidget(self._build_general_settings_tab())
+        self.settings_stack.addWidget(self._build_channel_settings_tab())
+        layout.addWidget(self.settings_stack, 1)
+
+        self.settings_nav.currentRowChanged.connect(self.settings_stack.setCurrentIndex)
+        self.settings_nav.setCurrentRow(0)
+        return widget
+
+    def _build_general_settings_tab(self) -> QtWidgets.QWidget:
+        widget = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(widget)
+        widget.setStyleSheet(self.GROUP_BOX_STYLE)
+
+        reconnect_group = QtWidgets.QGroupBox("Автоматическое переподключение")
+        reconnect_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        reconnect_form = QtWidgets.QFormLayout(reconnect_group)
+        self.reconnect_on_loss_checkbox = QtWidgets.QCheckBox("Переподключение при потере сигнала")
+        reconnect_form.addRow(self.reconnect_on_loss_checkbox)
+
+        self.frame_timeout_input = QtWidgets.QSpinBox()
+        self.frame_timeout_input.setRange(1, 300)
+        self.frame_timeout_input.setSuffix(" с")
+        self.frame_timeout_input.setToolTip("Сколько секунд ждать кадр перед попыткой переподключения")
+        reconnect_form.addRow("Таймаут ожидания кадра:", self.frame_timeout_input)
+
+        self.retry_interval_input = QtWidgets.QSpinBox()
+        self.retry_interval_input.setRange(1, 300)
+        self.retry_interval_input.setSuffix(" с")
+        self.retry_interval_input.setToolTip("Интервал между попытками переподключения при потере сигнала")
+        reconnect_form.addRow("Интервал между попытками:", self.retry_interval_input)
+
+        self.periodic_reconnect_checkbox = QtWidgets.QCheckBox("Переподключение по таймеру")
+        reconnect_form.addRow(self.periodic_reconnect_checkbox)
+
+        self.periodic_interval_input = QtWidgets.QSpinBox()
+        self.periodic_interval_input.setRange(1, 1440)
+        self.periodic_interval_input.setSuffix(" мин")
+        self.periodic_interval_input.setToolTip("Плановое переподключение каждые N минут")
+        reconnect_form.addRow("Интервал переподключения:", self.periodic_interval_input)
+
+        storage_group = QtWidgets.QGroupBox("Хранилище")
+        storage_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        storage_form = QtWidgets.QFormLayout(storage_group)
+
+        db_row = QtWidgets.QHBoxLayout()
+        self.db_dir_input = QtWidgets.QLineEdit()
+        browse_db_btn = QtWidgets.QPushButton("Выбрать...")
+        browse_db_btn.clicked.connect(self._choose_db_dir)
+        db_row.addWidget(self.db_dir_input)
+        db_row.addWidget(browse_db_btn)
+        db_container = QtWidgets.QWidget()
+        db_container.setLayout(db_row)
+        storage_form.addRow("Папка БД:", db_container)
+
+        screenshot_row = QtWidgets.QHBoxLayout()
+        self.screenshot_dir_input = QtWidgets.QLineEdit()
+        browse_screenshot_btn = QtWidgets.QPushButton("Выбрать...")
+        browse_screenshot_btn.clicked.connect(self._choose_screenshot_dir)
+        screenshot_row.addWidget(self.screenshot_dir_input)
+        screenshot_row.addWidget(browse_screenshot_btn)
+        screenshot_container = QtWidgets.QWidget()
+        screenshot_container.setLayout(screenshot_row)
+        storage_form.addRow("Папка для скриншотов:", screenshot_container)
+
+        plate_group = QtWidgets.QGroupBox("Валидация номеров")
+        plate_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        plate_form = QtWidgets.QFormLayout(plate_group)
+
+        plate_dir_row = QtWidgets.QHBoxLayout()
+        self.country_config_dir_input = QtWidgets.QLineEdit()
+        browse_country_btn = QtWidgets.QPushButton("Выбрать...")
+        browse_country_btn.clicked.connect(self._choose_country_dir)
+        self.country_config_dir_input.editingFinished.connect(self._reload_country_templates)
+        plate_dir_row.addWidget(self.country_config_dir_input)
+        plate_dir_row.addWidget(browse_country_btn)
+        plate_dir_container = QtWidgets.QWidget()
+        plate_dir_container.setLayout(plate_dir_row)
+        plate_form.addRow("Каталог шаблонов:", plate_dir_container)
+
+        self.country_templates_list = QtWidgets.QListWidget()
+        self.country_templates_list.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        self.country_templates_list.setStyleSheet(self.LIST_STYLE)
+        plate_form.addRow("Активные страны:", self.country_templates_list)
+
+        refresh_countries_btn = QtWidgets.QPushButton("Обновить список стран")
+        refresh_countries_btn.clicked.connect(self._reload_country_templates)
+        plate_form.addRow("", refresh_countries_btn)
+
+        save_general_btn = QtWidgets.QPushButton("Сохранить общие настройки")
+        save_general_btn.clicked.connect(self._save_general_settings)
+
+        layout.addWidget(reconnect_group)
+        layout.addWidget(storage_group)
+        layout.addWidget(plate_group)
+        layout.addWidget(save_general_btn, alignment=QtCore.Qt.AlignLeft)
+        layout.addStretch()
+
+        self._load_general_settings()
+        return widget
+
+    def _build_channel_settings_tab(self) -> QtWidgets.QWidget:
+        widget = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(widget)
+        widget.setStyleSheet(self.GROUP_BOX_STYLE)
+
+        left_panel = QtWidgets.QVBoxLayout()
+        left_panel.setSpacing(6)
+        self.channels_list = QtWidgets.QListWidget()
+        self.channels_list.setFixedWidth(180)
+        self.channels_list.setStyleSheet(self.LIST_STYLE)
+        self.channels_list.currentRowChanged.connect(self._load_channel_form)
+        left_panel.addWidget(self.channels_list)
+
+        list_buttons = QtWidgets.QHBoxLayout()
+        add_btn = QtWidgets.QPushButton("Добавить")
+        add_btn.clicked.connect(self._add_channel)
+        remove_btn = QtWidgets.QPushButton("Удалить")
+        remove_btn.clicked.connect(self._remove_channel)
+        list_buttons.addWidget(add_btn)
+        list_buttons.addWidget(remove_btn)
+        left_panel.addLayout(list_buttons)
+        layout.addLayout(left_panel)
+
+        center_panel = QtWidgets.QVBoxLayout()
+        self.preview = ROIEditor()
+        self.preview.roi_changed.connect(self._on_roi_drawn)
+        center_panel.addWidget(self.preview)
+        layout.addLayout(center_panel, 2)
+
+        right_panel = QtWidgets.QVBoxLayout()
+
+        channel_group = QtWidgets.QGroupBox("Канал")
+        channel_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        channel_form = QtWidgets.QFormLayout(channel_group)
+        self.channel_name_input = QtWidgets.QLineEdit()
+        self.channel_source_input = QtWidgets.QLineEdit()
+        channel_form.addRow("Название:", self.channel_name_input)
+        channel_form.addRow("Источник/RTSP:", self.channel_source_input)
+        right_panel.addWidget(channel_group)
+
+        recognition_group = QtWidgets.QGroupBox("Распознавание")
+        recognition_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        recognition_form = QtWidgets.QFormLayout(recognition_group)
+        self.best_shots_input = QtWidgets.QSpinBox()
+        self.best_shots_input.setRange(1, 50)
+        self.best_shots_input.setToolTip("Количество бестшотов, участвующих в консенсусе трека")
+        recognition_form.addRow("Бестшоты на трек:", self.best_shots_input)
+
+        self.cooldown_input = QtWidgets.QSpinBox()
+        self.cooldown_input.setRange(0, 3600)
+        self.cooldown_input.setToolTip(
+            "Интервал (в секундах), в течение которого не создается повторное событие для того же номера"
+        )
+        recognition_form.addRow("Пауза повтора (сек):", self.cooldown_input)
+
+        self.min_conf_input = QtWidgets.QDoubleSpinBox()
+        self.min_conf_input.setRange(0.0, 1.0)
+        self.min_conf_input.setSingleStep(0.05)
+        self.min_conf_input.setDecimals(2)
+        self.min_conf_input.setToolTip(
+            "Минимальная уверенность OCR (0-1) для приема результата; ниже — помечается как нечитаемое"
+        )
+        recognition_form.addRow("Мин. уверенность OCR:", self.min_conf_input)
+        right_panel.addWidget(recognition_group)
+
+        motion_group = QtWidgets.QGroupBox("Детектор движения")
+        motion_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        motion_form = QtWidgets.QFormLayout(motion_group)
+        self.detection_mode_input = QtWidgets.QComboBox()
+        self.detection_mode_input.addItem("Постоянное", "continuous")
+        self.detection_mode_input.addItem("Детектор движения", "motion")
+        motion_form.addRow("Обнаружение ТС:", self.detection_mode_input)
+
+        self.detector_stride_input = QtWidgets.QSpinBox()
+        self.detector_stride_input.setRange(1, 12)
+        self.detector_stride_input.setToolTip(
+            "Запускать YOLO на каждом N-м кадре в зоне распознавания, чтобы снизить нагрузку"
+        )
+        motion_form.addRow("Шаг инференса (кадр):", self.detector_stride_input)
+
+        self.motion_threshold_input = QtWidgets.QDoubleSpinBox()
+        self.motion_threshold_input.setRange(0.0, 1.0)
+        self.motion_threshold_input.setDecimals(3)
+        self.motion_threshold_input.setSingleStep(0.005)
+        self.motion_threshold_input.setToolTip("Порог чувствительности по площади изменения внутри ROI")
+        motion_form.addRow("Порог движения:", self.motion_threshold_input)
+
+        self.motion_stride_input = QtWidgets.QSpinBox()
+        self.motion_stride_input.setRange(1, 30)
+        self.motion_stride_input.setToolTip("Обрабатывать каждый N-й кадр для поиска движения")
+        motion_form.addRow("Частота анализа (кадр):", self.motion_stride_input)
+
+        self.motion_activation_frames_input = QtWidgets.QSpinBox()
+        self.motion_activation_frames_input.setRange(1, 60)
+        self.motion_activation_frames_input.setToolTip("Сколько кадров подряд должно быть движение, чтобы включить распознавание")
+        motion_form.addRow("Мин. кадров с движением:", self.motion_activation_frames_input)
+
+        self.motion_release_frames_input = QtWidgets.QSpinBox()
+        self.motion_release_frames_input.setRange(1, 120)
+        self.motion_release_frames_input.setToolTip("Сколько кадров без движения нужно, чтобы остановить распознавание")
+        motion_form.addRow("Мин. кадров без движения:", self.motion_release_frames_input)
+        right_panel.addWidget(motion_group)
+
+        roi_group = QtWidgets.QGroupBox("Зона распознавания")
+        roi_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        roi_layout = QtWidgets.QGridLayout()
+        self.roi_x_input = QtWidgets.QSpinBox()
+        self.roi_x_input.setRange(0, 100)
+        self.roi_y_input = QtWidgets.QSpinBox()
+        self.roi_y_input.setRange(0, 100)
+        self.roi_w_input = QtWidgets.QSpinBox()
+        self.roi_w_input.setRange(1, 100)
+        self.roi_h_input = QtWidgets.QSpinBox()
+        self.roi_h_input.setRange(1, 100)
+
+        for spin in (self.roi_x_input, self.roi_y_input, self.roi_w_input, self.roi_h_input):
+            spin.valueChanged.connect(self._on_roi_inputs_changed)
+
+        roi_layout.addWidget(QtWidgets.QLabel("X (%):"), 0, 0)
+        roi_layout.addWidget(self.roi_x_input, 0, 1)
+        roi_layout.addWidget(QtWidgets.QLabel("Y (%):"), 1, 0)
+        roi_layout.addWidget(self.roi_y_input, 1, 1)
+        roi_layout.addWidget(QtWidgets.QLabel("Ширина (%):"), 2, 0)
+        roi_layout.addWidget(self.roi_w_input, 2, 1)
+        roi_layout.addWidget(QtWidgets.QLabel("Высота (%):"), 3, 0)
+        roi_layout.addWidget(self.roi_h_input, 3, 1)
+        refresh_btn = QtWidgets.QPushButton("Обновить кадр")
+        refresh_btn.clicked.connect(self._refresh_preview_frame)
+        roi_layout.addWidget(refresh_btn, 4, 0, 1, 2)
+        roi_group.setLayout(roi_layout)
+        right_panel.addWidget(roi_group)
+
+        save_btn = QtWidgets.QPushButton("Сохранить канал")
+        save_btn.clicked.connect(self._save_channel)
+        right_panel.addWidget(save_btn)
+        right_panel.addStretch()
+
+        layout.addLayout(right_panel, 2)
+
+        self._load_general_settings()
+        self._reload_channels_list()
+        return widget
+
+    def _reload_channels_list(self) -> None:
+        self.channels_list.clear()
+        for channel in self.settings.get_channels():
+            self.channels_list.addItem(channel.get("name", "Канал"))
+        if self.channels_list.count():
+            self.channels_list.setCurrentRow(0)
+
+    def _load_general_settings(self) -> None:
+        reconnect = self.settings.get_reconnect()
+        signal_loss = reconnect.get("signal_loss", {})
+        periodic = reconnect.get("periodic", {})
+        self.db_dir_input.setText(self.settings.get_db_dir())
+        self.screenshot_dir_input.setText(self.settings.get_screenshot_dir())
+        plate_settings = self.settings.get_plate_settings()
+        self.country_config_dir_input.setText(plate_settings.get("config_dir", "config/countries"))
+        self._reload_country_templates(plate_settings.get("enabled_countries", []))
+
+        self.reconnect_on_loss_checkbox.setChecked(bool(signal_loss.get("enabled", True)))
+        self.frame_timeout_input.setValue(int(signal_loss.get("frame_timeout_seconds", 5)))
+        self.retry_interval_input.setValue(int(signal_loss.get("retry_interval_seconds", 5)))
+
+        self.periodic_reconnect_checkbox.setChecked(bool(periodic.get("enabled", False)))
+        self.periodic_interval_input.setValue(int(periodic.get("interval_minutes", 60)))
+
+    def _choose_screenshot_dir(self) -> None:
+        directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Выбор папки для скриншотов")
+        if directory:
+            self.screenshot_dir_input.setText(directory)
+
+    def _choose_db_dir(self) -> None:
+        directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Выбор папки базы данных")
+        if directory:
+            self.db_dir_input.setText(directory)
+
+    def _choose_country_dir(self) -> None:
+        directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Выбор каталога шаблонов номеров")
+        if directory:
+            self.country_config_dir_input.setText(directory)
+            self._reload_country_templates()
+
+    def _reload_country_templates(self, enabled: Optional[List[str]] = None) -> None:
+        plate_settings = self.settings.get_plate_settings()
+        config_dir = self.country_config_dir_input.text().strip() or plate_settings.get("config_dir", "config/countries")
+        loader = CountryConfigLoader(config_dir)
+        loader.ensure_dir()
+        available = loader.available_configs()
+        enabled_codes = set(enabled or plate_settings.get("enabled_countries", []))
+
+        self.country_templates_list.clear()
+        if not available:
+            item = QtWidgets.QListWidgetItem("Конфигурации стран не найдены")
+            item.setFlags(QtCore.Qt.NoItemFlags)
+            self.country_templates_list.addItem(item)
+            return
+
+        for cfg in available:
+            item = QtWidgets.QListWidgetItem(f"{cfg['code']} — {cfg['name']}")
+            item.setData(QtCore.Qt.UserRole, cfg["code"])
+            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+            item.setCheckState(QtCore.Qt.Checked if cfg["code"] in enabled_codes else QtCore.Qt.Unchecked)
+            self.country_templates_list.addItem(item)
+
+    def _collect_enabled_countries(self) -> List[str]:
+        codes: List[str] = []
+        for idx in range(self.country_templates_list.count()):
+            item = self.country_templates_list.item(idx)
+            if item and item.flags() & QtCore.Qt.ItemIsUserCheckable and item.checkState() == QtCore.Qt.Checked:
+                codes.append(str(item.data(QtCore.Qt.UserRole)))
+        return codes
+
+    def _save_general_settings(self) -> None:
+        reconnect = {
+            "signal_loss": {
+                "enabled": self.reconnect_on_loss_checkbox.isChecked(),
+                "frame_timeout_seconds": int(self.frame_timeout_input.value()),
+                "retry_interval_seconds": int(self.retry_interval_input.value()),
+            },
+            "periodic": {
+                "enabled": self.periodic_reconnect_checkbox.isChecked(),
+                "interval_minutes": int(self.periodic_interval_input.value()),
+            },
+        }
+        self.settings.save_reconnect(reconnect)
+        db_dir = self.db_dir_input.text().strip() or "data/db"
+        os.makedirs(db_dir, exist_ok=True)
+        self.settings.save_db_dir(db_dir)
+        screenshot_dir = self.screenshot_dir_input.text().strip() or "data/screenshots"
+        self.settings.save_screenshot_dir(screenshot_dir)
+        os.makedirs(screenshot_dir, exist_ok=True)
+        plate_settings = {
+            "config_dir": self.country_config_dir_input.text().strip() or "config/countries",
+            "enabled_countries": self._collect_enabled_countries(),
+        }
+        os.makedirs(plate_settings["config_dir"], exist_ok=True)
+        self.settings.save_plate_settings(plate_settings)
+        self.db = EventDatabase(self.settings.get_db_path())
+        self._refresh_events_table()
+        self._start_channels()
+
+    def _load_channel_form(self, index: int) -> None:
+        channels = self.settings.get_channels()
+        if 0 <= index < len(channels):
+            channel = channels[index]
+            self.channel_name_input.setText(channel.get("name", ""))
+            self.channel_source_input.setText(channel.get("source", ""))
+            self.best_shots_input.setValue(int(channel.get("best_shots", self.settings.get_best_shots())))
+            self.cooldown_input.setValue(int(channel.get("cooldown_seconds", self.settings.get_cooldown_seconds())))
+            self.min_conf_input.setValue(float(channel.get("ocr_min_confidence", self.settings.get_min_confidence())))
+            self.detection_mode_input.setCurrentIndex(
+                max(0, self.detection_mode_input.findData(channel.get("detection_mode", "continuous")))
+            )
+            self.detector_stride_input.setValue(int(channel.get("detector_frame_stride", 2)))
+            self.motion_threshold_input.setValue(float(channel.get("motion_threshold", 0.01)))
+            self.motion_stride_input.setValue(int(channel.get("motion_frame_stride", 1)))
+            self.motion_activation_frames_input.setValue(int(channel.get("motion_activation_frames", 3)))
+            self.motion_release_frames_input.setValue(int(channel.get("motion_release_frames", 6)))
+
+            region = channel.get("region") or {"x": 0, "y": 0, "width": 100, "height": 100}
+            self.roi_x_input.setValue(int(region.get("x", 0)))
+            self.roi_y_input.setValue(int(region.get("y", 0)))
+            self.roi_w_input.setValue(int(region.get("width", 100)))
+            self.roi_h_input.setValue(int(region.get("height", 100)))
+            self.preview.set_roi(
+                {
+                    "x": int(region.get("x", 0)),
+                    "y": int(region.get("y", 0)),
+                    "width": int(region.get("width", 100)),
+                    "height": int(region.get("height", 100)),
+                }
+            )
+            self._refresh_preview_frame()
+
+    def _add_channel(self) -> None:
+        channels = self.settings.get_channels()
+        new_id = max([c.get("id", 0) for c in channels] + [0]) + 1
+        channels.append(
+            {
+                "id": new_id,
+                "name": f"Канал {new_id}",
+                "source": "",
+                "best_shots": self.settings.get_best_shots(),
+                "cooldown_seconds": self.settings.get_cooldown_seconds(),
+                "ocr_min_confidence": self.settings.get_min_confidence(),
+                "region": {"x": 0, "y": 0, "width": 100, "height": 100},
+                "detection_mode": "continuous",
+                "detector_frame_stride": 2,
+                "motion_threshold": 0.01,
+                "motion_frame_stride": 1,
+                "motion_activation_frames": 3,
+                "motion_release_frames": 6,
+            }
+        )
+        self.settings.save_channels(channels)
+        self._reload_channels_list()
+        self._draw_grid()
+        self._start_channels()
+
+    def _remove_channel(self) -> None:
+        index = self.channels_list.currentRow()
+        channels = self.settings.get_channels()
+        if 0 <= index < len(channels):
+            channels.pop(index)
+            self.settings.save_channels(channels)
+            self._reload_channels_list()
+            self._draw_grid()
+            self._start_channels()
+
+    def _save_channel(self) -> None:
+        index = self.channels_list.currentRow()
+        channels = self.settings.get_channels()
+        if 0 <= index < len(channels):
+            channels[index]["name"] = self.channel_name_input.text()
+            channels[index]["source"] = self.channel_source_input.text()
+            channels[index]["best_shots"] = int(self.best_shots_input.value())
+            channels[index]["cooldown_seconds"] = int(self.cooldown_input.value())
+            channels[index]["ocr_min_confidence"] = float(self.min_conf_input.value())
+            channels[index]["detection_mode"] = self.detection_mode_input.currentData()
+            channels[index]["detector_frame_stride"] = int(self.detector_stride_input.value())
+            channels[index]["motion_threshold"] = float(self.motion_threshold_input.value())
+            channels[index]["motion_frame_stride"] = int(self.motion_stride_input.value())
+            channels[index]["motion_activation_frames"] = int(self.motion_activation_frames_input.value())
+            channels[index]["motion_release_frames"] = int(self.motion_release_frames_input.value())
+
+            region = {
+                "x": int(self.roi_x_input.value()),
+                "y": int(self.roi_y_input.value()),
+                "width": int(self.roi_w_input.value()),
+                "height": int(self.roi_h_input.value()),
+            }
+            region["width"] = min(region["width"], max(1, 100 - region["x"]))
+            region["height"] = min(region["height"], max(1, 100 - region["y"]))
+            channels[index]["region"] = region
+            self.settings.save_channels(channels)
+            self._reload_channels_list()
+            self._draw_grid()
+            self._start_channels()
+
+    def _on_roi_drawn(self, roi: Dict[str, int]) -> None:
+        self.roi_x_input.blockSignals(True)
+        self.roi_y_input.blockSignals(True)
+        self.roi_w_input.blockSignals(True)
+        self.roi_h_input.blockSignals(True)
+        self.roi_x_input.setValue(roi["x"])
+        self.roi_y_input.setValue(roi["y"])
+        self.roi_w_input.setValue(roi["width"])
+        self.roi_h_input.setValue(roi["height"])
+        self.roi_x_input.blockSignals(False)
+        self.roi_y_input.blockSignals(False)
+        self.roi_w_input.blockSignals(False)
+        self.roi_h_input.blockSignals(False)
+
+    def _on_roi_inputs_changed(self) -> None:
+        roi = {
+            "x": int(self.roi_x_input.value()),
+            "y": int(self.roi_y_input.value()),
+            "width": int(self.roi_w_input.value()),
+            "height": int(self.roi_h_input.value()),
+        }
+        roi["width"] = min(roi["width"], max(1, 100 - roi["x"]))
+        roi["height"] = min(roi["height"], max(1, 100 - roi["y"]))
+        self.preview.set_roi(roi)
+
+    def _refresh_preview_frame(self) -> None:
+        index = self.channels_list.currentRow()
+        channels = self.settings.get_channels()
+        if not (0 <= index < len(channels)):
+            return
+        source = str(channels[index].get("source", ""))
+        if not source:
+            self.preview.setPixmap(None)
+            return
+        capture = cv2.VideoCapture(int(source) if source.isnumeric() else source)
+        ret, frame = capture.read()
+        capture.release()
+        if not ret or frame is None:
+            self.preview.setPixmap(None)
+            return
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        height, width, _ = rgb_frame.shape
+        bytes_per_line = 3 * width
+        q_image = QtGui.QImage(
+            rgb_frame.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888
+        ).copy()
+        self.preview.setPixmap(QtGui.QPixmap.fromImage(q_image))
+
+    # ------------------ Жизненный цикл ------------------
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        self._stop_workers()
+        event.accept()
