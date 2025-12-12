@@ -1027,6 +1027,8 @@ class MainWindow(QtWidgets.QMainWindow):
         reconnect_form.addRow("Интервал переподключения:", self.periodic_interval_input)
 
         storage_group, storage_form = make_section("Хранилище")
+        storage_group.setMaximumWidth(self.FIELD_MAX_WIDTH + 220)
+        storage_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
 
         db_row = QtWidgets.QHBoxLayout()
         db_row.setContentsMargins(0, 0, 0, 0)
@@ -1042,6 +1044,8 @@ class MainWindow(QtWidgets.QMainWindow):
         db_row.addWidget(browse_db_btn)
         db_container = QtWidgets.QWidget()
         db_container.setLayout(db_row)
+        db_container.setMaximumWidth(self.FIELD_MAX_WIDTH + 60)
+        db_container.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Preferred)
         storage_form.addRow("Папка БД:", db_container)
 
         screenshot_row = QtWidgets.QHBoxLayout()
@@ -1058,6 +1062,8 @@ class MainWindow(QtWidgets.QMainWindow):
         screenshot_row.addWidget(browse_screenshot_btn)
         screenshot_container = QtWidgets.QWidget()
         screenshot_container.setLayout(screenshot_row)
+        screenshot_container.setMaximumWidth(self.FIELD_MAX_WIDTH + 60)
+        screenshot_container.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Preferred)
         storage_form.addRow("Папка для скриншотов:", screenshot_container)
 
         plate_group, plate_form = make_section("Валидация номеров")
@@ -1077,10 +1083,13 @@ class MainWindow(QtWidgets.QMainWindow):
         plate_dir_row.addWidget(browse_country_btn)
         plate_dir_container = QtWidgets.QWidget()
         plate_dir_container.setLayout(plate_dir_row)
+        plate_dir_container.setMaximumWidth(self.FIELD_MAX_WIDTH + 60)
+        plate_dir_container.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Preferred)
         plate_form.addRow("Каталог шаблонов:", plate_dir_container)
 
         self.country_templates_list = QtWidgets.QListWidget()
         self.country_templates_list.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self.country_templates_list.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Expanding)
         self.country_templates_list.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
         self.country_templates_list.setStyleSheet(self.LIST_STYLE)
         plate_form.addRow("Активные страны:", self.country_templates_list)
