@@ -471,24 +471,14 @@ class MainWindow(QtWidgets.QMainWindow):
             "QComboBox::down-arrow { image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png); width: 12px; height: 12px; margin-right: 6px; }"
             "QComboBox QAbstractItemView { background-color: #0b0c10; color: #e5e7eb; selection-background-color: rgba(34,211,238,0.14); border: 1px solid #1f2937; padding: 6px; }"
         )
-        grid_layout = QtWidgets.QHBoxLayout(grid_frame)
+        grid_layout = QtWidgets.QVBoxLayout(grid_frame)
         grid_layout.setContentsMargins(4, 4, 4, 4)
-        grid_layout.setSpacing(12)
-
-        grid_text = QtWidgets.QVBoxLayout()
-        title = QtWidgets.QLabel("Сетка камер")
-        title.setStyleSheet("color: #e5e7eb; font-weight: 800;")
-        subtitle = QtWidgets.QLabel("Быстрый выбор раскладки для каналов")
-        subtitle.setStyleSheet("color: #9ca3af; font-size: 12px;")
-        subtitle.setWordWrap(True)
-        grid_text.addWidget(title)
-        grid_text.addWidget(subtitle)
-        grid_layout.addLayout(grid_text, 1)
+        grid_layout.setSpacing(8)
 
         chooser = QtWidgets.QVBoxLayout()
         chooser.setSpacing(6)
-        chooser_label = QtWidgets.QLabel("Выберите сетку")
-        chooser_label.setStyleSheet("color: #9ca3af; font-size: 12px; font-weight: 600;")
+        chooser_label = QtWidgets.QLabel("Сетка")
+        chooser_label.setStyleSheet("color: #e5e7eb; font-weight: 800;")
         chooser.addWidget(chooser_label)
         self.grid_combo = QtWidgets.QComboBox()
         for variant in self.GRID_VARIANTS:
@@ -498,7 +488,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.grid_combo.setCurrentIndex(current_index)
         self.grid_combo.currentIndexChanged.connect(self._on_grid_combo_changed)
         chooser.addWidget(self.grid_combo)
-        grid_layout.addLayout(chooser, 2)
+        grid_layout.addLayout(chooser)
 
         controls.addWidget(grid_frame)
         controls.addStretch()
@@ -774,13 +764,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.events_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(plate))
         country_item = QtWidgets.QTableWidgetItem("")
         country_item.setData(QtCore.Qt.UserRole, country_code)
+        country_item.setData(QtCore.Qt.TextAlignmentRole, QtCore.Qt.AlignCenter)
         country_icon = self._get_flag_icon(event.get("country"))
         if country_icon:
-            country_item.setIcon(country_icon)
+            country_item.setData(QtCore.Qt.DecorationRole, country_icon)
         country_name = self._get_country_name(country_code)
         if country_name != "—":
             country_item.setToolTip(country_name)
-        country_item.setTextAlignment(QtCore.Qt.AlignCenter)
         self.events_table.setItem(row_index, 2, country_item)
         self.events_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(channel))
 
