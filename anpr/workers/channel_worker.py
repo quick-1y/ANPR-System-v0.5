@@ -159,6 +159,14 @@ def _shutdown_executors() -> None:
 atexit.register(_shutdown_executors)
 
 
+def _get_shared_executor() -> ProcessPoolExecutor:
+    global _SHARED_EXECUTOR
+    with _EXECUTOR_LOCK:
+        if _SHARED_EXECUTOR is None:
+            _SHARED_EXECUTOR = ProcessPoolExecutor(max_workers=1)
+    return _SHARED_EXECUTOR
+
+
 def _offset_detections_process(
     detections: list[dict], roi_rect: Tuple[int, int, int, int]
 ) -> list[dict]:
