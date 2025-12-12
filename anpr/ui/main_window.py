@@ -361,7 +361,7 @@ class MainWindow(QtWidgets.QMainWindow):
     ACCENT_COLOR = "#22d3ee"
     SURFACE_COLOR = "#16181d"
     PANEL_COLOR = "#0f1115"
-    GROUP_BOX_STYLE = f(
+    GROUP_BOX_STYLE = (
         "QGroupBox { background-color: #16181d; color: #f6f7fb; border: 1px solid #20242c; border-radius: 12px; padding: 12px; margin-top: 10px; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; font-weight: 700; color: #e2e8f0; }"
         "QLabel { color: #cbd5e1; font-size: 13px; }"
@@ -370,15 +370,15 @@ class MainWindow(QtWidgets.QMainWindow):
         "QPushButton:hover { background-color: #4ddcf3; }"
         "QCheckBox { color: #e5e7eb; font-size: 13px; }"
     )
-    TABLE_STYLE = f(
+    TABLE_STYLE = (
         "QHeaderView::section { background-color: #11131a; color: #e2e8f0; padding: 8px; font-weight: 700; border: none; }"
         "QTableWidget { background-color: #0b0c10; color: #e5e7eb; gridline-color: #1f2937; selection-background-color: #11131a; }"
         "QTableWidget::item { border-bottom: 1px solid #1f2937; padding: 6px; }"
-        f"QTableWidget::item:selected { background-color: rgba(34,211,238,0.18); color: #22d3ee; border: 1px solid #22d3ee; }"
+        f"QTableWidget::item:selected { background-color: #d7f7fc; color: #22d3ee; border: 1px solid #22d3ee; }"
     )
-    LIST_STYLE = f(
+    LIST_STYLE = (
         "QListWidget { background-color: #0b0c10; color: #cbd5e1; border: 1px solid #1f2937; border-radius: 10px; padding: 6px; }"
-        f"QListWidget::item:selected { background-color: rgba(34,211,238,0.16); color: #22d3ee; border-radius: 6px; }"
+        f"QListWidget::item:selected { background-color: #dcf8fc; color: #22d3ee; border-radius: 6px; }"
         "QListWidget::item { padding: 8px 10px; margin: 2px 0; }"
     )
 
