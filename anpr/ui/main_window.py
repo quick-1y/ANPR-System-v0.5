@@ -370,6 +370,8 @@ class MainWindow(QtWidgets.QMainWindow):
         "QPushButton:hover { background-color: #4ddcf3; }"
         "QCheckBox { color: #e5e7eb; font-size: 13px; }"
     )
+    FIELD_MAX_WIDTH = 520
+    COMPACT_FIELD_WIDTH = 180
 
     PRIMARY_HOLLOW_BUTTON = (
         "QPushButton { background-color: transparent; color: #ffffff; border: 1px solid #ffffff; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }"
@@ -1024,6 +1026,9 @@ class MainWindow(QtWidgets.QMainWindow):
         db_row.setContentsMargins(0, 0, 0, 0)
         db_row.setSpacing(8)
         self.db_dir_input = QtWidgets.QLineEdit()
+        self.db_dir_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self.db_dir_input.setMinimumWidth(320)
+        self.db_dir_input.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         browse_db_btn = QtWidgets.QPushButton("Выбрать...")
         browse_db_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
         browse_db_btn.clicked.connect(self._choose_db_dir)
@@ -1037,6 +1042,9 @@ class MainWindow(QtWidgets.QMainWindow):
         screenshot_row.setContentsMargins(0, 0, 0, 0)
         screenshot_row.setSpacing(8)
         self.screenshot_dir_input = QtWidgets.QLineEdit()
+        self.screenshot_dir_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self.screenshot_dir_input.setMinimumWidth(320)
+        self.screenshot_dir_input.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         browse_screenshot_btn = QtWidgets.QPushButton("Выбрать...")
         browse_screenshot_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
         browse_screenshot_btn.clicked.connect(self._choose_screenshot_dir)
@@ -1052,6 +1060,9 @@ class MainWindow(QtWidgets.QMainWindow):
         plate_dir_row.setContentsMargins(0, 0, 0, 0)
         plate_dir_row.setSpacing(8)
         self.country_config_dir_input = QtWidgets.QLineEdit()
+        self.country_config_dir_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self.country_config_dir_input.setMinimumWidth(320)
+        self.country_config_dir_input.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         browse_country_btn = QtWidgets.QPushButton("Выбрать...")
         browse_country_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
         browse_country_btn.clicked.connect(self._choose_country_dir)
@@ -1063,6 +1074,7 @@ class MainWindow(QtWidgets.QMainWindow):
         plate_form.addRow("Каталог шаблонов:", plate_dir_container)
 
         self.country_templates_list = QtWidgets.QListWidget()
+        self.country_templates_list.setMaximumWidth(self.FIELD_MAX_WIDTH)
         self.country_templates_list.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
         self.country_templates_list.setStyleSheet(self.LIST_STYLE)
         plate_form.addRow("Активные страны:", self.country_templates_list)
@@ -1109,8 +1121,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         list_buttons = QtWidgets.QHBoxLayout()
         add_btn = QtWidgets.QPushButton("Добавить")
+        add_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
         add_btn.clicked.connect(self._add_channel)
         remove_btn = QtWidgets.QPushButton("Удалить")
+        remove_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
         remove_btn.clicked.connect(self._remove_channel)
         list_buttons.addWidget(add_btn)
         list_buttons.addWidget(remove_btn)
@@ -1124,26 +1138,54 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addLayout(center_panel, 2)
 
         right_panel = QtWidgets.QVBoxLayout()
+        right_panel.setSpacing(10)
 
-        channel_group = QtWidgets.QGroupBox("Канал")
-        channel_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        channel_form = QtWidgets.QFormLayout(channel_group)
+        tab_styles = (
+            "QTabBar { font-weight: 700; }"
+            f"QTabBar::tab {{ background: #0b0c10; color: #9ca3af; padding: 8px 14px; border: 1px solid #0f1115; border-top-left-radius: 10px; border-top-right-radius: 10px; margin-right: 6px; }}"
+            f"QTabBar::tab:selected {{ background: #16181d; color: {self.ACCENT_COLOR}; border: 1px solid #20242c; border-bottom: 2px solid {self.ACCENT_COLOR}; }}"
+            "QTabWidget::pane { border: 1px solid #20242c; border-radius: 10px; background-color: #16181d; top: -1px; }"
+            "QWidget { background-color: #16181d; color: #cbd5e1; }"
+            "QLabel { color: #cbd5e1; font-size: 13px; }"
+            "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
+        )
+
+        tabs = QtWidgets.QTabWidget()
+        tabs.setStyleSheet(tab_styles)
+
+        def make_form_tab() -> QtWidgets.QFormLayout:
+            tab_widget = QtWidgets.QWidget()
+            form = QtWidgets.QFormLayout(tab_widget)
+            form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+            form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+            form.setHorizontalSpacing(14)
+            form.setVerticalSpacing(12)
+            form.setContentsMargins(12, 12, 12, 12)
+            tabs.addTab(tab_widget, "")
+            return form
+
+        channel_form = make_form_tab()
+        tabs.setTabText(0, "Канал")
         self.channel_name_input = QtWidgets.QLineEdit()
+        self.channel_name_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
         self.channel_source_input = QtWidgets.QLineEdit()
+        self.channel_source_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
         channel_form.addRow("Название:", self.channel_name_input)
         channel_form.addRow("Источник/RTSP:", self.channel_source_input)
-        right_panel.addWidget(channel_group)
 
-        recognition_group = QtWidgets.QGroupBox("Распознавание")
-        recognition_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        recognition_form = QtWidgets.QFormLayout(recognition_group)
+        recognition_form = make_form_tab()
+        tabs.setTabText(1, "Распознавание")
         self.best_shots_input = QtWidgets.QSpinBox()
         self.best_shots_input.setRange(1, 50)
-        self.best_shots_input.setToolTip("Количество бестшотов, участвующих в консенсусе трека")
+        self.best_shots_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.best_shots_input.setMinimumWidth(120)
+        self.best_shots_input.setToolTip("Количество бстшотов, участвующих в консенсусе трека")
         recognition_form.addRow("Бестшоты на трек:", self.best_shots_input)
 
         self.cooldown_input = QtWidgets.QSpinBox()
         self.cooldown_input.setRange(0, 3600)
+        self.cooldown_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.cooldown_input.setMinimumWidth(120)
         self.cooldown_input.setToolTip(
             "Интервал (в секундах), в течение которого не создается повторное событие для того же номера"
         )
@@ -1153,22 +1195,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.min_conf_input.setRange(0.0, 1.0)
         self.min_conf_input.setSingleStep(0.05)
         self.min_conf_input.setDecimals(2)
+        self.min_conf_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.min_conf_input.setMinimumWidth(120)
         self.min_conf_input.setToolTip(
             "Минимальная уверенность OCR (0-1) для приема результата; ниже — помечается как нечитаемое"
         )
         recognition_form.addRow("Мин. уверенность OCR:", self.min_conf_input)
-        right_panel.addWidget(recognition_group)
 
-        motion_group = QtWidgets.QGroupBox("Детектор движения")
-        motion_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        motion_form = QtWidgets.QFormLayout(motion_group)
+        motion_form = make_form_tab()
+        tabs.setTabText(2, "Детектор движения")
         self.detection_mode_input = QtWidgets.QComboBox()
         self.detection_mode_input.addItem("Постоянное", "continuous")
         self.detection_mode_input.addItem("Детектор движения", "motion")
+        self.detection_mode_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
         motion_form.addRow("Обнаружение ТС:", self.detection_mode_input)
 
         self.detector_stride_input = QtWidgets.QSpinBox()
         self.detector_stride_input.setRange(1, 12)
+        self.detector_stride_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.detector_stride_input.setMinimumWidth(120)
         self.detector_stride_input.setToolTip(
             "Запускать YOLO на каждом N-м кадре в зоне распознавания, чтобы снизить нагрузку"
         )
@@ -1178,55 +1223,80 @@ class MainWindow(QtWidgets.QMainWindow):
         self.motion_threshold_input.setRange(0.0, 1.0)
         self.motion_threshold_input.setDecimals(3)
         self.motion_threshold_input.setSingleStep(0.005)
+        self.motion_threshold_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.motion_threshold_input.setMinimumWidth(120)
         self.motion_threshold_input.setToolTip("Порог чувствительности по площади изменения внутри ROI")
         motion_form.addRow("Порог движения:", self.motion_threshold_input)
 
         self.motion_stride_input = QtWidgets.QSpinBox()
         self.motion_stride_input.setRange(1, 30)
+        self.motion_stride_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.motion_stride_input.setMinimumWidth(120)
         self.motion_stride_input.setToolTip("Обрабатывать каждый N-й кадр для поиска движения")
         motion_form.addRow("Частота анализа (кадр):", self.motion_stride_input)
 
         self.motion_activation_frames_input = QtWidgets.QSpinBox()
         self.motion_activation_frames_input.setRange(1, 60)
+        self.motion_activation_frames_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.motion_activation_frames_input.setMinimumWidth(120)
         self.motion_activation_frames_input.setToolTip("Сколько кадров подряд должно быть движение, чтобы включить распознавание")
         motion_form.addRow("Мин. кадров с движением:", self.motion_activation_frames_input)
 
         self.motion_release_frames_input = QtWidgets.QSpinBox()
         self.motion_release_frames_input.setRange(1, 120)
+        self.motion_release_frames_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.motion_release_frames_input.setMinimumWidth(120)
         self.motion_release_frames_input.setToolTip("Сколько кадров без движения нужно, чтобы остановить распознавание")
         motion_form.addRow("Мин. кадров без движения:", self.motion_release_frames_input)
-        right_panel.addWidget(motion_group)
 
-        roi_group = QtWidgets.QGroupBox("Зона распознавания")
-        roi_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        roi_layout = QtWidgets.QGridLayout()
+        roi_form = make_form_tab()
+        tabs.setTabText(3, "Зона распознавания")
+        roi_grid = QtWidgets.QGridLayout()
+        roi_grid.setHorizontalSpacing(12)
+        roi_grid.setVerticalSpacing(10)
+        roi_grid.setContentsMargins(0, 0, 0, 0)
         self.roi_x_input = QtWidgets.QSpinBox()
         self.roi_x_input.setRange(0, 100)
+        self.roi_x_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.roi_x_input.setMinimumWidth(120)
         self.roi_y_input = QtWidgets.QSpinBox()
         self.roi_y_input.setRange(0, 100)
+        self.roi_y_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.roi_y_input.setMinimumWidth(120)
         self.roi_w_input = QtWidgets.QSpinBox()
         self.roi_w_input.setRange(1, 100)
+        self.roi_w_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.roi_w_input.setMinimumWidth(120)
         self.roi_h_input = QtWidgets.QSpinBox()
         self.roi_h_input.setRange(1, 100)
+        self.roi_h_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.roi_h_input.setMinimumWidth(120)
 
         for spin in (self.roi_x_input, self.roi_y_input, self.roi_w_input, self.roi_h_input):
             spin.valueChanged.connect(self._on_roi_inputs_changed)
 
-        roi_layout.addWidget(QtWidgets.QLabel("X (%):"), 0, 0)
-        roi_layout.addWidget(self.roi_x_input, 0, 1)
-        roi_layout.addWidget(QtWidgets.QLabel("Y (%):"), 1, 0)
-        roi_layout.addWidget(self.roi_y_input, 1, 1)
-        roi_layout.addWidget(QtWidgets.QLabel("Ширина (%):"), 2, 0)
-        roi_layout.addWidget(self.roi_w_input, 2, 1)
-        roi_layout.addWidget(QtWidgets.QLabel("Высота (%):"), 3, 0)
-        roi_layout.addWidget(self.roi_h_input, 3, 1)
+        roi_grid.addWidget(QtWidgets.QLabel("X (%):"), 0, 0)
+        roi_grid.addWidget(self.roi_x_input, 0, 1)
+        roi_grid.addWidget(QtWidgets.QLabel("Y (%):"), 1, 0)
+        roi_grid.addWidget(self.roi_y_input, 1, 1)
+        roi_grid.addWidget(QtWidgets.QLabel("Ширина (%):"), 2, 0)
+        roi_grid.addWidget(self.roi_w_input, 2, 1)
+        roi_grid.addWidget(QtWidgets.QLabel("Высота (%):"), 3, 0)
+        roi_grid.addWidget(self.roi_h_input, 3, 1)
+
+        roi_row_container = QtWidgets.QWidget()
+        roi_row_container.setLayout(roi_grid)
+        roi_form.addRow("", roi_row_container)
+
         refresh_btn = QtWidgets.QPushButton("Обновить кадр")
+        refresh_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
         refresh_btn.clicked.connect(self._refresh_preview_frame)
-        roi_layout.addWidget(refresh_btn, 4, 0, 1, 2)
-        roi_group.setLayout(roi_layout)
-        right_panel.addWidget(roi_group)
+        roi_form.addRow("", refresh_btn)
+
+        right_panel.addWidget(tabs)
 
         save_btn = QtWidgets.QPushButton("Сохранить канал")
+        save_btn.setStyleSheet(self.PRIMARY_HOLLOW_BUTTON)
         save_btn.clicked.connect(self._save_channel)
         right_panel.addWidget(save_btn)
         right_panel.addStretch()
