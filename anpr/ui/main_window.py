@@ -463,24 +463,19 @@ class MainWindow(QtWidgets.QMainWindow):
         controls = QtWidgets.QHBoxLayout()
         controls.setSpacing(8)
 
-        grid_frame = QtWidgets.QFrame()
-        grid_frame.setStyleSheet(
-            f"QFrame {{ background-color: {self.SURFACE_COLOR}; border: 1px solid #1f2937; border-radius: 12px; padding: 10px 14px; }}"
+        chooser = QtWidgets.QVBoxLayout()
+        chooser.setSpacing(6)
+        chooser.setContentsMargins(4, 4, 4, 4)
+        chooser_label = QtWidgets.QLabel("Сетка")
+        chooser_label.setStyleSheet("color: #e5e7eb; font-weight: 800;")
+        chooser.addWidget(chooser_label)
+        self.grid_combo = QtWidgets.QComboBox()
+        self.grid_combo.setStyleSheet(
             "QComboBox { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 10px; padding: 8px 12px; min-width: 140px; }"
             "QComboBox::drop-down { border: 0px; width: 28px; }"
             "QComboBox::down-arrow { image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png); width: 12px; height: 12px; margin-right: 6px; }"
             "QComboBox QAbstractItemView { background-color: #0b0c10; color: #e5e7eb; selection-background-color: rgba(34,211,238,0.14); border: 1px solid #1f2937; padding: 6px; }"
         )
-        grid_layout = QtWidgets.QVBoxLayout(grid_frame)
-        grid_layout.setContentsMargins(4, 4, 4, 4)
-        grid_layout.setSpacing(8)
-
-        chooser = QtWidgets.QVBoxLayout()
-        chooser.setSpacing(6)
-        chooser_label = QtWidgets.QLabel("Сетка")
-        chooser_label.setStyleSheet("color: #e5e7eb; font-weight: 800;")
-        chooser.addWidget(chooser_label)
-        self.grid_combo = QtWidgets.QComboBox()
         for variant in self.GRID_VARIANTS:
             self.grid_combo.addItem(variant.replace("x", "×"), variant)
         current_index = self.grid_combo.findData(self.current_grid)
@@ -488,9 +483,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.grid_combo.setCurrentIndex(current_index)
         self.grid_combo.currentIndexChanged.connect(self._on_grid_combo_changed)
         chooser.addWidget(self.grid_combo)
-        grid_layout.addLayout(chooser)
 
-        controls.addWidget(grid_frame)
+        controls.addLayout(chooser)
         controls.addStretch()
         left_column.addLayout(controls)
 
