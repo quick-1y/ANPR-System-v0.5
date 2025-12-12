@@ -142,7 +142,9 @@ class SettingRow(QtWidgets.QWidget):
         
         layout.addWidget(self.label)
         layout.addWidget(widget, 1)
-
+        
+        # Сохраняем виджет как атрибут
+        self.widget = widget 
 
 class PixmapPool:
     """Простой пул QPixmap для повторного использования буферов по размеру."""
@@ -1574,75 +1576,79 @@ class MainWindow(QtWidgets.QMainWindow):
         index = list(self.settings_sections.keys()).index(section_key)
         self.settings_stack.setCurrentIndex(index)
 
-    def _build_general_settings(self):
-        """Общие настройки приложения."""
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-        layout.setSpacing(16)
-        layout.setContentsMargins(24, 24, 24, 24)
-        
-        # Основные настройки
-        general_card = ModernCardWidget()
-        general_layout = QtWidgets.QVBoxLayout(general_card)
-        
-        general_header = QtWidgets.QLabel("Основные параметры")
-        general_header.setStyleSheet("font-size: 14px; font-weight: bold; color: #00B4D8;")
-        general_layout.addWidget(general_header)
-        
-        # Виджет настройки сетки
-        grid_row = SettingRow(
-            "Сетка отображения:",
-            QtWidgets.QComboBox(),
-            "Расположение видеопотоков на экране"
-        )
-        grid_row.widget.addItems(self.GRID_VARIANTS)
-        grid_row.widget.setCurrentText(self.settings.get_grid())
-        grid_row.widget.currentTextChanged.connect(
-            lambda text: self.settings.save_grid(text)
-        )
-        general_layout.addWidget(grid_row)
-        
-        # Язык интерфейса
-        lang_row = SettingRow(
-            "Язык интерфейса:",
-            QtWidgets.QComboBox(),
-            "Язык пользовательского интерфейса"
-        )
-        lang_row.widget.addItems(["Русский", "English", "Español"])
-        general_layout.addWidget(lang_row)
-        
-        # Тема оформления
-        theme_row = SettingRow(
-            "Тема оформления:",
-            QtWidgets.QComboBox(),
-            "Цветовая схема приложения"
-        )
-        theme_row.widget.addItems(["Темная", "Светлая", "Авто"])
-        general_layout.addWidget(theme_row)
-        
-        layout.addWidget(general_card)
-        
-        # Настройки уведомлений
-        notify_card = ModernCardWidget()
-        notify_layout = QtWidgets.QVBoxLayout(notify_card)
-        
-        notify_header = QtWidgets.QLabel("🔔 Уведомления")
-        notify_header.setStyleSheet("font-size: 14px; font-weight: bold; color: #00B4D8;")
-        notify_layout.addWidget(notify_header)
-        
-        # Переключатели уведомлений
-        self.notify_sound = ModernToggleSwitch()
-        self.notify_popup = ModernToggleSwitch()
-        self.notify_email = ModernToggleSwitch()
-        
-        notify_layout.addWidget(SettingRow("Звуковые уведомления:", self.notify_sound))
-        notify_layout.addWidget(SettingRow("Всплывающие окна:", self.notify_popup))
-        notify_layout.addWidget(SettingRow("Email уведомления:", self.notify_email))
-        
-        layout.addWidget(notify_card)
-        
-        layout.addStretch()
-        return widget
+def _build_general_settings(self):
+    """Общие настройки приложения."""
+    widget = QtWidgets.QWidget()
+    layout = QtWidgets.QVBoxLayout(widget)
+    layout.setSpacing(16)
+    layout.setContentsMargins(24, 24, 24, 24)
+    
+    # Основные настройки
+    general_card = ModernCardWidget()
+    general_layout = QtWidgets.QVBoxLayout(general_card)
+    
+    general_header = QtWidgets.QLabel("Основные параметры")
+    general_header.setStyleSheet("font-size: 14px; font-weight: bold; color: #00B4D8;")
+    general_layout.addWidget(general_header)
+    
+    # Виджет настройки сетки
+    grid_combo = QtWidgets.QComboBox()  # <-- Создаем комбобокс отдельно
+    grid_combo.addItems(self.GRID_VARIANTS)
+    grid_combo.setCurrentText(self.settings.get_grid())
+    grid_combo.currentTextChanged.connect(
+        lambda text: self.settings.save_grid(text)
+    )
+    
+    grid_row = SettingRow(
+        "Сетка отображения:",
+        grid_combo,  # <-- Передаем готовый комбобокс
+        "Расположение видеопотоков на экране"
+    )
+    general_layout.addWidget(grid_row)
+    
+    # Язык интерфейса
+    lang_combo = QtWidgets.QComboBox()
+    lang_combo.addItems(["Русский", "English", "Español"])
+    lang_row = SettingRow(
+        "Язык интерфейса:",
+        lang_combo,
+        "Язык пользовательского интерфейса"
+    )
+    general_layout.addWidget(lang_row)
+    
+    # Тема оформления
+    theme_combo = QtWidgets.QComboBox()
+    theme_combo.addItems(["Темная", "Светлая", "Авто"])
+    theme_row = SettingRow(
+        "Тема оформления:",
+        theme_combo,
+        "Цветовая схема приложения"
+    )
+    general_layout.addWidget(theme_row)
+    
+    layout.addWidget(general_card)
+    
+    # Настройки уведомлений
+    notify_card = ModernCardWidget()
+    notify_layout = QtWidgets.QVBoxLayout(notify_card)
+    
+    notify_header = QtWidgets.QLabel("🔔 Уведомления")
+    notify_header.setStyleSheet("font-size: 14px; font-weight: bold; color: #00B4D8;")
+    notify_layout.addWidget(notify_header)
+    
+    # Переключатели уведомлений
+    self.notify_sound = ModernToggleSwitch()
+    self.notify_popup = ModernToggleSwitch()
+    self.notify_email = ModernToggleSwitch()
+    
+    notify_layout.addWidget(SettingRow("Звуковые уведомления:", self.notify_sound))
+    notify_layout.addWidget(SettingRow("Всплывающие окна:", self.notify_popup))
+    notify_layout.addWidget(SettingRow("Email уведомления:", self.notify_email))
+    
+    layout.addWidget(notify_card)
+    
+    layout.addStretch()
+    return widget
 
     def _build_recognition_settings(self):
         """Настройки распознавания."""
