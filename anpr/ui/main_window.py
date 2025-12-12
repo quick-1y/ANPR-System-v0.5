@@ -295,7 +295,9 @@ class EventDetailView(QtWidgets.QWidget):
             label.setMinimumSize(min_size)
         else:
             label.setMinimumHeight(min_height)
-        label.setStyleSheet("background-color: #111; color: #888; border: 1px solid #444;")
+        label.setStyleSheet(
+            "background-color: #0b0c10; color: #9ca3af; border: 1px solid #1f2937; border-radius: 10px;"
+        )
         label.setScaledContents(False if keep_aspect else True)
         wrapper.addWidget(label)
         group.display_label = label  # type: ignore[attr-defined]
@@ -356,22 +358,37 @@ class MainWindow(QtWidgets.QMainWindow):
     GRID_VARIANTS = ["1x1", "1x2", "2x2", "2x3", "3x3"]
     MAX_IMAGE_CACHE = 200
     MAX_IMAGE_CACHE_BYTES = 256 * 1024 * 1024  # 256 MB
+    ACCENT_COLOR = "#22d3ee"
+    SURFACE_COLOR = "#16181d"
+    PANEL_COLOR = "#0f1115"
     GROUP_BOX_STYLE = (
-        "QGroupBox { background-color: #2b2b28; color: #f0f0f0; border: 1px solid #383531; padding: 8px; margin-top: 6px; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
-        "QLabel { color: #f0f0f0; }"
-        "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateTimeEdit { background-color: #111; color: #f0f0f0; border: 1px solid #333; padding: 4px; }"
-        "QPushButton { background-color: #00ffff; color: #000; border-radius: 4px; padding: 6px 12px; font-weight: 600; }"
-        "QPushButton:hover { background-color: #4dfefe; }"
-        "QCheckBox { color: #e0e0e0; }"
+        "QGroupBox { background-color: #16181d; color: #f6f7fb; border: 1px solid #20242c; border-radius: 12px; padding: 12px; margin-top: 10px; }"
+        "QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; font-weight: 700; color: #e2e8f0; }"
+        "QLabel { color: #cbd5e1; font-size: 13px; }"
+        "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
+        "QPushButton { background-color: #22d3ee; color: #0b0c10; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }"
+        "QPushButton:hover { background-color: #4ddcf3; }"
+        "QCheckBox { color: #e5e7eb; font-size: 13px; }"
+    )
+    FIELD_MAX_WIDTH = 520
+    COMPACT_FIELD_WIDTH = 180
+
+    PRIMARY_HOLLOW_BUTTON = (
+        "QPushButton { background-color: transparent; color: #ffffff; border: 1px solid #ffffff; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }"
+        "QPushButton:hover { background-color: #22d3ee; color: #0b0c10; }"
+        "QPushButton:pressed { background-color: #1fb6d5; color: #0b0c10; }"
     )
     TABLE_STYLE = (
-        "QHeaderView::section { background-color: rgb(23,25,29); color: white; padding: 6px; }"
-        "QTableWidget { background-color: #000; color: lightgray; gridline-color: #333; }"
-        "QTableWidget::item { border-bottom: 1px solid #333; }"
-        "QTableWidget::item:selected { background-color: #00ffff; color: #000; }"
+        "QHeaderView::section { background-color: #11131a; color: #e2e8f0; padding: 8px; font-weight: 700; border: none; }"
+        "QTableWidget { background-color: #0b0c10; color: #e5e7eb; gridline-color: #1f2937; selection-background-color: #11131a; }"
+        "QTableWidget::item { border-bottom: 1px solid #1f2937; padding: 6px; }"
+        "QTableWidget::item:selected { background-color: rgba(34,211,238,0.18); color: #22d3ee; border: 1px solid #22d3ee; }"
     )
-    LIST_STYLE = "QListWidget { background-color: #111; color: #e0e0e0; border: 1px solid #333; }"
+    LIST_STYLE = (
+        "QListWidget { background-color: #0b0c10; color: #cbd5e1; border: 1px solid #1f2937; border-radius: 10px; padding: 6px; }"
+        "QListWidget::item:selected { background-color: rgba(34,211,238,0.16); color: #22d3ee; border-radius: 6px; }"
+        "QListWidget::item { padding: 8px 10px; margin: 2px 0; }"
+    )
 
     def __init__(self, settings: Optional[SettingsManager] = None) -> None:
         super().__init__()
@@ -379,6 +396,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize(1280, 800)
 
         self.settings = settings or SettingsManager()
+        self.current_grid = self.settings.get_grid()
+        if self.current_grid not in self.GRID_VARIANTS:
+            self.current_grid = self.GRID_VARIANTS[0]
         self.db = EventDatabase(self.settings.get_db_path())
 
         self._pixmap_pool = PixmapPool()
@@ -389,12 +409,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.event_cache: Dict[int, Dict] = {}
         self.flag_cache: Dict[str, Optional[QtGui.QIcon]] = {}
         self.flag_dir = Path(__file__).resolve().parents[2] / "images" / "flags"
+        self.country_display_names = self._load_country_names()
 
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setStyleSheet(
-            "QTabBar::tab { background: rgb(23,25,29); color: grey; padding: 8px 16px; border: 1px solid #111; }"
-            "QTabBar::tab:selected { background: rgb(23,25,29); color: #00ffff; border-bottom: 2px solid #00ffff; }"
-            "QTabWidget::pane { border: 1px solid #111; }"
+            "QTabBar { font-weight: 700; }"
+            f"QTabBar::tab {{ background: #0b0c10; color: #9ca3af; padding: 10px 18px; border: 1px solid #0f1115; border-top-left-radius: 10px; border-top-right-radius: 10px; margin-right: 6px; }}"
+            f"QTabBar::tab:selected {{ background: #16181d; color: {self.ACCENT_COLOR}; border: 1px solid #20242c; border-bottom: 2px solid {self.ACCENT_COLOR}; }}"
+            "QTabWidget::pane { border: 1px solid #20242c; border-radius: 10px; background-color: #16181d; top: -1px; }"
         )
         self.observation_tab = self._build_observation_tab()
         self.search_tab = self._build_search_tab()
@@ -405,7 +427,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self.settings_tab, "Настройки")
 
         self.setCentralWidget(self.tabs)
-        self.setStyleSheet("background-color: #49423d;")
+        self.setStyleSheet(
+            "QMainWindow { background-color: #0b0c10; }"
+            "QStatusBar { background-color: #0b0c10; color: #e5e7eb; padding: 4px; border-top: 1px solid #1f2937; }"
+        )
         self._build_status_bar()
         self._start_system_monitoring()
         self._refresh_events_table()
@@ -413,7 +438,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_status_bar(self) -> None:
         status = self.statusBar()
-        status.setStyleSheet("background-color: rgb(23,25,29); color: white; padding: 3px;")
+        status.setStyleSheet(
+            "background-color: #0b0c10; color: #e5e7eb; padding: 6px; border-top: 1px solid #1f2937;"
+        )
         status.setSizeGripEnabled(False)
         self.cpu_label = QtWidgets.QLabel("CPU: —")
         self.ram_label = QtWidgets.QLabel("RAM: —")
@@ -441,12 +468,30 @@ class MainWindow(QtWidgets.QMainWindow):
 
         left_column = QtWidgets.QVBoxLayout()
         controls = QtWidgets.QHBoxLayout()
-        controls.addWidget(QtWidgets.QLabel("Сетка:"))
-        self.grid_selector = QtWidgets.QComboBox()
-        self.grid_selector.addItems(self.GRID_VARIANTS)
-        self.grid_selector.setCurrentText(self.settings.get_grid())
-        self.grid_selector.currentTextChanged.connect(self._on_grid_changed)
-        controls.addWidget(self.grid_selector)
+        controls.setSpacing(8)
+
+        chooser = QtWidgets.QVBoxLayout()
+        chooser.setSpacing(6)
+        chooser.setContentsMargins(4, 4, 4, 4)
+        chooser_label = QtWidgets.QLabel("Сетка")
+        chooser_label.setStyleSheet("color: #e5e7eb; font-weight: 800;")
+        chooser.addWidget(chooser_label)
+        self.grid_combo = QtWidgets.QComboBox()
+        self.grid_combo.setStyleSheet(
+            "QComboBox { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 10px; padding: 8px 12px; min-width: 140px; }"
+            "QComboBox::drop-down { border: 0px; width: 28px; }"
+            "QComboBox::down-arrow { image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png); width: 12px; height: 12px; margin-right: 6px; }"
+            "QComboBox QAbstractItemView { background-color: #0b0c10; color: #e5e7eb; selection-background-color: rgba(34,211,238,0.14); border: 1px solid #1f2937; padding: 6px; }"
+        )
+        for variant in self.GRID_VARIANTS:
+            self.grid_combo.addItem(variant.replace("x", "×"), variant)
+        current_index = self.grid_combo.findData(self.current_grid)
+        if current_index >= 0:
+            self.grid_combo.setCurrentIndex(current_index)
+        self.grid_combo.currentIndexChanged.connect(self._on_grid_combo_changed)
+        chooser.addWidget(self.grid_combo)
+
+        controls.addLayout(chooser)
         controls.addStretch()
         left_column.addLayout(controls)
 
@@ -459,23 +504,27 @@ class MainWindow(QtWidgets.QMainWindow):
 
         right_column = QtWidgets.QVBoxLayout()
         details_group = QtWidgets.QGroupBox("Информация о событии")
-        details_group.setStyleSheet(
-            "QGroupBox { background-color: #000; color: white; border: 1px solid #2e2e2e; padding: 6px; }"
-        )
+        details_group.setStyleSheet(self.GROUP_BOX_STYLE)
         details_layout = QtWidgets.QVBoxLayout(details_group)
         self.event_detail = EventDetailView()
         details_layout.addWidget(self.event_detail)
         right_column.addWidget(details_group, stretch=3)
 
         events_group = QtWidgets.QGroupBox("События")
-        events_group.setStyleSheet(
-            "QGroupBox { background-color: rgb(40,40,40); color: white; border: 1px solid #2e2e2e; padding: 6px; }"
-        )
+        events_group.setStyleSheet(self.GROUP_BOX_STYLE)
         events_layout = QtWidgets.QVBoxLayout(events_group)
         self.events_table = QtWidgets.QTableWidget(0, 4)
         self.events_table.setHorizontalHeaderLabels(["Дата/Время", "Гос. номер", "Страна", "Канал"])
         self.events_table.setStyleSheet(self.TABLE_STYLE)
-        self.events_table.horizontalHeader().setStretchLastSection(True)
+        header = self.events_table.horizontalHeader()
+        header.setMinimumSectionSize(70)
+        header.setStretchLastSection(False)
+        for index in range(4):
+            header.setSectionResizeMode(index, QtWidgets.QHeaderView.Interactive)
+        self.events_table.setColumnWidth(0, 220)
+        self.events_table.setColumnWidth(1, 120)
+        self.events_table.setColumnWidth(2, 90)
+        self.events_table.setColumnWidth(3, 120)
         self.events_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.events_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.events_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -488,6 +537,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._draw_grid()
         return widget
+
+    @staticmethod
+    def _polish_button(button: QtWidgets.QPushButton, min_width: int = 140) -> None:
+        button.setStyleSheet(MainWindow.PRIMARY_HOLLOW_BUTTON)
+        button.setMinimumWidth(min_width)
+        button.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
 
     @staticmethod
     def _prepare_optional_datetime(widget: QtWidgets.QDateTimeEdit) -> None:
@@ -524,7 +579,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.channel_labels.clear()
         channels = self.settings.get_channels()
-        rows, cols = map(int, self.grid_selector.currentText().split("x"))
+        rows, cols = map(int, self.current_grid.split("x"))
         for col in range(cols):
             self.grid_layout.setColumnStretch(col, 1)
         for row in range(rows):
@@ -539,7 +594,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.grid_layout.addWidget(label, row, col)
                 index += 1
 
-    def _on_grid_changed(self, grid: str) -> None:
+    def _on_grid_combo_changed(self, index: int) -> None:
+        variant = self.grid_combo.itemData(index)
+        if variant:
+            self._select_grid(str(variant))
+
+    def _select_grid(self, grid: str) -> None:
+        self.current_grid = grid
+        if hasattr(self, "grid_combo"):
+            combo_index = self.grid_combo.findData(grid)
+            if combo_index >= 0 and combo_index != self.grid_combo.currentIndex():
+                self.grid_combo.blockSignals(True)
+                self.grid_combo.setCurrentIndex(combo_index)
+                self.grid_combo.blockSignals(False)
         self.settings.save_grid(grid)
         self._draw_grid()
 
@@ -667,6 +734,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.flag_cache[code] = None
         return None
 
+    def _get_country_name(self, country: Optional[str]) -> str:
+        if not country:
+            return "—"
+        code = str(country).upper()
+        return self.country_display_names.get(code, code)
+
     def _prune_image_cache(self) -> None:
         """Ограничивает размер кеша изображений, удаляя самые старые записи."""
 
@@ -690,17 +763,21 @@ class MainWindow(QtWidgets.QMainWindow):
         plate = event.get("plate", "—")
         channel = event.get("channel", "—")
         event_id = int(event.get("id") or 0)
-        country_code = event.get("country") or "—"
+        country_code = (event.get("country") or "").upper()
 
         id_item = QtWidgets.QTableWidgetItem(timestamp)
         id_item.setData(QtCore.Qt.UserRole, event_id)
         self.events_table.setItem(row_index, 0, id_item)
         self.events_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(plate))
-        country_item = QtWidgets.QTableWidgetItem(country_code if country_code != "—" else "")
+        country_item = QtWidgets.QTableWidgetItem("")
+        country_item.setData(QtCore.Qt.UserRole, country_code)
+        country_item.setData(QtCore.Qt.TextAlignmentRole, QtCore.Qt.AlignCenter)
         country_icon = self._get_flag_icon(event.get("country"))
         if country_icon:
-            country_item.setIcon(country_icon)
-        country_item.setTextAlignment(QtCore.Qt.AlignCenter)
+            country_item.setData(QtCore.Qt.DecorationRole, country_icon)
+        country_name = self._get_country_name(country_code)
+        if country_name != "—":
+            country_item.setToolTip(country_name)
         self.events_table.setItem(row_index, 2, country_item)
         self.events_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(channel))
 
@@ -748,6 +825,7 @@ class MainWindow(QtWidgets.QMainWindow):
         display_event = dict(event) if event else None
         if display_event:
             display_event["timestamp"] = self._format_timestamp(display_event.get("timestamp", ""))
+            display_event["country"] = self._get_country_name(display_event.get("country"))
         self.event_detail.set_event(display_event, frame_image, plate_image)
 
     def _refresh_events_table(self, select_id: Optional[int] = None) -> None:
@@ -843,43 +921,95 @@ class MainWindow(QtWidgets.QMainWindow):
     # ------------------ Настройки ------------------
     def _build_settings_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout = QtWidgets.QVBoxLayout(widget)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        content = QtWidgets.QFrame()
+        content.setStyleSheet(
+            f"QFrame {{ background-color: {self.SURFACE_COLOR}; border: none; border-radius: 14px; }}"
+        )
+        content_layout = QtWidgets.QHBoxLayout(content)
+        content_layout.setContentsMargins(12, 12, 12, 12)
+        content_layout.setSpacing(12)
 
         self.settings_nav = QtWidgets.QListWidget()
-        self.settings_nav.setFixedWidth(180)
+        self.settings_nav.setFixedWidth(220)
         self.settings_nav.setStyleSheet(self.LIST_STYLE)
         self.settings_nav.addItem("Общие")
         self.settings_nav.addItem("Каналы")
-        layout.addWidget(self.settings_nav)
+        content_layout.addWidget(self.settings_nav)
 
         self.settings_stack = QtWidgets.QStackedWidget()
         self.settings_stack.addWidget(self._build_general_settings_tab())
         self.settings_stack.addWidget(self._build_channel_settings_tab())
-        layout.addWidget(self.settings_stack, 1)
+        content_layout.addWidget(self.settings_stack, 1)
+
+        layout.addWidget(content, 1)
 
         self.settings_nav.currentRowChanged.connect(self.settings_stack.setCurrentIndex)
         self.settings_nav.setCurrentRow(0)
         return widget
 
     def _build_general_settings_tab(self) -> QtWidgets.QWidget:
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setStyleSheet(
+            f"QScrollArea {{ background: transparent; border: none; }}"
+            f"QScrollArea > QWidget > QWidget {{ background-color: {self.SURFACE_COLOR}; }}"
+        )
+
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
-        widget.setStyleSheet(self.GROUP_BOX_STYLE)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+        widget.setStyleSheet(
+            "QLabel { color: #cbd5e1; font-size: 13px; }"
+            "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
+            "QPushButton { background-color: #22d3ee; color: #0b0c10; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }"
+            "QPushButton:hover { background-color: #4ddcf3; }"
+            "QCheckBox { color: #e5e7eb; font-size: 13px; }"
+            f"QWidget {{ background-color: {self.SURFACE_COLOR}; }}"
+        )
 
-        reconnect_group = QtWidgets.QGroupBox("Автоматическое переподключение")
-        reconnect_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        reconnect_form = QtWidgets.QFormLayout(reconnect_group)
+        section_style = f"QFrame {{ background-color: {self.PANEL_COLOR}; border: none; border-radius: 12px; }}"
+
+        def make_section(title: str) -> tuple[QtWidgets.QFrame, QtWidgets.QFormLayout]:
+            frame = QtWidgets.QFrame()
+            frame.setStyleSheet(section_style)
+            frame_layout = QtWidgets.QVBoxLayout(frame)
+            frame_layout.setContentsMargins(14, 12, 14, 12)
+            frame_layout.setSpacing(10)
+
+            header = QtWidgets.QLabel(title)
+            header.setStyleSheet("font-size: 14px; font-weight: 800; color: #e5e7eb;")
+            frame_layout.addWidget(header)
+
+            form = QtWidgets.QFormLayout()
+            form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+            form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+            form.setHorizontalSpacing(14)
+            form.setVerticalSpacing(10)
+            form.setFieldGrowthPolicy(QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
+            frame_layout.addLayout(form)
+
+            return frame, form
+
+        reconnect_group, reconnect_form = make_section("Стабильность каналов")
         self.reconnect_on_loss_checkbox = QtWidgets.QCheckBox("Переподключение при потере сигнала")
         reconnect_form.addRow(self.reconnect_on_loss_checkbox)
 
         self.frame_timeout_input = QtWidgets.QSpinBox()
+        self.frame_timeout_input.setMaximumWidth(140)
         self.frame_timeout_input.setRange(1, 300)
         self.frame_timeout_input.setSuffix(" с")
         self.frame_timeout_input.setToolTip("Сколько секунд ждать кадр перед попыткой переподключения")
         reconnect_form.addRow("Таймаут ожидания кадра:", self.frame_timeout_input)
 
         self.retry_interval_input = QtWidgets.QSpinBox()
+        self.retry_interval_input.setMaximumWidth(140)
         self.retry_interval_input.setRange(1, 300)
         self.retry_interval_input.setSuffix(" с")
         self.retry_interval_input.setToolTip("Интервал между попытками переподключения при потере сигнала")
@@ -889,18 +1019,23 @@ class MainWindow(QtWidgets.QMainWindow):
         reconnect_form.addRow(self.periodic_reconnect_checkbox)
 
         self.periodic_interval_input = QtWidgets.QSpinBox()
+        self.periodic_interval_input.setMaximumWidth(140)
         self.periodic_interval_input.setRange(1, 1440)
         self.periodic_interval_input.setSuffix(" мин")
         self.periodic_interval_input.setToolTip("Плановое переподключение каждые N минут")
         reconnect_form.addRow("Интервал переподключения:", self.periodic_interval_input)
 
-        storage_group = QtWidgets.QGroupBox("Хранилище")
-        storage_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        storage_form = QtWidgets.QFormLayout(storage_group)
+        storage_group, storage_form = make_section("Хранилище")
 
         db_row = QtWidgets.QHBoxLayout()
+        db_row.setContentsMargins(0, 0, 0, 0)
+        db_row.setSpacing(8)
         self.db_dir_input = QtWidgets.QLineEdit()
+        self.db_dir_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self.db_dir_input.setMinimumWidth(320)
+        self.db_dir_input.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         browse_db_btn = QtWidgets.QPushButton("Выбрать...")
+        self._polish_button(browse_db_btn, 130)
         browse_db_btn.clicked.connect(self._choose_db_dir)
         db_row.addWidget(self.db_dir_input)
         db_row.addWidget(browse_db_btn)
@@ -909,8 +1044,14 @@ class MainWindow(QtWidgets.QMainWindow):
         storage_form.addRow("Папка БД:", db_container)
 
         screenshot_row = QtWidgets.QHBoxLayout()
+        screenshot_row.setContentsMargins(0, 0, 0, 0)
+        screenshot_row.setSpacing(8)
         self.screenshot_dir_input = QtWidgets.QLineEdit()
+        self.screenshot_dir_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self.screenshot_dir_input.setMinimumWidth(320)
+        self.screenshot_dir_input.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         browse_screenshot_btn = QtWidgets.QPushButton("Выбрать...")
+        self._polish_button(browse_screenshot_btn, 130)
         browse_screenshot_btn.clicked.connect(self._choose_screenshot_dir)
         screenshot_row.addWidget(self.screenshot_dir_input)
         screenshot_row.addWidget(browse_screenshot_btn)
@@ -918,13 +1059,17 @@ class MainWindow(QtWidgets.QMainWindow):
         screenshot_container.setLayout(screenshot_row)
         storage_form.addRow("Папка для скриншотов:", screenshot_container)
 
-        plate_group = QtWidgets.QGroupBox("Валидация номеров")
-        plate_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        plate_form = QtWidgets.QFormLayout(plate_group)
+        plate_group, plate_form = make_section("Валидация номеров")
 
         plate_dir_row = QtWidgets.QHBoxLayout()
+        plate_dir_row.setContentsMargins(0, 0, 0, 0)
+        plate_dir_row.setSpacing(8)
         self.country_config_dir_input = QtWidgets.QLineEdit()
+        self.country_config_dir_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self.country_config_dir_input.setMinimumWidth(320)
+        self.country_config_dir_input.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         browse_country_btn = QtWidgets.QPushButton("Выбрать...")
+        self._polish_button(browse_country_btn, 130)
         browse_country_btn.clicked.connect(self._choose_country_dir)
         self.country_config_dir_input.editingFinished.connect(self._reload_country_templates)
         plate_dir_row.addWidget(self.country_config_dir_input)
@@ -934,25 +1079,36 @@ class MainWindow(QtWidgets.QMainWindow):
         plate_form.addRow("Каталог шаблонов:", plate_dir_container)
 
         self.country_templates_list = QtWidgets.QListWidget()
+        self.country_templates_list.setMaximumWidth(self.FIELD_MAX_WIDTH)
         self.country_templates_list.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
         self.country_templates_list.setStyleSheet(self.LIST_STYLE)
         plate_form.addRow("Активные страны:", self.country_templates_list)
 
         refresh_countries_btn = QtWidgets.QPushButton("Обновить список стран")
+        self._polish_button(refresh_countries_btn, 180)
         refresh_countries_btn.clicked.connect(self._reload_country_templates)
         plate_form.addRow("", refresh_countries_btn)
 
-        save_general_btn = QtWidgets.QPushButton("Сохранить общие настройки")
+        save_card = QtWidgets.QFrame()
+        save_card.setStyleSheet(section_style)
+        save_row = QtWidgets.QHBoxLayout(save_card)
+        save_row.setContentsMargins(14, 12, 14, 12)
+        save_row.setSpacing(10)
+        save_general_btn = QtWidgets.QPushButton("Сохранить")
+        self._polish_button(save_general_btn, 220)
         save_general_btn.clicked.connect(self._save_general_settings)
+        save_row.addWidget(save_general_btn, 0)
+        save_row.addStretch(1)
 
         layout.addWidget(reconnect_group)
         layout.addWidget(storage_group)
         layout.addWidget(plate_group)
-        layout.addWidget(save_general_btn, alignment=QtCore.Qt.AlignLeft)
+        layout.addWidget(save_card)
         layout.addStretch()
 
+        scroll.setWidget(widget)
         self._load_general_settings()
-        return widget
+        return scroll
 
     def _build_channel_settings_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
@@ -969,8 +1125,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         list_buttons = QtWidgets.QHBoxLayout()
         add_btn = QtWidgets.QPushButton("Добавить")
+        self._polish_button(add_btn, 140)
         add_btn.clicked.connect(self._add_channel)
         remove_btn = QtWidgets.QPushButton("Удалить")
+        self._polish_button(remove_btn, 140)
         remove_btn.clicked.connect(self._remove_channel)
         list_buttons.addWidget(add_btn)
         list_buttons.addWidget(remove_btn)
@@ -984,26 +1142,54 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addLayout(center_panel, 2)
 
         right_panel = QtWidgets.QVBoxLayout()
+        right_panel.setSpacing(10)
 
-        channel_group = QtWidgets.QGroupBox("Канал")
-        channel_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        channel_form = QtWidgets.QFormLayout(channel_group)
+        tab_styles = (
+            "QTabBar { font-weight: 700; }"
+            f"QTabBar::tab {{ background: #0b0c10; color: #9ca3af; padding: 8px 14px; border: 1px solid #0f1115; border-top-left-radius: 10px; border-top-right-radius: 10px; margin-right: 6px; }}"
+            f"QTabBar::tab:selected {{ background: #16181d; color: {self.ACCENT_COLOR}; border: 1px solid #20242c; border-bottom: 2px solid {self.ACCENT_COLOR}; }}"
+            "QTabWidget::pane { border: 1px solid #20242c; border-radius: 10px; background-color: #16181d; top: -1px; }"
+            "QWidget { background-color: #16181d; color: #cbd5e1; }"
+            "QLabel { color: #cbd5e1; font-size: 13px; }"
+            "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
+        )
+
+        tabs = QtWidgets.QTabWidget()
+        tabs.setStyleSheet(tab_styles)
+
+        def make_form_tab() -> QtWidgets.QFormLayout:
+            tab_widget = QtWidgets.QWidget()
+            form = QtWidgets.QFormLayout(tab_widget)
+            form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+            form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+            form.setHorizontalSpacing(14)
+            form.setVerticalSpacing(12)
+            form.setContentsMargins(12, 12, 12, 12)
+            tabs.addTab(tab_widget, "")
+            return form
+
+        channel_form = make_form_tab()
+        tabs.setTabText(0, "Канал")
         self.channel_name_input = QtWidgets.QLineEdit()
+        self.channel_name_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
         self.channel_source_input = QtWidgets.QLineEdit()
+        self.channel_source_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
         channel_form.addRow("Название:", self.channel_name_input)
         channel_form.addRow("Источник/RTSP:", self.channel_source_input)
-        right_panel.addWidget(channel_group)
 
-        recognition_group = QtWidgets.QGroupBox("Распознавание")
-        recognition_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        recognition_form = QtWidgets.QFormLayout(recognition_group)
+        recognition_form = make_form_tab()
+        tabs.setTabText(1, "Распознавание")
         self.best_shots_input = QtWidgets.QSpinBox()
         self.best_shots_input.setRange(1, 50)
-        self.best_shots_input.setToolTip("Количество бестшотов, участвующих в консенсусе трека")
+        self.best_shots_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.best_shots_input.setMinimumWidth(120)
+        self.best_shots_input.setToolTip("Количество бстшотов, участвующих в консенсусе трека")
         recognition_form.addRow("Бестшоты на трек:", self.best_shots_input)
 
         self.cooldown_input = QtWidgets.QSpinBox()
         self.cooldown_input.setRange(0, 3600)
+        self.cooldown_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.cooldown_input.setMinimumWidth(120)
         self.cooldown_input.setToolTip(
             "Интервал (в секундах), в течение которого не создается повторное событие для того же номера"
         )
@@ -1013,22 +1199,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.min_conf_input.setRange(0.0, 1.0)
         self.min_conf_input.setSingleStep(0.05)
         self.min_conf_input.setDecimals(2)
+        self.min_conf_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.min_conf_input.setMinimumWidth(120)
         self.min_conf_input.setToolTip(
             "Минимальная уверенность OCR (0-1) для приема результата; ниже — помечается как нечитаемое"
         )
         recognition_form.addRow("Мин. уверенность OCR:", self.min_conf_input)
-        right_panel.addWidget(recognition_group)
 
-        motion_group = QtWidgets.QGroupBox("Детектор движения")
-        motion_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        motion_form = QtWidgets.QFormLayout(motion_group)
+        motion_form = make_form_tab()
+        tabs.setTabText(2, "Детектор движения")
         self.detection_mode_input = QtWidgets.QComboBox()
         self.detection_mode_input.addItem("Постоянное", "continuous")
         self.detection_mode_input.addItem("Детектор движения", "motion")
+        self.detection_mode_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
         motion_form.addRow("Обнаружение ТС:", self.detection_mode_input)
 
         self.detector_stride_input = QtWidgets.QSpinBox()
         self.detector_stride_input.setRange(1, 12)
+        self.detector_stride_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.detector_stride_input.setMinimumWidth(120)
         self.detector_stride_input.setToolTip(
             "Запускать YOLO на каждом N-м кадре в зоне распознавания, чтобы снизить нагрузку"
         )
@@ -1038,57 +1227,83 @@ class MainWindow(QtWidgets.QMainWindow):
         self.motion_threshold_input.setRange(0.0, 1.0)
         self.motion_threshold_input.setDecimals(3)
         self.motion_threshold_input.setSingleStep(0.005)
+        self.motion_threshold_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.motion_threshold_input.setMinimumWidth(120)
         self.motion_threshold_input.setToolTip("Порог чувствительности по площади изменения внутри ROI")
         motion_form.addRow("Порог движения:", self.motion_threshold_input)
 
         self.motion_stride_input = QtWidgets.QSpinBox()
         self.motion_stride_input.setRange(1, 30)
+        self.motion_stride_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.motion_stride_input.setMinimumWidth(120)
         self.motion_stride_input.setToolTip("Обрабатывать каждый N-й кадр для поиска движения")
         motion_form.addRow("Частота анализа (кадр):", self.motion_stride_input)
 
         self.motion_activation_frames_input = QtWidgets.QSpinBox()
         self.motion_activation_frames_input.setRange(1, 60)
+        self.motion_activation_frames_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.motion_activation_frames_input.setMinimumWidth(120)
         self.motion_activation_frames_input.setToolTip("Сколько кадров подряд должно быть движение, чтобы включить распознавание")
         motion_form.addRow("Мин. кадров с движением:", self.motion_activation_frames_input)
 
         self.motion_release_frames_input = QtWidgets.QSpinBox()
         self.motion_release_frames_input.setRange(1, 120)
+        self.motion_release_frames_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.motion_release_frames_input.setMinimumWidth(120)
         self.motion_release_frames_input.setToolTip("Сколько кадров без движения нужно, чтобы остановить распознавание")
         motion_form.addRow("Мин. кадров без движения:", self.motion_release_frames_input)
-        right_panel.addWidget(motion_group)
 
-        roi_group = QtWidgets.QGroupBox("Зона распознавания")
-        roi_group.setStyleSheet(self.GROUP_BOX_STYLE)
-        roi_layout = QtWidgets.QGridLayout()
+        roi_form = make_form_tab()
+        tabs.setTabText(3, "Зона распознавания")
+        roi_grid = QtWidgets.QGridLayout()
+        roi_grid.setHorizontalSpacing(12)
+        roi_grid.setVerticalSpacing(10)
+        roi_grid.setContentsMargins(0, 0, 0, 0)
         self.roi_x_input = QtWidgets.QSpinBox()
         self.roi_x_input.setRange(0, 100)
+        self.roi_x_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.roi_x_input.setMinimumWidth(120)
         self.roi_y_input = QtWidgets.QSpinBox()
         self.roi_y_input.setRange(0, 100)
+        self.roi_y_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.roi_y_input.setMinimumWidth(120)
         self.roi_w_input = QtWidgets.QSpinBox()
         self.roi_w_input.setRange(1, 100)
+        self.roi_w_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.roi_w_input.setMinimumWidth(120)
         self.roi_h_input = QtWidgets.QSpinBox()
         self.roi_h_input.setRange(1, 100)
+        self.roi_h_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.roi_h_input.setMinimumWidth(120)
 
         for spin in (self.roi_x_input, self.roi_y_input, self.roi_w_input, self.roi_h_input):
             spin.valueChanged.connect(self._on_roi_inputs_changed)
 
-        roi_layout.addWidget(QtWidgets.QLabel("X (%):"), 0, 0)
-        roi_layout.addWidget(self.roi_x_input, 0, 1)
-        roi_layout.addWidget(QtWidgets.QLabel("Y (%):"), 1, 0)
-        roi_layout.addWidget(self.roi_y_input, 1, 1)
-        roi_layout.addWidget(QtWidgets.QLabel("Ширина (%):"), 2, 0)
-        roi_layout.addWidget(self.roi_w_input, 2, 1)
-        roi_layout.addWidget(QtWidgets.QLabel("Высота (%):"), 3, 0)
-        roi_layout.addWidget(self.roi_h_input, 3, 1)
+        roi_grid.addWidget(QtWidgets.QLabel("X (%):"), 0, 0)
+        roi_grid.addWidget(self.roi_x_input, 0, 1)
+        roi_grid.addWidget(QtWidgets.QLabel("Y (%):"), 1, 0)
+        roi_grid.addWidget(self.roi_y_input, 1, 1)
+        roi_grid.addWidget(QtWidgets.QLabel("Ширина (%):"), 2, 0)
+        roi_grid.addWidget(self.roi_w_input, 2, 1)
+        roi_grid.addWidget(QtWidgets.QLabel("Высота (%):"), 3, 0)
+        roi_grid.addWidget(self.roi_h_input, 3, 1)
+
+        roi_row_container = QtWidgets.QWidget()
+        roi_row_container.setLayout(roi_grid)
+        roi_form.addRow("", roi_row_container)
+
         refresh_btn = QtWidgets.QPushButton("Обновить кадр")
+        self._polish_button(refresh_btn, 160)
         refresh_btn.clicked.connect(self._refresh_preview_frame)
-        roi_layout.addWidget(refresh_btn, 4, 0, 1, 2)
-        roi_group.setLayout(roi_layout)
-        right_panel.addWidget(roi_group)
+        roi_form.addRow("", refresh_btn)
+
+        right_panel.addWidget(tabs)
 
         save_btn = QtWidgets.QPushButton("Сохранить канал")
+        self._polish_button(save_btn, 200)
         save_btn.clicked.connect(self._save_channel)
-        right_panel.addWidget(save_btn)
+        save_btn.setMaximumWidth(220)
+        right_panel.addWidget(save_btn, alignment=QtCore.Qt.AlignLeft)
         right_panel.addStretch()
 
         layout.addLayout(right_panel, 2)
@@ -1137,6 +1352,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.country_config_dir_input.setText(directory)
             self._reload_country_templates()
 
+    def _load_country_names(self, config_dir: Optional[str] = None) -> Dict[str, str]:
+        config_path = config_dir or self.settings.get_plate_settings().get("config_dir", "config/countries")
+        loader = CountryConfigLoader(config_path)
+        loader.ensure_dir()
+        names: Dict[str, str] = {}
+        for cfg in loader.available_configs():
+            code = (cfg.get("code") or "").upper()
+            name = cfg.get("name") or code
+            if code:
+                names[code] = name
+        return names
+
     def _reload_country_templates(self, enabled: Optional[List[str]] = None) -> None:
         plate_settings = self.settings.get_plate_settings()
         config_dir = self.country_config_dir_input.text().strip() or plate_settings.get("config_dir", "config/countries")
@@ -1144,6 +1371,7 @@ class MainWindow(QtWidgets.QMainWindow):
         loader.ensure_dir()
         available = loader.available_configs()
         enabled_codes = set(enabled or plate_settings.get("enabled_countries", []))
+        self.country_display_names = {cfg["code"].upper(): cfg.get("name") or cfg["code"] for cfg in available if cfg.get("code")}
 
         self.country_templates_list.clear()
         if not available:
