@@ -6,6 +6,7 @@ from pathlib import Path
 
 import cv2
 import psutil
+from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple
 
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -353,7 +354,8 @@ class MainWindow(QtWidgets.QMainWindow):
     """Главное окно приложения ANPR с вкладками наблюдения, поиска и настроек."""
 
     GRID_VARIANTS = ["1x1", "1x2", "2x2", "2x3", "3x3"]
-    MAX_IMAGE_CACHE = 300
+    MAX_IMAGE_CACHE = 200
+    MAX_IMAGE_CACHE_BYTES = 256 * 1024 * 1024  # 256 MB
     GROUP_BOX_STYLE = (
         "QGroupBox { background-color: #2b2b28; color: #f0f0f0; border: 1px solid #383531; padding: 8px; margin-top: 6px; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
@@ -382,7 +384,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pixmap_pool = PixmapPool()
         self.channel_workers: List[ChannelWorker] = []
         self.channel_labels: Dict[str, ChannelView] = {}
-        self.event_images: Dict[int, Tuple[Optional[QtGui.QImage], Optional[QtGui.QImage]]] = {}
+        self.event_images: "OrderedDict[int, Tuple[Optional[QtGui.QImage], Optional[QtGui.QImage]]]" = OrderedDict()
+        self._image_cache_bytes = 0
         self.event_cache: Dict[int, Dict] = {}
         self.flag_cache: Dict[str, Optional[QtGui.QIcon]] = {}
         self.flag_dir = Path(__file__).resolve().parents[2] / "images" / "flags"
@@ -597,14 +600,43 @@ class MainWindow(QtWidgets.QMainWindow):
         bytes_per_line = 3 * width
         return QtGui.QImage(rgb.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888).copy()
 
+    @staticmethod
+    def _image_weight(images: Tuple[Optional[QtGui.QImage], Optional[QtGui.QImage]]) -> int:
+        frame_image, plate_image = images
+        frame_bytes = frame_image.byteCount() if frame_image else 0
+        plate_bytes = plate_image.byteCount() if plate_image else 0
+        return frame_bytes + plate_bytes
+
+    def _discard_event_images(self, event_id: int) -> None:
+        images = self.event_images.pop(event_id, None)
+        if images:
+            self._image_cache_bytes = max(0, self._image_cache_bytes - self._image_weight(images))
+
+    def _store_event_images(
+        self,
+        event_id: int,
+        images: Tuple[Optional[QtGui.QImage], Optional[QtGui.QImage]],
+    ) -> None:
+        existing = self.event_images.pop(event_id, None)
+        if existing:
+            self._image_cache_bytes = max(0, self._image_cache_bytes - self._image_weight(existing))
+
+        frame_image, plate_image = images
+        if frame_image is None and plate_image is None:
+            return
+
+        self.event_images[event_id] = (frame_image, plate_image)
+        self.event_images.move_to_end(event_id)
+        self._image_cache_bytes += self._image_weight((frame_image, plate_image))
+        self._prune_image_cache()
+
     def _handle_event(self, event: Dict) -> None:
         event_id = int(event.get("id", 0))
         frame_image = event.get("frame_image")
         plate_image = event.get("plate_image")
         if event_id:
-            self.event_images[event_id] = (frame_image, plate_image)
+            self._store_event_images(event_id, (frame_image, plate_image))
             self.event_cache[event_id] = event
-            self._prune_image_cache()
         channel_label = self.channel_labels.get(event.get("channel", ""))
         if channel_label:
             channel_label.set_last_plate(event.get("plate", ""))
@@ -618,7 +650,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _cleanup_event_images(self, valid_ids: set[int]) -> None:
         for stale_id in list(self.event_images.keys()):
             if stale_id not in valid_ids:
-                self.event_images.pop(stale_id, None)
+                self._discard_event_images(stale_id)
         self._prune_image_cache()
 
     def _get_flag_icon(self, country: Optional[str]) -> Optional[QtGui.QIcon]:
@@ -638,15 +670,17 @@ class MainWindow(QtWidgets.QMainWindow):
     def _prune_image_cache(self) -> None:
         """Ограничивает размер кеша изображений, удаляя самые старые записи."""
 
-        if len(self.event_images) <= self.MAX_IMAGE_CACHE:
-            return
-
         valid_ids = set(self.event_cache.keys())
         for event_id in list(self.event_images.keys()):
-            if event_id not in valid_ids or len(self.event_images) > self.MAX_IMAGE_CACHE:
-                self.event_images.pop(event_id, None)
-            if len(self.event_images) <= self.MAX_IMAGE_CACHE:
-                break
+            if event_id not in valid_ids:
+                self._discard_event_images(event_id)
+
+        while self.event_images and (
+            len(self.event_images) > self.MAX_IMAGE_CACHE
+            or self._image_cache_bytes > self.MAX_IMAGE_CACHE_BYTES
+        ):
+            stale_id, images = self.event_images.popitem(last=False)
+            self._image_cache_bytes = max(0, self._image_cache_bytes - self._image_weight(images))
 
     def _insert_event_row(self, event: Dict, position: Optional[int] = None) -> None:
         row_index = position if position is not None else self.events_table.rowCount()
@@ -679,7 +713,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if event_id and event_id in self.event_cache:
                 self.event_cache.pop(event_id, None)
             if event_id and event_id in self.event_images:
-                self.event_images.pop(event_id, None)
+                self._discard_event_images(event_id)
 
     def _handle_status(self, channel: str, status: str) -> None:
         label = self.channel_labels.get(channel)
@@ -710,7 +744,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 frame_image = self._load_image_from_path(event.get("frame_path"))
             if plate_image is None and event.get("plate_path"):
                 plate_image = self._load_image_from_path(event.get("plate_path"))
-            self.event_images[event_id] = (frame_image, plate_image)
+            self._store_event_images(event_id, (frame_image, plate_image))
         display_event = dict(event) if event else None
         if display_event:
             display_event["timestamp"] = self._format_timestamp(display_event.get("timestamp", ""))
