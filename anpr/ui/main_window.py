@@ -403,7 +403,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.flag_cache: Dict[str, Optional[QtGui.QIcon]] = {}
         self.flag_dir = Path(__file__).resolve().parents[2] / "images" / "flags"
         self.country_display_names = self._load_country_names()
-        self.grid_buttons: Dict[str, QtWidgets.QPushButton] = {}
 
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setStyleSheet(
@@ -467,9 +466,10 @@ class MainWindow(QtWidgets.QMainWindow):
         grid_frame = QtWidgets.QFrame()
         grid_frame.setStyleSheet(
             f"QFrame {{ background-color: {self.SURFACE_COLOR}; border: 1px solid #1f2937; border-radius: 12px; padding: 10px 14px; }}"
-            "QPushButton { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 10px; padding: 8px 12px; }"
-            "QPushButton:hover { border-color: #22d3ee; color: #22d3ee; }"
-            "QPushButton:checked { background-color: rgba(34,211,238,0.14); color: #22d3ee; border: 1px solid #22d3ee; }"
+            "QComboBox { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 10px; padding: 8px 12px; min-width: 140px; }"
+            "QComboBox::drop-down { border: 0px; width: 28px; }"
+            "QComboBox::down-arrow { image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png); width: 12px; height: 12px; margin-right: 6px; }"
+            "QComboBox QAbstractItemView { background-color: #0b0c10; color: #e5e7eb; selection-background-color: rgba(34,211,238,0.14); border: 1px solid #1f2937; padding: 6px; }"
         )
         grid_layout = QtWidgets.QHBoxLayout(grid_frame)
         grid_layout.setContentsMargins(4, 4, 4, 4)
@@ -485,16 +485,20 @@ class MainWindow(QtWidgets.QMainWindow):
         grid_text.addWidget(subtitle)
         grid_layout.addLayout(grid_text, 1)
 
-        buttons_row = QtWidgets.QHBoxLayout()
-        buttons_row.setSpacing(6)
+        chooser = QtWidgets.QVBoxLayout()
+        chooser.setSpacing(6)
+        chooser_label = QtWidgets.QLabel("Выберите сетку")
+        chooser_label.setStyleSheet("color: #9ca3af; font-size: 12px; font-weight: 600;")
+        chooser.addWidget(chooser_label)
+        self.grid_combo = QtWidgets.QComboBox()
         for variant in self.GRID_VARIANTS:
-            btn = QtWidgets.QPushButton(variant.replace("x", "×"))
-            btn.setCheckable(True)
-            btn.setChecked(variant == self.current_grid)
-            btn.clicked.connect(lambda checked, v=variant: self._select_grid(v))
-            self.grid_buttons[variant] = btn
-            buttons_row.addWidget(btn)
-        grid_layout.addLayout(buttons_row, 2)
+            self.grid_combo.addItem(variant.replace("x", "×"), variant)
+        current_index = self.grid_combo.findData(self.current_grid)
+        if current_index >= 0:
+            self.grid_combo.setCurrentIndex(current_index)
+        self.grid_combo.currentIndexChanged.connect(self._on_grid_combo_changed)
+        chooser.addWidget(self.grid_combo)
+        grid_layout.addLayout(chooser, 2)
 
         controls.addWidget(grid_frame)
         controls.addStretch()
@@ -522,11 +526,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.events_table.setHorizontalHeaderLabels(["Дата/Время", "Гос. номер", "Страна", "Канал"])
         self.events_table.setStyleSheet(self.TABLE_STYLE)
         header = self.events_table.horizontalHeader()
-        header.setMinimumSectionSize(90)
-        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QtWidgets.QHeaderView.Stretch)
+        header.setMinimumSectionSize(70)
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QtWidgets.QHeaderView.Interactive)
+        header.setSectionResizeMode(2, QtWidgets.QHeaderView.Interactive)
+        header.setSectionResizeMode(3, QtWidgets.QHeaderView.Interactive)
+        self.events_table.setColumnWidth(1, 130)
+        self.events_table.setColumnWidth(2, 80)
+        self.events_table.setColumnWidth(3, 130)
         self.events_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.events_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.events_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -590,10 +597,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.grid_layout.addWidget(label, row, col)
                 index += 1
 
+    def _on_grid_combo_changed(self, index: int) -> None:
+        variant = self.grid_combo.itemData(index)
+        if variant:
+            self._select_grid(str(variant))
+
     def _select_grid(self, grid: str) -> None:
         self.current_grid = grid
-        for variant, btn in self.grid_buttons.items():
-            btn.setChecked(variant == grid)
+        if hasattr(self, "grid_combo"):
+            combo_index = self.grid_combo.findData(grid)
+            if combo_index >= 0 and combo_index != self.grid_combo.currentIndex():
+                self.grid_combo.blockSignals(True)
+                self.grid_combo.setCurrentIndex(combo_index)
+                self.grid_combo.blockSignals(False)
         self.settings.save_grid(grid)
         self._draw_grid()
 
