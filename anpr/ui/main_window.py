@@ -374,12 +374,14 @@ class MainWindow(QtWidgets.QMainWindow):
         "QHeaderView::section { background-color: #11131a; color: #e2e8f0; padding: 8px; font-weight: 700; border: none; }"
         "QTableWidget { background-color: #0b0c10; color: #e5e7eb; gridline-color: #1f2937; selection-background-color: #11131a; }"
         "QTableWidget::item { border-bottom: 1px solid #1f2937; padding: 6px; }"
-        f"QTableWidget::item:selected { background-color: #d7f7fc; color: #22d3ee; border: 1px solid #22d3ee; }"
+        "QTableWidget::item:selected { background-color: #d7f7fc; color: #22d3ee; border: 1px solid #22d3ee; }"
     )
-    LIST_STYLE = (
-        "QListWidget { background-color: #0b0c10; color: #cbd5e1; border: 1px solid #1f2937; border-radius: 10px; padding: 6px; }"
-        f"QListWidget::item:selected { background-color: #dcf8fc; color: #22d3ee; border-radius: 6px; }"
-        "QListWidget::item { padding: 8px 10px; margin: 2px 0; }"
+    )
+    TABLE_STYLE = (
+        "QHeaderView::section { background-color: #11131a; color: #e2e8f0; padding: 8px; font-weight: 700; border: none; }"
+        "QTableWidget { background-color: #0b0c10; color: #e5e7eb; gridline-color: #1f2937; selection-background-color: #11131a; }"
+        "QTableWidget::item { border-bottom: 1px solid #1f2937; padding: 6px; }"
+        "QTableWidget::item:selected { background-color: #d7f7fc; color: #22d3ee; border: 1px solid #22d3ee; }"
     )
 
     def __init__(self, settings: Optional[SettingsManager] = None) -> None:
