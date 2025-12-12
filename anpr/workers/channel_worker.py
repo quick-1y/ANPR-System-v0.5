@@ -110,34 +110,18 @@ class ChannelRuntimeConfig:
         )
 
 
-_MODEL_CACHE: dict[str, tuple[dict, Any, Any]] = {}
-_MODEL_CACHE_LOCK = threading.Lock()
+# Хранилище для ProcessPoolExecutor по типу конфигурации
 _EXECUTORS: dict[str, ProcessPoolExecutor] = {}
 _EXECUTOR_LOCK = threading.Lock()
 
 
 def _config_fingerprint(config: dict) -> str:
-    """Deterministic fingerprint for separating executors and model caches."""
-
+    """Детерминированный отпечаток для разделения экзекьюторов."""
     return json.dumps(config, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def _get_or_create_models(config: dict) -> tuple[Any, Any]:
-    key = _config_fingerprint(config)
-    with _MODEL_CACHE_LOCK:
-        cached = _MODEL_CACHE.get(key)
-        if cached:
-            return cached[1], cached[2]
-
-    pipeline, detector = build_components(
-        config["best_shots"], config["cooldown_seconds"], config["min_confidence"], config.get("plate_config", {})
-    )
-    with _MODEL_CACHE_LOCK:
-        _MODEL_CACHE[key] = (config, pipeline, detector)
-    return pipeline, detector
-
-
 def _get_executor_for_config(config: dict) -> ProcessPoolExecutor:
+    """Возвращает ProcessPoolExecutor для конкретной конфигурации."""
     key = _config_fingerprint(config)
     with _EXECUTOR_LOCK:
         executor = _EXECUTORS.get(key)
@@ -148,28 +132,20 @@ def _get_executor_for_config(config: dict) -> ProcessPoolExecutor:
 
 
 def _shutdown_executors() -> None:
+    """Завершает все экзекьюторы при выходе из программы."""
     with _EXECUTOR_LOCK:
         for executor in _EXECUTORS.values():
             executor.shutdown(cancel_futures=True)
         _EXECUTORS.clear()
-    with _MODEL_CACHE_LOCK:
-        _MODEL_CACHE.clear()
 
 
 atexit.register(_shutdown_executors)
 
 
-def _get_shared_executor() -> ProcessPoolExecutor:
-    global _SHARED_EXECUTOR
-    with _EXECUTOR_LOCK:
-        if _SHARED_EXECUTOR is None:
-            _SHARED_EXECUTOR = ProcessPoolExecutor(max_workers=1)
-    return _SHARED_EXECUTOR
-
-
 def _offset_detections_process(
     detections: list[dict], roi_rect: Tuple[int, int, int, int]
 ) -> list[dict]:
+    """Смещает координаты детекций относительно ROI."""
     x1, y1, _, _ = roi_rect
     adjusted: list[dict] = []
     for det in detections:
@@ -193,11 +169,36 @@ def _run_inference_task(
     roi_rect: Tuple[int, int, int, int],
     config: dict,
 ) -> Tuple[list[dict], list[dict]]:
-    pipeline, detector = _get_or_create_models(config)
-
+    """
+    Выполняет инференс в отдельном процессе.
+    Модели кэшируются локально в каждом процессе.
+    """
+    
+    # Локальный кэш моделей для этого процесса
+    if not hasattr(_run_inference_task, "_local_cache"):
+        _run_inference_task._local_cache = {}
+    
+    # Создаем ключ для кэширования
+    key = _config_fingerprint(config)
+    
+    # Получаем или создаем модели в этом процессе
+    if key not in _run_inference_task._local_cache:
+        logger.debug(f"Создание моделей inference для конфига {key[:32]}...")
+        pipeline, detector = build_components(
+            config["best_shots"],
+            config["cooldown_seconds"],
+            config["min_confidence"],
+            config.get("plate_config", {})
+        )
+        _run_inference_task._local_cache[key] = (pipeline, detector)
+    
+    pipeline, detector = _run_inference_task._local_cache[key]
+    
+    # Выполняем детекцию и распознавание
     detections = detector.track(roi_frame)
     detections = _offset_detections_process(detections, roi_rect)
     results = pipeline.process_frame(frame, detections)
+    
     return detections, results
 
 
@@ -250,10 +251,16 @@ class ChannelWorker(QtCore.QThread):
         self._inference_task: Optional[asyncio.Task] = None
 
     def _open_capture(self, source: str) -> Optional[cv2.VideoCapture]:
-        capture = cv2.VideoCapture(int(source) if source.isnumeric() else source)
-        if not capture.isOpened():
+        """Открывает видеопоток с учетом типа источника."""
+        try:
+            capture = cv2.VideoCapture(int(source) if source.isnumeric() else source)
+            if not capture.isOpened():
+                logger.warning(f"Не удалось открыть источник: {source}")
+                return None
+            return capture
+        except Exception as e:
+            logger.error(f"Ошибка открытия источника {source}: {e}")
             return None
-        return capture
 
     async def _open_with_retries(self, source: str, channel_name: str) -> Optional[cv2.VideoCapture]:
         """Подключает источник с учетом настроек переподключения."""
@@ -273,12 +280,15 @@ class ChannelWorker(QtCore.QThread):
                 f"Нет сигнала, повтор через {int(self.reconnect_policy.retry_interval_seconds)}с",
             )
             await asyncio.sleep(max(0.1, self.reconnect_policy.retry_interval_seconds))
+        
         return None
 
     def _inference_config(self) -> dict:
+        """Возвращает конфигурацию для inference."""
         plate_config = dict(self.plate_config)
         if plate_config.get("config_dir"):
             plate_config["config_dir"] = os.path.abspath(str(plate_config.get("config_dir")))
+        
         return {
             "best_shots": self.config.best_shots,
             "cooldown_seconds": self.config.cooldown_seconds,
@@ -287,10 +297,12 @@ class ChannelWorker(QtCore.QThread):
         }
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:
+        """Извлекает ROI из кадра."""
         x1, y1, x2, y2 = self.config.region.to_rect(frame.shape)
         return frame[y1:y2, x1:x2], (x1, y1, x2, y2)
 
     def _motion_detected(self, roi_frame: cv2.Mat) -> bool:
+        """Проверяет наличие движения в ROI."""
         if self.config.detection_mode != "motion":
             return True
 
@@ -299,8 +311,10 @@ class ChannelWorker(QtCore.QThread):
     async def _run_inference(
         self, frame: cv2.Mat, roi_frame: cv2.Mat, roi_rect: Tuple[int, int, int, int]
     ) -> Tuple[list[dict], list[dict]]:
+        """Запускает инференс в отдельном процессе."""
         loop = asyncio.get_running_loop()
         config = self._inference_config()
+        
         return await loop.run_in_executor(
             _get_executor_for_config(config),
             _run_inference_task,
@@ -312,41 +326,51 @@ class ChannelWorker(QtCore.QThread):
 
     @staticmethod
     def _to_qimage(frame: Optional[cv2.Mat], *, is_rgb: bool = False) -> Optional[QtGui.QImage]:
+        """Конвертирует OpenCV Mat в QImage."""
         if frame is None or frame.size == 0:
             return None
+        
         rgb_frame = frame if is_rgb else cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         height, width, channels = rgb_frame.shape
         bytes_per_line = channels * width
+        
+        # Важно создать копию данных, чтобы избежать проблем с памятью
         return QtGui.QImage(
             rgb_frame.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888
         ).copy()
 
     @staticmethod
     def _sanitize_for_filename(value: str) -> str:
+        """Очищает строку для использования в имени файла."""
         normalized = value.replace(os.sep, "_")
         safe_chars = [c if c.isalnum() or c in ("-", "_") else "_" for c in normalized]
         return "".join(safe_chars) or "event"
 
     def _build_screenshot_paths(self, channel_name: str, plate: str) -> Tuple[str, str]:
+        """Генерирует пути для сохранения скриншотов."""
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         channel_safe = self._sanitize_for_filename(channel_name)
         plate_safe = self._sanitize_for_filename(plate or "plate")
         uid = uuid.uuid4().hex[:8]
         base = f"{timestamp}_{channel_safe}_{plate_safe}_{uid}"
+        
         return (
             os.path.join(self.screenshot_dir, f"{base}_frame.jpg"),
             os.path.join(self.screenshot_dir, f"{base}_plate.jpg"),
         )
 
     def _save_bgr_image(self, path: str, image: Optional[cv2.Mat]) -> Optional[str]:
+        """Сохраняет BGR изображение на диск."""
         if image is None or image.size == 0:
             return None
+        
         os.makedirs(os.path.dirname(path), exist_ok=True)
         try:
             if cv2.imwrite(path, image):
                 return path
-        except Exception:  # noqa: BLE001
-            logger.exception("Не удалось сохранить скриншот по пути %s", path)
+        except Exception as e:
+            logger.exception("Не удалось сохранить скриншот по пути %s: %s", path, e)
+        
         return None
 
     async def _process_events(
@@ -358,6 +382,7 @@ class ChannelWorker(QtCore.QThread):
         frame: cv2.Mat,
         rgb_frame: Optional[cv2.Mat] = None,
     ) -> None:
+        """Обрабатывает результаты распознавания и сохраняет события."""
         for res in results:
             if res.get("unreadable"):
                 logger.debug(
@@ -366,40 +391,53 @@ class ChannelWorker(QtCore.QThread):
                     res.get("confidence", 0.0),
                 )
                 continue
-            if res.get("text"):
-                event = {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "channel": channel_name,
-                    "plate": res.get("text", ""),
-                    "country": res.get("country"),
-                    "confidence": res.get("confidence", 0.0),
-                    "source": source,
-                }
-                x1, y1, x2, y2 = res.get("bbox", (0, 0, 0, 0))
-                plate_crop = frame[y1:y2, x1:x2] if frame is not None else None
-                frame_path, plate_path = self._build_screenshot_paths(channel_name, event["plate"])
-                event["frame_path"] = self._save_bgr_image(frame_path, frame)
-                event["plate_path"] = self._save_bgr_image(plate_path, plate_crop)
-                event["frame_image"] = self._to_qimage(rgb_frame, is_rgb=True)
-                event["plate_image"] = self._to_qimage(plate_crop) if plate_crop is not None else None
-                event["id"] = await storage.insert_event_async(
-                    channel=event["channel"],
-                    plate=event["plate"],
-                    country=event.get("country"),
-                    confidence=event["confidence"],
-                    source=event["source"],
-                    timestamp=event["timestamp"],
-                    frame_path=event.get("frame_path"),
-                    plate_path=event.get("plate_path"),
-                )
-                self.event_ready.emit(event)
-                logger.info(
-                    "Канал %s: зафиксирован номер %s (conf=%.2f, track=%s)",
-                    event["channel"],
-                    event["plate"],
-                    event["confidence"],
-                    res.get("track_id", "-"),
-                )
+            
+            if not res.get("text"):
+                continue
+            
+            event = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "channel": channel_name,
+                "plate": res.get("text", ""),
+                "country": res.get("country"),
+                "confidence": res.get("confidence", 0.0),
+                "source": source,
+            }
+            
+            # Извлекаем область номера для скриншота
+            x1, y1, x2, y2 = res.get("bbox", (0, 0, 0, 0))
+            plate_crop = frame[y1:y2, x1:x2] if frame is not None else None
+            
+            # Сохраняем скриншоты
+            frame_path, plate_path = self._build_screenshot_paths(channel_name, event["plate"])
+            event["frame_path"] = self._save_bgr_image(frame_path, frame)
+            event["plate_path"] = self._save_bgr_image(plate_path, plate_crop)
+            
+            # Готовим изображения для UI
+            event["frame_image"] = self._to_qimage(rgb_frame, is_rgb=True)
+            event["plate_image"] = self._to_qimage(plate_crop) if plate_crop is not None else None
+            
+            # Сохраняем в БД
+            event["id"] = await storage.insert_event_async(
+                channel=event["channel"],
+                plate=event["plate"],
+                country=event.get("country"),
+                confidence=event["confidence"],
+                source=event["source"],
+                timestamp=event["timestamp"],
+                frame_path=event.get("frame_path"),
+                plate_path=event.get("plate_path"),
+            )
+            
+            # Отправляем событие в UI
+            self.event_ready.emit(event)
+            logger.info(
+                "Канал %s: зафиксирован номер %s (conf=%.2f, track=%s)",
+                event["channel"],
+                event["plate"],
+                event["confidence"],
+                res.get("track_id", "-"),
+            )
 
     async def _inference_and_process(
         self,
@@ -411,27 +449,36 @@ class ChannelWorker(QtCore.QThread):
         roi_rect: Tuple[int, int, int, int],
         rgb_frame: cv2.Mat,
     ) -> None:
+        """Выполняет инференс и обработку результатов."""
         try:
             detections, results = await self._run_inference(frame, roi_frame, roi_rect)
             await self._process_events(storage, source, results, channel_name, frame, rgb_frame)
-        except Exception:  # noqa: BLE001
-            logger.exception("Ошибка инференса для канала %s", channel_name)
+        except Exception as e:
+            logger.exception("Ошибка инференса для канала %s: %s", channel_name, e)
 
     async def _loop(self) -> None:
+        """Основной цикл обработки канала."""
         storage = AsyncEventDatabase(self.db_path)
 
         source = self.config.source
         channel_name = self.config.name
+        
+        # Подключаемся к источнику
         capture = await self._open_with_retries(source, self.config.name)
         if capture is None:
             logger.warning("Не удалось открыть источник %s для канала %s", source, self.config)
             return
+        
         logger.info("Канал %s запущен (источник=%s)", channel_name, source)
+        
         waiting_for_motion = False
         last_frame_ts = time.monotonic()
         last_reconnect_ts = last_frame_ts
+        
         while self._running:
             now = time.monotonic()
+            
+            # Плановое переподключение
             if (
                 self.reconnect_policy.periodic_enabled
                 and self.reconnect_policy.periodic_reconnect_seconds > 0
@@ -447,7 +494,10 @@ class ChannelWorker(QtCore.QThread):
                 last_frame_ts = last_reconnect_ts
                 continue
 
+            # Чтение кадра
             ret, frame = await asyncio.to_thread(capture.read)
+            
+            # Проверка потери сигнала
             if not ret or frame is None:
                 if not self.reconnect_policy.enabled:
                     self.status_ready.emit(channel_name, "Поток остановлен")
@@ -465,12 +515,14 @@ class ChannelWorker(QtCore.QThread):
                 if capture is None:
                     logger.warning("Переподключение не удалось для канала %s", channel_name)
                     break
+                
                 last_reconnect_ts = time.monotonic()
                 last_frame_ts = last_reconnect_ts
                 continue
 
             last_frame_ts = time.monotonic()
 
+            # Обработка кадра
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             roi_frame, roi_rect = self._extract_region(frame)
             motion_detected = self._motion_detected(roi_frame)
@@ -483,6 +535,8 @@ class ChannelWorker(QtCore.QThread):
                 if waiting_for_motion:
                     self.status_ready.emit(channel_name, "Движение обнаружено")
                 waiting_for_motion = False
+                
+                # Запуск инференса с учетом stride
                 if self._inference_limiter.allow():
                     if self._inference_task is None or self._inference_task.done():
                         self._inference_task = asyncio.create_task(
@@ -502,29 +556,33 @@ class ChannelWorker(QtCore.QThread):
                             channel_name,
                         )
 
+            # Отправка кадра в UI
             height, width, channel = rgb_frame.shape
             bytes_per_line = 3 * width
-            # Копируем буфер, чтобы предотвратить обращение Qt к уже освобожденной памяти
-            # во время перерисовок окна.
             q_image = QtGui.QImage(
                 rgb_frame.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888
             ).copy()
+            
             self.frame_ready.emit(channel_name, q_image)
 
+        # Завершение работы
         capture.release()
 
         if self._inference_task is not None:
             try:
                 await asyncio.wait_for(self._inference_task, timeout=1)
-            except Exception:  # noqa: BLE001
-                logger.warning("Задача инференса для канала %s не завершена корректно", channel_name)
+            except Exception as e:
+                logger.warning("Задача инференса для канала %s не завершена корректно: %s", 
+                             channel_name, e)
 
     def run(self) -> None:
+        """Запуск потока."""
         try:
             asyncio.run(self._loop())
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self.status_ready.emit(self.config.name, f"Ошибка: {exc}")
             logger.exception("Канал %s аварийно остановлен", self.config.name)
 
     def stop(self) -> None:
+        """Остановка потока."""
         self._running = False
