@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # /anpr/workers/channel_worker.py
 import asyncio
+import json
 import os
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor
+import threading
+import atexit
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
@@ -107,17 +110,53 @@ class ChannelRuntimeConfig:
         )
 
 
-_INFERENCE_PIPELINE = None
-_INFERENCE_DETECTOR = None
-_INFERENCE_CONFIG: Optional[dict] = None
+_MODEL_CACHE: dict[str, tuple[dict, Any, Any]] = {}
+_MODEL_CACHE_LOCK = threading.Lock()
+_EXECUTORS: dict[str, ProcessPoolExecutor] = {}
+_EXECUTOR_LOCK = threading.Lock()
 
 
-def _init_inference_components(config: dict) -> None:
-    global _INFERENCE_PIPELINE, _INFERENCE_DETECTOR, _INFERENCE_CONFIG
-    _INFERENCE_CONFIG = config
-    _INFERENCE_PIPELINE, _INFERENCE_DETECTOR = build_components(
+def _config_fingerprint(config: dict) -> str:
+    """Deterministic fingerprint for separating executors and model caches."""
+
+    return json.dumps(config, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _get_or_create_models(config: dict) -> tuple[Any, Any]:
+    key = _config_fingerprint(config)
+    with _MODEL_CACHE_LOCK:
+        cached = _MODEL_CACHE.get(key)
+        if cached:
+            return cached[1], cached[2]
+
+    pipeline, detector = build_components(
         config["best_shots"], config["cooldown_seconds"], config["min_confidence"], config.get("plate_config", {})
     )
+    with _MODEL_CACHE_LOCK:
+        _MODEL_CACHE[key] = (config, pipeline, detector)
+    return pipeline, detector
+
+
+def _get_executor_for_config(config: dict) -> ProcessPoolExecutor:
+    key = _config_fingerprint(config)
+    with _EXECUTOR_LOCK:
+        executor = _EXECUTORS.get(key)
+        if executor is None:
+            executor = ProcessPoolExecutor(max_workers=1)
+            _EXECUTORS[key] = executor
+    return executor
+
+
+def _shutdown_executors() -> None:
+    with _EXECUTOR_LOCK:
+        for executor in _EXECUTORS.values():
+            executor.shutdown(cancel_futures=True)
+        _EXECUTORS.clear()
+    with _MODEL_CACHE_LOCK:
+        _MODEL_CACHE.clear()
+
+
+atexit.register(_shutdown_executors)
 
 
 def _offset_detections_process(
@@ -141,16 +180,16 @@ def _offset_detections_process(
 
 
 def _run_inference_task(
-    frame: cv2.Mat, roi_frame: cv2.Mat, roi_rect: Tuple[int, int, int, int]
+    frame: cv2.Mat,
+    roi_frame: cv2.Mat,
+    roi_rect: Tuple[int, int, int, int],
+    config: dict,
 ) -> Tuple[list[dict], list[dict]]:
-    if _INFERENCE_PIPELINE is None or _INFERENCE_DETECTOR is None:
-        if _INFERENCE_CONFIG is None:
-            raise RuntimeError("Inference components are not initialized")
-        _init_inference_components(_INFERENCE_CONFIG)
+    pipeline, detector = _get_or_create_models(config)
 
-    detections = _INFERENCE_DETECTOR.track(roi_frame)
+    detections = detector.track(roi_frame)
     detections = _offset_detections_process(detections, roi_rect)
-    results = _INFERENCE_PIPELINE.process_frame(frame, detections)
+    results = pipeline.process_frame(frame, detections)
     return detections, results
 
 
@@ -200,11 +239,6 @@ class ChannelWorker(QtCore.QThread):
         )
         self.motion_detector = MotionDetector(motion_config)
         self._inference_limiter = InferenceLimiter(self.config.detector_frame_stride)
-        self._executor = ProcessPoolExecutor(
-            max_workers=1,
-            initializer=_init_inference_components,
-            initargs=(self._inference_config(),),
-        )
         self._inference_task: Optional[asyncio.Task] = None
 
     def _open_capture(self, source: str) -> Optional[cv2.VideoCapture]:
@@ -258,12 +292,14 @@ class ChannelWorker(QtCore.QThread):
         self, frame: cv2.Mat, roi_frame: cv2.Mat, roi_rect: Tuple[int, int, int, int]
     ) -> Tuple[list[dict], list[dict]]:
         loop = asyncio.get_running_loop()
+        config = self._inference_config()
         return await loop.run_in_executor(
-            self._executor,
+            _get_executor_for_config(config),
             _run_inference_task,
             frame,
             roi_frame,
             roi_rect,
+            config,
         )
 
     @staticmethod
@@ -475,19 +511,12 @@ class ChannelWorker(QtCore.QThread):
             except Exception:  # noqa: BLE001
                 logger.warning("Задача инференса для канала %s не завершена корректно", channel_name)
 
-    def _shutdown_executor(self) -> None:
-        if self._executor is not None:
-            self._executor.shutdown(wait=False, cancel_futures=True)
-            self._executor = None
-
     def run(self) -> None:
         try:
             asyncio.run(self._loop())
         except Exception as exc:  # noqa: BLE001
             self.status_ready.emit(self.config.name, f"Ошибка: {exc}")
             logger.exception("Канал %s аварийно остановлен", self.config.name)
-        finally:
-            self._shutdown_executor()
 
     def stop(self) -> None:
         self._running = False
