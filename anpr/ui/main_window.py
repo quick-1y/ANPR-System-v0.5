@@ -914,7 +914,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         content = QtWidgets.QFrame()
         content.setStyleSheet(
-            f"QFrame {{ background-color: {self.SURFACE_COLOR}; border: 1px solid #1f2937; border-radius: 14px; }}"
+            f"QFrame {{ background-color: {self.SURFACE_COLOR}; border: none; border-radius: 14px; }}"
         )
         content_layout = QtWidgets.QHBoxLayout(content)
         content_layout.setContentsMargins(12, 12, 12, 12)
@@ -961,9 +961,7 @@ class MainWindow(QtWidgets.QMainWindow):
             f"QWidget {{ background-color: {self.SURFACE_COLOR}; }}"
         )
 
-        section_style = (
-            f"QFrame {{ background-color: {self.PANEL_COLOR}; border: 1px solid #1f2937; border-radius: 12px; }}"
-        )
+        section_style = f"QFrame {{ background-color: {self.PANEL_COLOR}; border: none; border-radius: 12px; }}"
 
         def make_section(title: str) -> tuple[QtWidgets.QFrame, QtWidgets.QFormLayout]:
             frame = QtWidgets.QFrame()
@@ -1069,13 +1067,16 @@ class MainWindow(QtWidgets.QMainWindow):
         save_row = QtWidgets.QHBoxLayout(save_card)
         save_row.setContentsMargins(14, 12, 14, 12)
         save_row.setSpacing(10)
-        save_general_btn = QtWidgets.QPushButton("Сохранить общие настройки")
+        save_general_btn = QtWidgets.QPushButton("Сохранить")
         save_general_btn.setMinimumWidth(220)
+        save_general_btn.setStyleSheet(
+            "QPushButton { background-color: #22d3ee; color: #ffffff; border-radius: 8px; padding: 10px 16px; font-weight: 700; }"
+            "QPushButton:hover { background-color: #4ddcf3; }"
+            "QPushButton:pressed { background-color: #1fb6d5; }"
+        )
         save_general_btn.clicked.connect(self._save_general_settings)
-        helper_label = QtWidgets.QLabel("Изменения применяются ко всем каналам и сохраняются в settings.json")
-        helper_label.setStyleSheet("color: #9ca3af; font-size: 12px;")
         save_row.addWidget(save_general_btn, 0)
-        save_row.addWidget(helper_label, 1)
+        save_row.addStretch(1)
 
         layout.addWidget(reconnect_group)
         layout.addWidget(storage_group)
