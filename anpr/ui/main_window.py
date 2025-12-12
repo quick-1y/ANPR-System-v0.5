@@ -961,12 +961,36 @@ class MainWindow(QtWidgets.QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setStyleSheet(
+            f"QScrollArea {{ background: transparent; border: none; }}"
+            f"QScrollArea > QWidget > QWidget {{ background-color: {self.SURFACE_COLOR}; }}"
+        )
 
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(12)
-        widget.setStyleSheet(self.GROUP_BOX_STYLE)
+        widget.setStyleSheet(
+            self.GROUP_BOX_STYLE
+            + f"QWidget {{ background-color: {self.SURFACE_COLOR}; }}"
+        )
+
+        intro_card = QtWidgets.QFrame()
+        intro_card.setStyleSheet(
+            f"QFrame {{ background-color: {self.PANEL_COLOR}; border: 1px solid #1f2937; border-radius: 12px; }}"
+        )
+        intro_layout = QtWidgets.QVBoxLayout(intro_card)
+        intro_layout.setContentsMargins(12, 12, 12, 12)
+        intro_title = QtWidgets.QLabel("Общие настройки")
+        intro_title.setStyleSheet("font-size: 16px; font-weight: 800; color: #e5e7eb;")
+        intro_subtitle = QtWidgets.QLabel(
+            "Базовые параметры системы: стабильность каналов, каталоги данных и правила валидации."
+        )
+        intro_subtitle.setStyleSheet("color: #9ca3af; font-size: 13px;")
+        intro_subtitle.setWordWrap(True)
+        intro_layout.addWidget(intro_title)
+        intro_layout.addWidget(intro_subtitle)
+        layout.addWidget(intro_card)
 
         intro_card = QtWidgets.QFrame()
         intro_card.setStyleSheet(
@@ -993,12 +1017,14 @@ class MainWindow(QtWidgets.QMainWindow):
         reconnect_form.addRow(self.reconnect_on_loss_checkbox)
 
         self.frame_timeout_input = QtWidgets.QSpinBox()
+        self.frame_timeout_input.setMaximumWidth(140)
         self.frame_timeout_input.setRange(1, 300)
         self.frame_timeout_input.setSuffix(" с")
         self.frame_timeout_input.setToolTip("Сколько секунд ждать кадр перед попыткой переподключения")
         reconnect_form.addRow("Таймаут ожидания кадра:", self.frame_timeout_input)
 
         self.retry_interval_input = QtWidgets.QSpinBox()
+        self.retry_interval_input.setMaximumWidth(140)
         self.retry_interval_input.setRange(1, 300)
         self.retry_interval_input.setSuffix(" с")
         self.retry_interval_input.setToolTip("Интервал между попытками переподключения при потере сигнала")
@@ -1008,6 +1034,7 @@ class MainWindow(QtWidgets.QMainWindow):
         reconnect_form.addRow(self.periodic_reconnect_checkbox)
 
         self.periodic_interval_input = QtWidgets.QSpinBox()
+        self.periodic_interval_input.setMaximumWidth(140)
         self.periodic_interval_input.setRange(1, 1440)
         self.periodic_interval_input.setSuffix(" мин")
         self.periodic_interval_input.setToolTip("Плановое переподключение каждые N минут")
