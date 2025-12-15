@@ -136,6 +136,7 @@ class EventDatabase:
         plate_fragment: str,
         start: Optional[str] = None,
         end: Optional[str] = None,
+        limit: int = 100,
     ) -> List[sqlite3.Row]:
         filters = ["plate LIKE ?"]
         params: List[object] = [f"%{plate_fragment}%"]
@@ -148,7 +149,11 @@ class EventDatabase:
             params.append(end)
 
         where_clause = f"WHERE {' AND '.join(filters)}"
-        query = f"SELECT * FROM events {where_clause} ORDER BY datetime(timestamp) DESC"
+        query = (
+            "SELECT * FROM events "
+            f"{where_clause} ORDER BY datetime(timestamp) DESC LIMIT ?"
+        )
+        params.append(limit)
 
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
