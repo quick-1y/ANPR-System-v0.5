@@ -378,7 +378,7 @@ class EventDetailView(QtWidgets.QWidget):
         label.setStyleSheet(
             "background-color: #0b0c10; color: #9ca3af; border: 1px solid #1f2937; border-radius: 10px;"
         )
-        label.setScaledContents(True)
+        label.setScaledContents(False)
         label.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
         )
@@ -1352,25 +1352,82 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle("Информация о событии")
         dialog.setMinimumSize(720, 640)
+        dialog.setWindowFlags(
+            QtCore.Qt.Dialog
+            | QtCore.Qt.FramelessWindowHint
+            | QtCore.Qt.WindowSystemMenuHint
+            | QtCore.Qt.WindowMinMaxButtonsHint
+        )
         dialog.setStyleSheet(
-            f"QDialog {{ background-color: {self.SURFACE_COLOR}; }}"
+            f"QDialog {{ background-color: {self.SURFACE_COLOR}; border: 1px solid #20242c; border-radius: 12px; }}"
             f"QGroupBox {{ background-color: {self.PANEL_COLOR}; color: #f6f7fb; border: 1px solid #20242c; border-radius: 12px; padding: 10px; margin-top: 8px; }}"
             "QLabel { color: #e5e7eb; }"
+            "QToolButton { background-color: transparent; border: none; color: white; padding: 6px; }"
+            "QToolButton:hover { background-color: rgba(255,255,255,0.08); border-radius: 6px; }"
             f"QPushButton {{ background-color: {self.ACCENT_COLOR}; color: #0b0c10; border: none; border-radius: 8px; padding: 8px 16px; font-weight: 700; }}"
             f"QPushButton:hover {{ background-color: #4ddcf3; }}"
         )
         dialog_layout = QtWidgets.QVBoxLayout(dialog)
+        dialog_layout.setContentsMargins(0, 0, 0, 12)
+
+        header = QtWidgets.QFrame()
+        header.setFixedHeight(44)
+        header.setStyleSheet(
+            f"QFrame {{ background-color: #0b0c10; border-bottom: 1px solid #20242c; border-top-left-radius: 12px; border-top-right-radius: 12px; }}"
+        )
+        header_layout = QtWidgets.QHBoxLayout(header)
+        header_layout.setContentsMargins(12, 6, 12, 6)
+        header_layout.setSpacing(10)
+
+        title = QtWidgets.QLabel("Информация о событии")
+        title.setStyleSheet("color: white; font-weight: 800;")
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+
+        maximize_btn = QtWidgets.QToolButton()
+        maximize_btn.setText("⛶")
+        maximize_btn.setToolTip("Развернуть/свернуть окно")
+
+        def toggle_maximize() -> None:
+            if dialog.isMaximized():
+                dialog.showNormal()
+            else:
+                dialog.showMaximized()
+
+        maximize_btn.clicked.connect(toggle_maximize)
+        header_layout.addWidget(maximize_btn)
+
+        close_btn = QtWidgets.QToolButton()
+        close_btn.setText("✕")
+        close_btn.setToolTip("Закрыть")
+        close_btn.clicked.connect(dialog.accept)
+        header_layout.addWidget(close_btn)
+
+        def start_move(event: QtGui.QMouseEvent) -> None:  # type: ignore[override]
+            if event.button() == QtCore.Qt.LeftButton:
+                header._drag_pos = event.globalPos() - dialog.frameGeometry().topLeft()  # type: ignore[attr-defined]
+                event.accept()
+
+        def move_window(event: QtGui.QMouseEvent) -> None:  # type: ignore[override]
+            if event.buttons() & QtCore.Qt.LeftButton and hasattr(header, "_drag_pos") and not dialog.isMaximized():
+                dialog.move(event.globalPos() - header._drag_pos)  # type: ignore[attr-defined]
+                event.accept()
+
+        header.mousePressEvent = start_move  # type: ignore[assignment]
+        header.mouseMoveEvent = move_window  # type: ignore[assignment]
+
+        dialog_layout.addWidget(header)
 
         details = EventDetailView()
         details.set_event(display_event, frame_image, plate_image)
         dialog_layout.addWidget(details)
 
-        close_btn = QtWidgets.QPushButton("Закрыть")
-        close_btn.clicked.connect(dialog.accept)
-        btn_row = QtWidgets.QHBoxLayout()
-        btn_row.addStretch()
-        btn_row.addWidget(close_btn)
-        dialog_layout.addLayout(btn_row)
+        footer_row = QtWidgets.QHBoxLayout()
+        footer_row.addStretch()
+        bottom_close_btn = QtWidgets.QPushButton("Закрыть")
+        bottom_close_btn.clicked.connect(dialog.accept)
+        footer_row.addWidget(bottom_close_btn)
+        dialog_layout.addLayout(footer_row)
 
         dialog.exec_()
 
