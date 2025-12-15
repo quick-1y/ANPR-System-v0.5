@@ -905,6 +905,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.channel_workers = []
 
     def _update_frame(self, channel_name: str, image: QtGui.QImage) -> None:
+        if self._skip_frame_updates:
+            return
         label = self.channel_labels.get(channel_name)
         if not label:
             return
