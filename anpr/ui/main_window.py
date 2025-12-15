@@ -327,6 +327,15 @@ class EventDetailView(QtWidgets.QWidget):
         super().__init__()
         layout = QtWidgets.QVBoxLayout(self)
 
+        self.setStyleSheet(
+            "QWidget { background-color: #16181d; }"
+            "QGroupBox { background-color: #0f1115; color: #f6f7fb; border: 1px solid #20242c; border-radius: 12px; padding: 10px; margin-top: 8px; }"
+            "QLabel { color: #e5e7eb; }"
+        )
+
+        self._frame_image: Optional[QtGui.QImage] = None
+        self._plate_image: Optional[QtGui.QImage] = None
+
         self.frame_preview = self._build_preview("Кадр распознавания", min_height=320, keep_aspect=True)
         layout.addWidget(self.frame_preview, stretch=3)
 
@@ -335,10 +344,6 @@ class EventDetailView(QtWidgets.QWidget):
         bottom_row.addWidget(self.plate_preview, 1)
 
         meta_group = QtWidgets.QGroupBox("Данные распознавания")
-        meta_group.setStyleSheet(
-            "QGroupBox { background-color: #000; color: white; border: 1px solid #2e2e2e; padding: 6px; }"
-            "QLabel { color: white; }"
-        )
         meta_group.setMinimumWidth(220)
         meta_layout = QtWidgets.QFormLayout(meta_group)
         self.time_label = QtWidgets.QLabel("—")
@@ -373,7 +378,10 @@ class EventDetailView(QtWidgets.QWidget):
         label.setStyleSheet(
             "background-color: #0b0c10; color: #9ca3af; border: 1px solid #1f2937; border-radius: 10px;"
         )
-        label.setScaledContents(False if keep_aspect else True)
+        label.setScaledContents(True)
+        label.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
+        )
         wrapper.addWidget(label)
         group.display_label = label  # type: ignore[attr-defined]
         return group
@@ -384,6 +392,8 @@ class EventDetailView(QtWidgets.QWidget):
         self.country_label.setText("—")
         self.plate_label.setText("—")
         self.conf_label.setText("—")
+        self._frame_image = None
+        self._plate_image = None
         for group in (self.frame_preview, self.plate_preview):
             group.display_label.setPixmap(QtGui.QPixmap())  # type: ignore[attr-defined]
             group.display_label.setText("Нет изображения")  # type: ignore[attr-defined]
@@ -415,16 +425,42 @@ class EventDetailView(QtWidgets.QWidget):
         image: Optional[QtGui.QImage],
         keep_aspect: bool = False,
     ) -> None:
+        if group is self.frame_preview:
+            self._frame_image = image
+        elif group is self.plate_preview:
+            self._plate_image = image
+
+        self._apply_image_to_label(group, image, keep_aspect)
+
+    def _apply_image_to_label(
+        self,
+        group: QtWidgets.QGroupBox,
+        image: Optional[QtGui.QImage],
+        keep_aspect: bool = False,
+    ) -> None:
         label: QtWidgets.QLabel = group.display_label  # type: ignore[attr-defined]
         if image is None:
             label.setPixmap(QtGui.QPixmap())
             label.setText("Нет изображения")
             return
+
         label.setText("")
+        target_size = label.size()
+        if target_size.width() == 0 or target_size.height() == 0:
+            return
         pixmap = QtGui.QPixmap.fromImage(image)
         if keep_aspect:
-            pixmap = pixmap.scaled(label.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+            pixmap = pixmap.scaled(
+                target_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+            )
+        else:
+            pixmap = pixmap.scaled(target_size, QtCore.Qt.IgnoreAspectRatio, QtCore.Qt.SmoothTransformation)
         label.setPixmap(pixmap)
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._apply_image_to_label(self.frame_preview, self._frame_image, keep_aspect=True)
+        self._apply_image_to_label(self.plate_preview, self._plate_image, keep_aspect=True)
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -485,6 +521,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.event_images: "OrderedDict[int, Tuple[Optional[QtGui.QImage], Optional[QtGui.QImage]]]" = OrderedDict()
         self._image_cache_bytes = 0
         self.event_cache: Dict[int, Dict] = {}
+        self.search_results: Dict[int, Dict] = {}
         self.flag_cache: Dict[str, Optional[QtGui.QIcon]] = {}
         self.flag_dir = Path(__file__).resolve().parents[2] / "images" / "flags"
         self.country_display_names = self._load_country_names()
@@ -507,7 +544,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.settings_tab = self._build_settings_tab()
 
         self.tabs.addTab(self.observation_tab, "Наблюдение")
-        self.tabs.addTab(self.search_tab, "Поиск")
+        self.tabs.addTab(self.search_tab, "Журнал")
         self.tabs.addTab(self.settings_tab, "Настройки")
 
         self.setCentralWidget(self.tabs)
@@ -640,6 +677,20 @@ class MainWindow(QtWidgets.QMainWindow):
         widget.setMinimumDateTime(min_dt)
         widget.setSpecialValueText("Не выбрано")
         widget.setDateTime(min_dt)
+
+    def _apply_dark_calendar_style(self, widget: QtWidgets.QDateTimeEdit) -> None:
+        widget.setStyleSheet(
+            "QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 6px; }"
+            "QDateTimeEdit::drop-down { width: 24px; }"
+        )
+        calendar = widget.calendarWidget()
+        calendar.setStyleSheet(
+            "QCalendarWidget QWidget { background-color: #0b0c10; color: #f8fafc; }"
+            "QCalendarWidget QToolButton { background-color: #1f2937; color: #f8fafc; border: none; padding: 6px; }"
+            "QCalendarWidget QToolButton#qt_calendar_prevmonth, QCalendarWidget QToolButton#qt_calendar_nextmonth { width: 24px; }"
+            "QCalendarWidget QSpinBox { background-color: #1f2937; color: #f8fafc; }"
+            "QCalendarWidget QTableView { selection-background-color: rgba(34,211,238,0.18); selection-color: #22d3ee; alternate-background-color: #11131a; }"
+        )
 
     @staticmethod
     def _offset_label(minutes: int) -> str:
@@ -1157,27 +1208,49 @@ class MainWindow(QtWidgets.QMainWindow):
         filters_group = QtWidgets.QGroupBox("Фильтры поиска")
         filters_group.setStyleSheet(self.GROUP_BOX_STYLE)
         form = QtWidgets.QFormLayout(filters_group)
+        form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
         self.search_plate = QtWidgets.QLineEdit()
+        self.search_plate.setMaximumWidth(self.COMPACT_FIELD_WIDTH + 80)
+        self.search_plate.setMinimumWidth(self.COMPACT_FIELD_WIDTH)
+        self.search_plate.setSizePolicy(
+            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
+        )
         self.search_from = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_from)
+        self._apply_dark_calendar_style(self.search_from)
+        self.search_from.setMaximumWidth(self.COMPACT_FIELD_WIDTH + 60)
+        self.search_from.setSizePolicy(
+            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
+        )
         self.search_to = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_to)
+        self._apply_dark_calendar_style(self.search_to)
+        self.search_to.setMaximumWidth(self.COMPACT_FIELD_WIDTH + 60)
+        self.search_to.setSizePolicy(
+            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
+        )
 
-        form.addRow("Номер:", self.search_plate)
+        today = QtCore.QDate.currentDate()
+        start_of_day = QtCore.QDateTime(today, QtCore.QTime(0, 0))
+        end_of_day = QtCore.QDateTime(today, QtCore.QTime(23, 59))
+        self.search_from.setDateTime(start_of_day)
+        self.search_to.setDateTime(end_of_day)
+
+        form.addRow("Гос.номер:", self.search_plate)
         form.addRow("Дата с:", self.search_from)
         form.addRow("Дата по:", self.search_to)
         layout.addWidget(filters_group)
 
         button_row = QtWidgets.QHBoxLayout()
-        button_row.addStretch()
-        search_btn = QtWidgets.QPushButton("Искать")
+        search_btn = QtWidgets.QPushButton("Поиск")
         search_btn.clicked.connect(self._run_plate_search)
         button_row.addWidget(search_btn)
+        button_row.addStretch()
         layout.addLayout(button_row)
 
         self.search_table = QtWidgets.QTableWidget(0, 6)
         self.search_table.setHorizontalHeaderLabels(
-            ["Дата/Время", "Канал", "Страна", "Номер", "Уверенность", "Источник"]
+            ["Дата/Время", "Канал", "Страна", "Гос. номер", "Уверенность", "Источник"]
         )
         self.search_table.horizontalHeader().setStretchLastSection(True)
         self.search_table.setStyleSheet(self.TABLE_STYLE)
@@ -1185,35 +1258,109 @@ class MainWindow(QtWidgets.QMainWindow):
         self.search_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.search_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.search_table.verticalHeader().setVisible(False)
+        self.search_table.itemActivated.connect(self._on_journal_event_activated)
         layout.addWidget(self.search_table)
+
+        self._run_plate_search()
 
         return widget
 
     def _run_plate_search(self) -> None:
         start = self._get_datetime_value(self.search_from)
         end = self._get_datetime_value(self.search_to)
-        plate_fragment = self.search_plate.text()
-        rows = self.db.search_by_plate(plate_fragment, start=start or None, end=end or None)
+        plate_fragment = self.search_plate.text().strip()
+        if plate_fragment:
+            rows = self.db.search_by_plate(
+                plate_fragment, start=start or None, end=end or None, limit=200
+            )
+        else:
+            rows = self.db.fetch_filtered(start=start or None, end=end or None, limit=50)
+
+        self._populate_journal_table(rows)
+
+    def _populate_journal_table(self, rows: List[Dict]) -> None:
         self.search_table.setRowCount(0)
+        self.search_results.clear()
         target_zone = self._get_target_zone()
         offset_minutes = self.settings.get_time_offset_minutes()
-        for row_data in rows:
+
+        for db_row in rows:
+            row_data = dict(db_row)
+            event_id = int(row_data["id"])
+            self.search_results[event_id] = dict(row_data)
             row_index = self.search_table.rowCount()
             self.search_table.insertRow(row_index)
-            formatted_time = self._format_timestamp(row_data["timestamp"], target_zone, offset_minutes)
-            self.search_table.setItem(row_index, 0, QtWidgets.QTableWidgetItem(formatted_time))
+            formatted_time = self._format_timestamp(
+                row_data["timestamp"], target_zone, offset_minutes
+            )
+            time_item = QtWidgets.QTableWidgetItem(formatted_time)
+            time_item.setData(QtCore.Qt.UserRole, event_id)
+            self.search_table.setItem(row_index, 0, time_item)
             self.search_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(row_data["channel"]))
-            country_item = QtWidgets.QTableWidgetItem(row_data["country"] or "")
-            country_icon = self._get_flag_icon(row_data["country"])
+
+            country_item = QtWidgets.QTableWidgetItem(row_data.get("country") or "")
+            country_icon = self._get_flag_icon(row_data.get("country"))
             if country_icon:
                 country_item.setIcon(country_icon)
             country_item.setTextAlignment(QtCore.Qt.AlignCenter)
             self.search_table.setItem(row_index, 2, country_item)
+
             self.search_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(row_data["plate"]))
             self.search_table.setItem(
                 row_index, 4, QtWidgets.QTableWidgetItem(f"{row_data['confidence'] or 0:.2f}")
             )
             self.search_table.setItem(row_index, 5, QtWidgets.QTableWidgetItem(row_data["source"]))
+
+    def _on_journal_event_activated(self, item: QtWidgets.QTableWidgetItem) -> None:
+        row = item.row()
+        if row < 0:
+            return
+        self._open_journal_event(row)
+
+    def _open_journal_event(self, row: int) -> None:
+        event_id_item = self.search_table.item(row, 0)
+        if event_id_item is None:
+            return
+        event_id = int(event_id_item.data(QtCore.Qt.UserRole) or 0)
+        event = self.search_results.get(event_id)
+        if not event:
+            return
+
+        frame_image = self._load_image_from_path(event.get("frame_path"))
+        plate_image = self._load_image_from_path(event.get("plate_path"))
+
+        display_event = dict(event)
+        target_zone = self._get_target_zone()
+        offset_minutes = self.settings.get_time_offset_minutes()
+        display_event["timestamp"] = self._format_timestamp(
+            display_event.get("timestamp", ""), target_zone, offset_minutes
+        )
+        display_event["country"] = self._get_country_name(display_event.get("country"))
+
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Информация о событии")
+        dialog.setMinimumSize(720, 640)
+        dialog.setStyleSheet(
+            f"QDialog {{ background-color: {self.SURFACE_COLOR}; }}"
+            f"QGroupBox {{ background-color: {self.PANEL_COLOR}; color: #f6f7fb; border: 1px solid #20242c; border-radius: 12px; padding: 10px; margin-top: 8px; }}"
+            "QLabel { color: #e5e7eb; }"
+            f"QPushButton {{ background-color: {self.ACCENT_COLOR}; color: #0b0c10; border: none; border-radius: 8px; padding: 8px 16px; font-weight: 700; }}"
+            f"QPushButton:hover {{ background-color: #4ddcf3; }}"
+        )
+        dialog_layout = QtWidgets.QVBoxLayout(dialog)
+
+        details = EventDetailView()
+        details.set_event(display_event, frame_image, plate_image)
+        dialog_layout.addWidget(details)
+
+        close_btn = QtWidgets.QPushButton("Закрыть")
+        close_btn.clicked.connect(dialog.accept)
+        btn_row = QtWidgets.QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        dialog_layout.addLayout(btn_row)
+
+        dialog.exec_()
 
     # ------------------ Настройки ------------------
     def _build_settings_tab(self) -> QtWidgets.QWidget:
