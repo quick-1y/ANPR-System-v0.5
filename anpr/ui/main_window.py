@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /anpr/ui/main_window.py
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import cv2
@@ -51,6 +51,8 @@ class ChannelView(QtWidgets.QWidget):
 
     channelDropped = QtCore.pyqtSignal(int, int)
     channelActivated = QtCore.pyqtSignal(str)
+    dragStarted = QtCore.pyqtSignal()
+    dragFinished = QtCore.pyqtSignal()
 
     def __init__(self, name: str, pixmap_pool: Optional[PixmapPool]) -> None:
         super().__init__()
@@ -138,12 +140,14 @@ class ChannelView(QtWidgets.QWidget):
             and (event.pos() - self._drag_start_pos).manhattanLength()
             >= QtWidgets.QApplication.startDragDistance()
         ):
+            self.dragStarted.emit()
             drag = QtGui.QDrag(self)
             mime_data = QtCore.QMimeData()
             mime_data.setText(self._channel_name)
             mime_data.setData("application/x-channel-index", str(self._grid_position).encode())
             drag.setMimeData(mime_data)
             drag.exec_(QtCore.Qt.MoveAction)
+            self.dragFinished.emit()
             return
         super().mouseMoveEvent(event)
 
@@ -488,6 +492,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._channel_save_timer = QtCore.QTimer(self)
         self._channel_save_timer.setSingleShot(True)
         self._channel_save_timer.timeout.connect(self._flush_pending_channels)
+        self._drag_counter = 0
+        self._skip_frame_updates = False
 
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setStyleSheet(
@@ -636,6 +642,26 @@ class MainWindow(QtWidgets.QMainWindow):
         widget.setDateTime(min_dt)
 
     @staticmethod
+    def _offset_label(minutes: int) -> str:
+        sign = "+" if minutes >= 0 else "-"
+        total = abs(minutes)
+        hours = total // 60
+        mins = total % 60
+        return f"UTC{sign}{hours:02d}:{mins:02d}"
+
+    @staticmethod
+    def _available_offset_labels() -> List[str]:
+        now = QtCore.QDateTime.currentDateTime()
+        offsets = {0}
+        for tz_id in QtCore.QTimeZone.availableTimeZoneIds():
+            try:
+                offset = QtCore.QTimeZone(tz_id).offsetFromUtc(now) // 60
+                offsets.add(offset)
+            except Exception:
+                continue
+        return [MainWindow._offset_label(minutes) for minutes in sorted(offsets)]
+
+    @staticmethod
     def _get_datetime_value(widget: QtWidgets.QDateTimeEdit) -> Optional[str]:
         if widget.dateTime() == widget.minimumDateTime():
             return None
@@ -673,9 +699,39 @@ class MainWindow(QtWidgets.QMainWindow):
                 pass
         return parsed.strftime("%d.%m.%Y %H:%M:%S")
 
-    def _get_target_zone(self) -> Optional[ZoneInfo]:
+    @staticmethod
+    def _parse_utc_offset_minutes(label: str) -> Optional[int]:
+        if not label or not label.upper().startswith("UTC"):
+            return None
+        raw = label[3:].strip()
+        if not raw:
+            return 0
         try:
-            return ZoneInfo(self.settings.get_timezone())
+            sign = 1
+            if raw.startswith("-"):
+                sign = -1
+                raw = raw[1:]
+            elif raw.startswith("+"):
+                raw = raw[1:]
+            if not raw:
+                return 0
+            parts = raw.split(":")
+            hours = int(parts[0]) if parts[0] else 0
+            minutes = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+            return sign * (hours * 60 + minutes)
+        except (ValueError, TypeError):
+            return None
+
+    def _get_target_zone(self) -> Optional[timezone]:
+        tz_value = self.settings.get_timezone()
+        offset_minutes = self._parse_utc_offset_minutes(tz_value)
+        if offset_minutes is not None:
+            try:
+                return timezone(timedelta(minutes=offset_minutes))
+            except Exception:
+                pass
+        try:
+            return ZoneInfo(tz_value)
         except Exception:
             return None
 
@@ -718,6 +774,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 label.set_channel_name(channel_name)
                 label.channelDropped.connect(self._on_channel_dropped)
                 label.channelActivated.connect(self._on_channel_activated)
+                label.dragStarted.connect(self._on_drag_started)
+                label.dragFinished.connect(self._on_drag_finished)
                 self.grid_layout.addWidget(label, row, col)
                 self.grid_cells[index] = label
                 index += 1
@@ -729,6 +787,19 @@ class MainWindow(QtWidgets.QMainWindow):
         variant = self.grid_combo.itemData(index)
         if variant:
             self._select_grid(str(variant))
+
+    def _on_drag_started(self) -> None:
+        self._drag_counter += 1
+        if self._drag_counter == 1:
+            self._skip_frame_updates = True
+            self.grid_widget.setUpdatesEnabled(False)
+
+    def _on_drag_finished(self) -> None:
+        if self._drag_counter:
+            self._drag_counter -= 1
+        if self._drag_counter == 0:
+            self._skip_frame_updates = False
+            self.grid_widget.setUpdatesEnabled(True)
 
     def _on_channel_dropped(self, source_index: int, target_index: int) -> None:
         channels = self.settings.get_channels()
@@ -859,6 +930,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.channel_workers = []
 
     def _update_frame(self, channel_name: str, image: QtGui.QImage) -> None:
+        if self._skip_frame_updates:
+            return
         label = self.channel_labels.get(channel_name)
         if not label:
             return
@@ -1293,16 +1366,15 @@ class MainWindow(QtWidgets.QMainWindow):
         time_group.setMaximumWidth(self.FIELD_MAX_WIDTH + 220)
 
         self.timezone_combo = QtWidgets.QComboBox()
-        self.timezone_combo.setEditable(True)
+        self.timezone_combo.setEditable(False)
         self.timezone_combo.setMinimumWidth(self.COMPACT_FIELD_WIDTH + 80)
         self.timezone_combo.setStyleSheet(
             "QComboBox { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; }"
             "QComboBox QAbstractItemView { background-color: #0b0c10; color: #f8fafc; selection-background-color: #1f2937; }"
             "QComboBox:on { padding-top: 3px; padding-left: 4px; }"
         )
-        tz_ids = sorted({bytes(tz_id).decode() for tz_id in QtCore.QTimeZone.availableTimeZoneIds()})
-        for tz_id in tz_ids:
-            self.timezone_combo.addItem(tz_id, tz_id)
+        for label in self._available_offset_labels():
+            self.timezone_combo.addItem(label, label)
         time_form.addRow("Часовой пояс:", self.timezone_combo)
 
         time_row = QtWidgets.QHBoxLayout()
@@ -1312,6 +1384,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.time_correction_input.setDisplayFormat("dd.MM.yyyy HH:mm:ss")
         self.time_correction_input.setCalendarPopup(True)
         self.time_correction_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self.time_correction_input.setStyleSheet(
+            "QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
+            "QDateTimeEdit::drop-down { width: 26px; }")
+        calendar = self.time_correction_input.calendarWidget()
+        calendar.setStyleSheet(
+            "QCalendarWidget QWidget { background-color: #0b0c10; color: #f8fafc; }"
+            "QCalendarWidget QToolButton { background-color: #1f2937; color: #f8fafc; border: none; padding: 6px; }"
+            "QCalendarWidget QToolButton#qt_calendar_prevmonth, QCalendarWidget QToolButton#qt_calendar_nextmonth { width: 24px; }"
+            "QCalendarWidget QSpinBox { background-color: #1f2937; color: #f8fafc; }"
+            "QCalendarWidget QTableView { selection-background-color: rgba(34,211,238,0.18); selection-color: #22d3ee; alternate-background-color: #11131a; }")
         sync_now_btn = QtWidgets.QPushButton("Текущее время")
         self._polish_button(sync_now_btn, 160)
         sync_now_btn.clicked.connect(self._sync_time_now)
@@ -1609,11 +1691,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self.periodic_interval_input.setValue(int(periodic.get("interval_minutes", 60)))
 
         time_settings = self.settings.get_time_settings()
-        tz_name = time_settings.get("timezone") or "UTC"
-        index = self.timezone_combo.findData(tz_name)
+        tz_value = time_settings.get("timezone") or "UTC+00:00"
+        offset_label = tz_value
+        parsed_offset = self._parse_utc_offset_minutes(tz_value)
+        if parsed_offset is None:
+            try:
+                qtz = QtCore.QTimeZone(tz_value.encode())
+                parsed_offset = qtz.offsetFromUtc(QtCore.QDateTime.currentDateTime()) // 60
+            except Exception:
+                parsed_offset = 0
+        if parsed_offset is not None:
+            offset_label = self._offset_label(parsed_offset)
+        index = self.timezone_combo.findData(offset_label)
         if index < 0:
-            self.timezone_combo.addItem(tz_name, tz_name)
-            index = self.timezone_combo.findData(tz_name)
+            self.timezone_combo.addItem(offset_label, offset_label)
+            index = self.timezone_combo.findData(offset_label)
         if index >= 0:
             self.timezone_combo.setCurrentIndex(index)
         offset_minutes = int(time_settings.get("offset_minutes", 0) or 0)
@@ -1701,7 +1793,7 @@ class MainWindow(QtWidgets.QMainWindow):
         screenshot_dir = self.screenshot_dir_input.text().strip() or "data/screenshots"
         self.settings.save_screenshot_dir(screenshot_dir)
         os.makedirs(screenshot_dir, exist_ok=True)
-        tz_name = self.timezone_combo.currentData() or self.timezone_combo.currentText().strip() or "UTC"
+        tz_name = self.timezone_combo.currentData() or self.timezone_combo.currentText().strip() or "UTC+00:00"
         offset_minutes = int(
             QtCore.QDateTime.currentDateTime().secsTo(self.time_correction_input.dateTime()) / 60
         )

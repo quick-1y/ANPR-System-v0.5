@@ -2,7 +2,7 @@
 #/anpr/infrastructure/settings_manager.py
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
 
@@ -144,10 +144,14 @@ class SettingsManager:
 
     @staticmethod
     def _time_defaults() -> Dict[str, Any]:
-        tzinfo = datetime.now().astimezone().tzinfo
-        default_zone = "UTC"
-        if tzinfo:
-            default_zone = getattr(tzinfo, "key", str(tzinfo)) or "UTC"
+        now = datetime.now().astimezone()
+        offset = now.utcoffset() or timedelta()
+        minutes = int(offset.total_seconds() // 60)
+        sign = "+" if minutes >= 0 else "-"
+        total = abs(minutes)
+        hours = total // 60
+        mins = total % 60
+        default_zone = f"UTC{sign}{hours:02d}:{mins:02d}"
         return {"timezone": default_zone, "offset_minutes": 0}
 
     def _fill_channel_defaults(self, channel: Dict[str, Any], tracking_defaults: Dict[str, Any]) -> bool:
