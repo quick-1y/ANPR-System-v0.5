@@ -485,6 +485,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.event_images: "OrderedDict[int, Tuple[Optional[QtGui.QImage], Optional[QtGui.QImage]]]" = OrderedDict()
         self._image_cache_bytes = 0
         self.event_cache: Dict[int, Dict] = {}
+        self.search_results: Dict[int, Dict] = {}
         self.flag_cache: Dict[str, Optional[QtGui.QIcon]] = {}
         self.flag_dir = Path(__file__).resolve().parents[2] / "images" / "flags"
         self.country_display_names = self._load_country_names()
@@ -507,7 +508,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.settings_tab = self._build_settings_tab()
 
         self.tabs.addTab(self.observation_tab, "Наблюдение")
-        self.tabs.addTab(self.search_tab, "Поиск")
+        self.tabs.addTab(self.search_tab, "Журнал")
         self.tabs.addTab(self.settings_tab, "Настройки")
 
         self.setCentralWidget(self.tabs)
@@ -1157,27 +1158,47 @@ class MainWindow(QtWidgets.QMainWindow):
         filters_group = QtWidgets.QGroupBox("Фильтры поиска")
         filters_group.setStyleSheet(self.GROUP_BOX_STYLE)
         form = QtWidgets.QFormLayout(filters_group)
+        form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
         self.search_plate = QtWidgets.QLineEdit()
+        self.search_plate.setMaximumWidth(self.COMPACT_FIELD_WIDTH + 80)
+        self.search_plate.setMinimumWidth(self.COMPACT_FIELD_WIDTH)
+        self.search_plate.setSizePolicy(
+            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
+        )
         self.search_from = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_from)
+        self.search_from.setMaximumWidth(self.COMPACT_FIELD_WIDTH + 60)
+        self.search_from.setSizePolicy(
+            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
+        )
         self.search_to = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_to)
+        self.search_to.setMaximumWidth(self.COMPACT_FIELD_WIDTH + 60)
+        self.search_to.setSizePolicy(
+            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
+        )
 
-        form.addRow("Номер:", self.search_plate)
+        today = QtCore.QDate.currentDate()
+        start_of_day = QtCore.QDateTime(today, QtCore.QTime(0, 0))
+        end_of_day = QtCore.QDateTime(today, QtCore.QTime(23, 59))
+        self.search_from.setDateTime(start_of_day)
+        self.search_to.setDateTime(end_of_day)
+
+        form.addRow("Гос.номер:", self.search_plate)
         form.addRow("Дата с:", self.search_from)
         form.addRow("Дата по:", self.search_to)
         layout.addWidget(filters_group)
 
         button_row = QtWidgets.QHBoxLayout()
-        button_row.addStretch()
-        search_btn = QtWidgets.QPushButton("Искать")
+        search_btn = QtWidgets.QPushButton("Поиск")
         search_btn.clicked.connect(self._run_plate_search)
         button_row.addWidget(search_btn)
+        button_row.addStretch()
         layout.addLayout(button_row)
 
         self.search_table = QtWidgets.QTableWidget(0, 6)
         self.search_table.setHorizontalHeaderLabels(
-            ["Дата/Время", "Канал", "Страна", "Номер", "Уверенность", "Источник"]
+            ["Дата/Время", "Канал", "Страна", "Гос. номер", "Уверенность", "Источник"]
         )
         self.search_table.horizontalHeader().setStretchLastSection(True)
         self.search_table.setStyleSheet(self.TABLE_STYLE)
@@ -1185,35 +1206,103 @@ class MainWindow(QtWidgets.QMainWindow):
         self.search_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.search_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.search_table.verticalHeader().setVisible(False)
+        self.search_table.itemActivated.connect(self._on_journal_event_activated)
+        self.search_table.itemDoubleClicked.connect(self._on_journal_event_activated)
         layout.addWidget(self.search_table)
+
+        self._run_plate_search()
 
         return widget
 
     def _run_plate_search(self) -> None:
         start = self._get_datetime_value(self.search_from)
         end = self._get_datetime_value(self.search_to)
-        plate_fragment = self.search_plate.text()
-        rows = self.db.search_by_plate(plate_fragment, start=start or None, end=end or None)
+        plate_fragment = self.search_plate.text().strip()
+        if plate_fragment:
+            rows = self.db.search_by_plate(
+                plate_fragment, start=start or None, end=end or None, limit=200
+            )
+        else:
+            rows = self.db.fetch_filtered(start=start or None, end=end or None, limit=50)
+
+        self._populate_journal_table(rows)
+
+    def _populate_journal_table(self, rows: List[Dict]) -> None:
         self.search_table.setRowCount(0)
+        self.search_results.clear()
         target_zone = self._get_target_zone()
         offset_minutes = self.settings.get_time_offset_minutes()
-        for row_data in rows:
+
+        for db_row in rows:
+            row_data = dict(db_row)
+            event_id = int(row_data["id"])
+            self.search_results[event_id] = dict(row_data)
             row_index = self.search_table.rowCount()
             self.search_table.insertRow(row_index)
-            formatted_time = self._format_timestamp(row_data["timestamp"], target_zone, offset_minutes)
-            self.search_table.setItem(row_index, 0, QtWidgets.QTableWidgetItem(formatted_time))
+            formatted_time = self._format_timestamp(
+                row_data["timestamp"], target_zone, offset_minutes
+            )
+            time_item = QtWidgets.QTableWidgetItem(formatted_time)
+            time_item.setData(QtCore.Qt.UserRole, event_id)
+            self.search_table.setItem(row_index, 0, time_item)
             self.search_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(row_data["channel"]))
-            country_item = QtWidgets.QTableWidgetItem(row_data["country"] or "")
-            country_icon = self._get_flag_icon(row_data["country"])
+
+            country_item = QtWidgets.QTableWidgetItem(row_data.get("country") or "")
+            country_icon = self._get_flag_icon(row_data.get("country"))
             if country_icon:
                 country_item.setIcon(country_icon)
             country_item.setTextAlignment(QtCore.Qt.AlignCenter)
             self.search_table.setItem(row_index, 2, country_item)
+
             self.search_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(row_data["plate"]))
             self.search_table.setItem(
                 row_index, 4, QtWidgets.QTableWidgetItem(f"{row_data['confidence'] or 0:.2f}")
             )
             self.search_table.setItem(row_index, 5, QtWidgets.QTableWidgetItem(row_data["source"]))
+
+    def _on_journal_event_activated(self, item: QtWidgets.QTableWidgetItem) -> None:
+        row = item.row()
+        if row < 0:
+            return
+        self._open_journal_event(row)
+
+    def _open_journal_event(self, row: int) -> None:
+        event_id_item = self.search_table.item(row, 0)
+        if event_id_item is None:
+            return
+        event_id = int(event_id_item.data(QtCore.Qt.UserRole) or 0)
+        event = self.search_results.get(event_id)
+        if not event:
+            return
+
+        frame_image = self._load_image_from_path(event.get("frame_path"))
+        plate_image = self._load_image_from_path(event.get("plate_path"))
+
+        display_event = dict(event)
+        target_zone = self._get_target_zone()
+        offset_minutes = self.settings.get_time_offset_minutes()
+        display_event["timestamp"] = self._format_timestamp(
+            display_event.get("timestamp", ""), target_zone, offset_minutes
+        )
+        display_event["country"] = self._get_country_name(display_event.get("country"))
+
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Информация о событии")
+        dialog.setMinimumSize(720, 640)
+        dialog_layout = QtWidgets.QVBoxLayout(dialog)
+
+        details = EventDetailView()
+        details.set_event(display_event, frame_image, plate_image)
+        dialog_layout.addWidget(details)
+
+        close_btn = QtWidgets.QPushButton("Закрыть")
+        close_btn.clicked.connect(dialog.accept)
+        btn_row = QtWidgets.QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        dialog_layout.addLayout(btn_row)
+
+        dialog.exec_()
 
     # ------------------ Настройки ------------------
     def _build_settings_tab(self) -> QtWidgets.QWidget:
