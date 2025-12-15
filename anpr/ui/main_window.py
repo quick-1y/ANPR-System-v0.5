@@ -1230,11 +1230,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
         )
 
-        today = QtCore.QDate.currentDate()
-        start_of_day = QtCore.QDateTime(today, QtCore.QTime(0, 0))
-        end_of_day = QtCore.QDateTime(today, QtCore.QTime(23, 59))
-        self.search_from.setDateTime(start_of_day)
-        self.search_to.setDateTime(end_of_day)
+        self._reset_journal_range()
 
         form.addRow("Гос.номер:", self.search_plate)
         form.addRow("Дата с:", self.search_from)
@@ -1245,6 +1241,10 @@ class MainWindow(QtWidgets.QMainWindow):
         search_btn = QtWidgets.QPushButton("Поиск")
         search_btn.clicked.connect(self._run_plate_search)
         button_row.addWidget(search_btn)
+
+        reset_btn = QtWidgets.QPushButton("Сбросить фильтр")
+        reset_btn.clicked.connect(self._reset_journal_filters)
+        button_row.addWidget(reset_btn)
         button_row.addStretch()
         layout.addLayout(button_row)
 
@@ -1264,6 +1264,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self._run_plate_search()
 
         return widget
+
+    def _reset_journal_range(self) -> None:
+        today = QtCore.QDate.currentDate()
+        start_of_day = QtCore.QDateTime(today, QtCore.QTime(0, 0))
+        end_of_day = QtCore.QDateTime(today, QtCore.QTime(23, 59))
+        self.search_from.setDateTime(start_of_day)
+        self.search_to.setDateTime(end_of_day)
+
+    def _reset_journal_filters(self) -> None:
+        self.search_plate.clear()
+        self._reset_journal_range()
+        self._run_plate_search()
 
     def _run_plate_search(self) -> None:
         start = self._get_datetime_value(self.search_from)
