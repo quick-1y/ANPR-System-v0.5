@@ -107,6 +107,9 @@ class ChannelView(QtWidgets.QWidget):
     def set_channel_name(self, channel_name: Optional[str]) -> None:
         self._channel_name = channel_name
 
+    def channel_name(self) -> Optional[str]:
+        return self._channel_name
+
     def set_grid_position(self, position: int) -> None:
         self._grid_position = position
 
@@ -674,6 +677,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 widget.setParent(None)
 
         self.channel_labels.clear()
+        self.grid_cells: Dict[int, ChannelView] = {}
+        for col in range(3):
+            self.grid_layout.setColumnStretch(col, 0)
+        for row in range(3):
+            self.grid_layout.setRowStretch(row, 0)
         channels = self.settings.get_channels()
         if self.current_grid == "1x1" and self.focused_channel_name:
             focused = [
@@ -701,6 +709,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 label.channelDropped.connect(self._on_channel_dropped)
                 label.channelActivated.connect(self._on_channel_activated)
                 self.grid_layout.addWidget(label, row, col)
+                self.grid_cells[index] = label
                 index += 1
 
         self.grid_layout.invalidate()
@@ -731,7 +740,29 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.settings.save_channels(channels)
         self._reload_channels_list()
-        self._draw_grid()
+        if not self._swap_channel_views(source_index, target_index):
+            self._draw_grid()
+
+    def _swap_channel_views(self, source_index: int, target_index: int) -> bool:
+        source_view = getattr(self, "grid_cells", {}).get(source_index)
+        target_view = getattr(self, "grid_cells", {}).get(target_index)
+        if not source_view or not target_view:
+            return False
+
+        source_name = source_view.channel_name()
+        target_name = target_view.channel_name()
+        source_view.set_channel_name(target_name)
+        target_view.set_channel_name(source_name)
+
+        self.channel_labels.clear()
+        for view in self.grid_cells.values():
+            name = view.channel_name()
+            if name:
+                self.channel_labels[name] = view
+
+        for index, view in self.grid_cells.items():
+            view.set_grid_position(index)
+        return True
 
     def _on_channel_activated(self, channel_name: str) -> None:
         if self.current_grid == "1x1" and self._previous_grid:
