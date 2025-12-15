@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import psutil
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from zoneinfo import ZoneInfo
@@ -484,6 +484,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.flag_cache: Dict[str, Optional[QtGui.QIcon]] = {}
         self.flag_dir = Path(__file__).resolve().parents[2] / "images" / "flags"
         self.country_display_names = self._load_country_names()
+        self._pending_channels: Optional[List[Dict[str, Any]]] = None
+        self._channel_save_timer = QtCore.QTimer(self)
+        self._channel_save_timer.setSingleShot(True)
+        self._channel_save_timer.timeout.connect(self._flush_pending_channels)
 
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setStyleSheet(
@@ -648,10 +652,16 @@ class MainWindow(QtWidgets.QMainWindow):
             return value
 
         if parsed.tzinfo is None:
-            try:
-                parsed = parsed.replace(tzinfo=ZoneInfo("UTC"))
-            except Exception:
-                return parsed.strftime("%d.%m.%Y %H:%M:%S")
+            assumed_zone = target_zone
+            if assumed_zone is None:
+                try:
+                    assumed_zone = datetime.now().astimezone().tzinfo
+                except Exception:
+                    assumed_zone = None
+            if assumed_zone:
+                parsed = parsed.replace(tzinfo=assumed_zone)
+            elif target_zone:
+                parsed = parsed.replace(tzinfo=target_zone)
 
         if offset_minutes:
             parsed = parsed + timedelta(minutes=offset_minutes)
@@ -738,10 +748,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 channels[source_index],
             )
 
-        self.settings.save_channels(channels)
-        self._reload_channels_list()
-        if not self._swap_channel_views(source_index, target_index):
-            self._draw_grid()
+        self._update_channels_list_names(channels)
+        self._schedule_channels_save(channels)
+        self.grid_widget.setUpdatesEnabled(False)
+        try:
+            if not self._swap_channel_views(source_index, target_index):
+                self._draw_grid()
+        finally:
+            self.grid_widget.setUpdatesEnabled(True)
 
     def _swap_channel_views(self, source_index: int, target_index: int) -> bool:
         source_view = getattr(self, "grid_cells", {}).get(source_index)
@@ -763,6 +777,27 @@ class MainWindow(QtWidgets.QMainWindow):
         for index, view in self.grid_cells.items():
             view.set_grid_position(index)
         return True
+
+    def _update_channels_list_names(self, channels: List[Dict[str, Any]]) -> None:
+        current_row = self.channels_list.currentRow()
+        self.channels_list.blockSignals(True)
+        self.channels_list.clear()
+        for channel in channels:
+            self.channels_list.addItem(channel.get("name", "Канал"))
+        self.channels_list.blockSignals(False)
+        if self.channels_list.count():
+            target_row = min(current_row if current_row >= 0 else 0, self.channels_list.count() - 1)
+            self.channels_list.setCurrentRow(target_row)
+
+    def _schedule_channels_save(self, channels: List[Dict[str, Any]]) -> None:
+        self._pending_channels = [dict(channel) for channel in channels]
+        self._channel_save_timer.start(150)
+
+    def _flush_pending_channels(self) -> None:
+        if self._pending_channels is None:
+            return
+        self.settings.save_channels(self._pending_channels)
+        self._pending_channels = None
 
     def _on_channel_activated(self, channel_name: str) -> None:
         if self.current_grid == "1x1" and self._previous_grid:
@@ -1260,6 +1295,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.timezone_combo = QtWidgets.QComboBox()
         self.timezone_combo.setEditable(True)
         self.timezone_combo.setMinimumWidth(self.COMPACT_FIELD_WIDTH + 80)
+        self.timezone_combo.setStyleSheet(
+            "QComboBox { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; }"
+            "QComboBox QAbstractItemView { background-color: #0b0c10; color: #f8fafc; selection-background-color: #1f2937; }"
+            "QComboBox:on { padding-top: 3px; padding-left: 4px; }"
+        )
         tz_ids = sorted({bytes(tz_id).decode() for tz_id in QtCore.QTimeZone.availableTimeZoneIds()})
         for tz_id in tz_ids:
             self.timezone_combo.addItem(tz_id, tz_id)
@@ -1540,11 +1580,16 @@ class MainWindow(QtWidgets.QMainWindow):
         return widget
 
     def _reload_channels_list(self) -> None:
+        channels = self.settings.get_channels()
+        current_row = self.channels_list.currentRow()
+        self.channels_list.blockSignals(True)
         self.channels_list.clear()
-        for channel in self.settings.get_channels():
+        for channel in channels:
             self.channels_list.addItem(channel.get("name", "Канал"))
+        self.channels_list.blockSignals(False)
         if self.channels_list.count():
-            self.channels_list.setCurrentRow(0)
+            target_row = min(current_row if current_row >= 0 else 0, self.channels_list.count() - 1)
+            self.channels_list.setCurrentRow(target_row)
 
     def _load_general_settings(self) -> None:
         reconnect = self.settings.get_reconnect()
