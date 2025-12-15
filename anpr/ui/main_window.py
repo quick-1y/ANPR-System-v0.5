@@ -445,7 +445,7 @@ class EventDetailView(QtWidgets.QWidget):
             return
 
         label.setText("")
-        target_size = label.size()
+        target_size = label.contentsRect().size()
         if target_size.width() == 0 or target_size.height() == 0:
             return
         pixmap = QtGui.QPixmap.fromImage(image)
@@ -506,6 +506,13 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("ANPR Desktop")
         self.resize(1280, 800)
+        self.setWindowFlags(
+            self.windowFlags()
+            | QtCore.Qt.FramelessWindowHint
+            | QtCore.Qt.WindowSystemMenuHint
+            | QtCore.Qt.WindowMinMaxButtonsHint
+        )
+        self._window_drag_pos: Optional[QtCore.QPoint] = None
 
         self.settings = settings or SettingsManager()
         self.current_grid = self.settings.get_grid()
@@ -547,15 +554,103 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self.search_tab, "Журнал")
         self.tabs.addTab(self.settings_tab, "Настройки")
 
-        self.setCentralWidget(self.tabs)
+        root = QtWidgets.QWidget()
+        root_layout = QtWidgets.QVBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+        header = self._build_main_header()
+        root_layout.addWidget(header)
+        root_layout.addWidget(self.tabs, 1)
+
+        grip_row = QtWidgets.QHBoxLayout()
+        grip_row.setContentsMargins(0, 0, 8, 8)
+        grip_row.addStretch()
+        grip_row.addWidget(QtWidgets.QSizeGrip(root))
+        root_layout.addLayout(grip_row)
+
+        self.setCentralWidget(root)
         self.setStyleSheet(
             "QMainWindow { background-color: #0b0c10; }"
             "QStatusBar { background-color: #0b0c10; color: #e5e7eb; padding: 4px; border-top: 1px solid #1f2937; }"
+            "QToolButton[windowControl='true'] { background-color: transparent; border: none; color: white; padding: 6px; }"
+            "QToolButton[windowControl='true']:hover { background-color: rgba(255,255,255,0.08); border-radius: 6px; }"
         )
         self._build_status_bar()
         self._start_system_monitoring()
         self._refresh_events_table()
         self._start_channels()
+
+    def _build_main_header(self) -> QtWidgets.QWidget:
+        header = QtWidgets.QFrame()
+        header.setFixedHeight(48)
+        header.setStyleSheet(
+            "QFrame { background-color: #0b0c10; border-bottom: 1px solid #20242c; }"
+        )
+        layout = QtWidgets.QHBoxLayout(header)
+        layout.setContentsMargins(12, 6, 12, 6)
+        layout.setSpacing(8)
+
+        title = QtWidgets.QLabel("ANPR Desktop")
+        title.setStyleSheet("color: white; font-weight: 800;")
+        layout.addWidget(title)
+        layout.addStretch()
+
+        minimize_btn = QtWidgets.QToolButton()
+        minimize_btn.setProperty("windowControl", True)
+        minimize_btn.setText("–")
+        minimize_btn.setToolTip("Свернуть")
+        minimize_btn.clicked.connect(self.showMinimized)
+        layout.addWidget(minimize_btn)
+
+        maximize_btn = QtWidgets.QToolButton()
+        maximize_btn.setProperty("windowControl", True)
+        maximize_btn.setText("⛶")
+        maximize_btn.setToolTip("Развернуть/свернуть окно")
+
+        def toggle_maximize() -> None:
+            if self.isMaximized():
+                self.showNormal()
+            else:
+                self.showMaximized()
+
+        maximize_btn.clicked.connect(toggle_maximize)
+        layout.addWidget(maximize_btn)
+
+        close_btn = QtWidgets.QToolButton()
+        close_btn.setProperty("windowControl", True)
+        close_btn.setText("✕")
+        close_btn.setToolTip("Закрыть")
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(close_btn)
+
+        def start_move(event: QtGui.QMouseEvent) -> None:  # type: ignore[override]
+            if event.button() == QtCore.Qt.LeftButton and not self.isMaximized():
+                self._window_drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+                event.accept()
+
+        def move_window(event: QtGui.QMouseEvent) -> None:  # type: ignore[override]
+            if (
+                event.buttons() & QtCore.Qt.LeftButton
+                and self._window_drag_pos is not None
+                and not self.isMaximized()
+            ):
+                self.move(event.globalPos() - self._window_drag_pos)
+                event.accept()
+
+        def end_move(event: QtGui.QMouseEvent) -> None:  # type: ignore[override]
+            self._window_drag_pos = None
+            event.accept()
+
+        def double_click(event: QtGui.QMouseEvent) -> None:  # type: ignore[override]
+            if event.button() == QtCore.Qt.LeftButton:
+                toggle_maximize()
+                event.accept()
+
+        header.mousePressEvent = start_move  # type: ignore[assignment]
+        header.mouseMoveEvent = move_window  # type: ignore[assignment]
+        header.mouseReleaseEvent = end_move  # type: ignore[assignment]
+        header.mouseDoubleClickEvent = double_click  # type: ignore[assignment]
+        return header
 
     def _build_status_bar(self) -> None:
         status = self.statusBar()
