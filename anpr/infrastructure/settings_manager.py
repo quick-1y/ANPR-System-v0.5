@@ -2,6 +2,7 @@
 #/anpr/infrastructure/settings_manager.py
 import json
 import os
+from datetime import datetime
 from typing import Any, Dict, List
 
 
@@ -60,6 +61,7 @@ class SettingsManager:
                 "max_bytes": 1048576,
                 "backup_count": 5,
             },
+            "time": self._time_defaults(),
         }
 
     def _load(self) -> Dict[str, Any]:
@@ -78,6 +80,7 @@ class SettingsManager:
         reconnect_defaults = self._reconnect_defaults()
         storage_defaults = self._storage_defaults()
         plate_defaults = self._plate_defaults()
+        time_defaults = self._time_defaults()
         for channel in data.get("channels", []):
             if self._fill_channel_defaults(channel, tracking_defaults):
                 changed = True
@@ -89,6 +92,9 @@ class SettingsManager:
             changed = True
 
         if self._fill_plate_defaults(data, plate_defaults):
+            changed = True
+
+        if self._fill_time_defaults(data, time_defaults):
             changed = True
 
         if changed:
@@ -135,6 +141,14 @@ class SettingsManager:
             "config_dir": "config/countries",
             "enabled_countries": ["RU", "UA", "BY", "KZ"],
         }
+
+    @staticmethod
+    def _time_defaults() -> Dict[str, Any]:
+        tzinfo = datetime.now().astimezone().tzinfo
+        default_zone = "UTC"
+        if tzinfo:
+            default_zone = getattr(tzinfo, "key", str(tzinfo)) or "UTC"
+        return {"timezone": default_zone, "offset_minutes": 0}
 
     def _fill_channel_defaults(self, channel: Dict[str, Any], tracking_defaults: Dict[str, Any]) -> bool:
         defaults = self._channel_defaults(tracking_defaults)
@@ -201,6 +215,20 @@ class SettingsManager:
         data["plates"] = plates
         return changed
 
+    def _fill_time_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
+        if "time" not in data:
+            data["time"] = defaults
+            return True
+
+        changed = False
+        time_section = data.get("time", {})
+        for key, val in defaults.items():
+            if key not in time_section:
+                time_section[key] = val
+                changed = True
+        data["time"] = time_section
+        return changed
+
     def _save(self, data: Dict[str, Any]) -> None:
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -265,6 +293,26 @@ class SettingsManager:
     def get_screenshot_dir(self) -> str:
         storage = self.settings.get("storage", {})
         return storage.get("screenshots_dir", "data/screenshots")
+
+    def get_time_settings(self) -> Dict[str, Any]:
+        if self._fill_time_defaults(self.settings, self._time_defaults()):
+            self._save(self.settings)
+        return self.settings.get("time", {})
+
+    def save_time_settings(self, time_settings: Dict[str, Any]) -> None:
+        self.settings["time"] = time_settings
+        self._save(self.settings)
+
+    def get_timezone(self) -> str:
+        time_settings = self.get_time_settings()
+        return str(time_settings.get("timezone") or "UTC")
+
+    def get_time_offset_minutes(self) -> int:
+        time_settings = self.get_time_settings()
+        try:
+            return int(time_settings.get("offset_minutes", 0))
+        except (TypeError, ValueError):
+            return 0
 
     def get_best_shots(self) -> int:
         tracking = self.settings.get("tracking", {})
