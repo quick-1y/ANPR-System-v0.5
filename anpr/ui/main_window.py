@@ -51,8 +51,6 @@ class ChannelView(QtWidgets.QWidget):
 
     channelDropped = QtCore.pyqtSignal(int, int)
     channelActivated = QtCore.pyqtSignal(str)
-    dragStarted = QtCore.pyqtSignal()
-    dragFinished = QtCore.pyqtSignal()
 
     def __init__(self, name: str, pixmap_pool: Optional[PixmapPool]) -> None:
         super().__init__()
@@ -140,14 +138,12 @@ class ChannelView(QtWidgets.QWidget):
             and (event.pos() - self._drag_start_pos).manhattanLength()
             >= QtWidgets.QApplication.startDragDistance()
         ):
-            self.dragStarted.emit()
             drag = QtGui.QDrag(self)
             mime_data = QtCore.QMimeData()
             mime_data.setText(self._channel_name)
             mime_data.setData("application/x-channel-index", str(self._grid_position).encode())
             drag.setMimeData(mime_data)
             drag.exec_(QtCore.Qt.MoveAction)
-            self.dragFinished.emit()
             return
         super().mouseMoveEvent(event)
 
@@ -492,8 +488,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._channel_save_timer = QtCore.QTimer(self)
         self._channel_save_timer.setSingleShot(True)
         self._channel_save_timer.timeout.connect(self._flush_pending_channels)
-        self._drag_counter = 0
-        self._skip_frame_updates = False
 
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setStyleSheet(
@@ -774,8 +768,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 label.set_channel_name(channel_name)
                 label.channelDropped.connect(self._on_channel_dropped)
                 label.channelActivated.connect(self._on_channel_activated)
-                label.dragStarted.connect(self._on_drag_started)
-                label.dragFinished.connect(self._on_drag_finished)
                 self.grid_layout.addWidget(label, row, col)
                 self.grid_cells[index] = label
                 index += 1
@@ -787,19 +779,6 @@ class MainWindow(QtWidgets.QMainWindow):
         variant = self.grid_combo.itemData(index)
         if variant:
             self._select_grid(str(variant))
-
-    def _on_drag_started(self) -> None:
-        self._drag_counter += 1
-        if self._drag_counter == 1:
-            self._skip_frame_updates = True
-            self.grid_widget.setUpdatesEnabled(False)
-
-    def _on_drag_finished(self) -> None:
-        if self._drag_counter:
-            self._drag_counter -= 1
-        if self._drag_counter == 0:
-            self._skip_frame_updates = False
-            self.grid_widget.setUpdatesEnabled(True)
 
     def _on_channel_dropped(self, source_index: int, target_index: int) -> None:
         channels = self.settings.get_channels()
@@ -821,12 +800,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._update_channels_list_names(channels)
         self._schedule_channels_save(channels)
-        self.grid_widget.setUpdatesEnabled(False)
-        try:
-            if not self._swap_channel_views(source_index, target_index):
-                self._draw_grid()
-        finally:
-            self.grid_widget.setUpdatesEnabled(True)
+        if not self._swap_channel_views(source_index, target_index):
+            self._draw_grid()
 
     def _swap_channel_views(self, source_index: int, target_index: int) -> bool:
         source_view = getattr(self, "grid_cells", {}).get(source_index)
