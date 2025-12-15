@@ -327,6 +327,15 @@ class EventDetailView(QtWidgets.QWidget):
         super().__init__()
         layout = QtWidgets.QVBoxLayout(self)
 
+        self.setStyleSheet(
+            "QWidget { background-color: #16181d; }"
+            "QGroupBox { background-color: #0f1115; color: #f6f7fb; border: 1px solid #20242c; border-radius: 12px; padding: 10px; margin-top: 8px; }"
+            "QLabel { color: #e5e7eb; }"
+        )
+
+        self._frame_image: Optional[QtGui.QImage] = None
+        self._plate_image: Optional[QtGui.QImage] = None
+
         self.frame_preview = self._build_preview("Кадр распознавания", min_height=320, keep_aspect=True)
         layout.addWidget(self.frame_preview, stretch=3)
 
@@ -335,10 +344,6 @@ class EventDetailView(QtWidgets.QWidget):
         bottom_row.addWidget(self.plate_preview, 1)
 
         meta_group = QtWidgets.QGroupBox("Данные распознавания")
-        meta_group.setStyleSheet(
-            "QGroupBox { background-color: #000; color: white; border: 1px solid #2e2e2e; padding: 6px; }"
-            "QLabel { color: white; }"
-        )
         meta_group.setMinimumWidth(220)
         meta_layout = QtWidgets.QFormLayout(meta_group)
         self.time_label = QtWidgets.QLabel("—")
@@ -373,7 +378,10 @@ class EventDetailView(QtWidgets.QWidget):
         label.setStyleSheet(
             "background-color: #0b0c10; color: #9ca3af; border: 1px solid #1f2937; border-radius: 10px;"
         )
-        label.setScaledContents(False if keep_aspect else True)
+        label.setScaledContents(True)
+        label.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
+        )
         wrapper.addWidget(label)
         group.display_label = label  # type: ignore[attr-defined]
         return group
@@ -384,6 +392,8 @@ class EventDetailView(QtWidgets.QWidget):
         self.country_label.setText("—")
         self.plate_label.setText("—")
         self.conf_label.setText("—")
+        self._frame_image = None
+        self._plate_image = None
         for group in (self.frame_preview, self.plate_preview):
             group.display_label.setPixmap(QtGui.QPixmap())  # type: ignore[attr-defined]
             group.display_label.setText("Нет изображения")  # type: ignore[attr-defined]
@@ -415,16 +425,42 @@ class EventDetailView(QtWidgets.QWidget):
         image: Optional[QtGui.QImage],
         keep_aspect: bool = False,
     ) -> None:
+        if group is self.frame_preview:
+            self._frame_image = image
+        elif group is self.plate_preview:
+            self._plate_image = image
+
+        self._apply_image_to_label(group, image, keep_aspect)
+
+    def _apply_image_to_label(
+        self,
+        group: QtWidgets.QGroupBox,
+        image: Optional[QtGui.QImage],
+        keep_aspect: bool = False,
+    ) -> None:
         label: QtWidgets.QLabel = group.display_label  # type: ignore[attr-defined]
         if image is None:
             label.setPixmap(QtGui.QPixmap())
             label.setText("Нет изображения")
             return
+
         label.setText("")
+        target_size = label.size()
+        if target_size.width() == 0 or target_size.height() == 0:
+            return
         pixmap = QtGui.QPixmap.fromImage(image)
         if keep_aspect:
-            pixmap = pixmap.scaled(label.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+            pixmap = pixmap.scaled(
+                target_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+            )
+        else:
+            pixmap = pixmap.scaled(target_size, QtCore.Qt.IgnoreAspectRatio, QtCore.Qt.SmoothTransformation)
         label.setPixmap(pixmap)
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._apply_image_to_label(self.frame_preview, self._frame_image, keep_aspect=True)
+        self._apply_image_to_label(self.plate_preview, self._plate_image, keep_aspect=True)
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -641,6 +677,20 @@ class MainWindow(QtWidgets.QMainWindow):
         widget.setMinimumDateTime(min_dt)
         widget.setSpecialValueText("Не выбрано")
         widget.setDateTime(min_dt)
+
+    def _apply_dark_calendar_style(self, widget: QtWidgets.QDateTimeEdit) -> None:
+        widget.setStyleSheet(
+            "QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 6px; }"
+            "QDateTimeEdit::drop-down { width: 24px; }"
+        )
+        calendar = widget.calendarWidget()
+        calendar.setStyleSheet(
+            "QCalendarWidget QWidget { background-color: #0b0c10; color: #f8fafc; }"
+            "QCalendarWidget QToolButton { background-color: #1f2937; color: #f8fafc; border: none; padding: 6px; }"
+            "QCalendarWidget QToolButton#qt_calendar_prevmonth, QCalendarWidget QToolButton#qt_calendar_nextmonth { width: 24px; }"
+            "QCalendarWidget QSpinBox { background-color: #1f2937; color: #f8fafc; }"
+            "QCalendarWidget QTableView { selection-background-color: rgba(34,211,238,0.18); selection-color: #22d3ee; alternate-background-color: #11131a; }"
+        )
 
     @staticmethod
     def _offset_label(minutes: int) -> str:
@@ -1167,12 +1217,14 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.search_from = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_from)
+        self._apply_dark_calendar_style(self.search_from)
         self.search_from.setMaximumWidth(self.COMPACT_FIELD_WIDTH + 60)
         self.search_from.setSizePolicy(
             QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
         )
         self.search_to = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_to)
+        self._apply_dark_calendar_style(self.search_to)
         self.search_to.setMaximumWidth(self.COMPACT_FIELD_WIDTH + 60)
         self.search_to.setSizePolicy(
             QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
@@ -1207,7 +1259,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.search_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.search_table.verticalHeader().setVisible(False)
         self.search_table.itemActivated.connect(self._on_journal_event_activated)
-        self.search_table.itemDoubleClicked.connect(self._on_journal_event_activated)
         layout.addWidget(self.search_table)
 
         self._run_plate_search()
@@ -1289,6 +1340,13 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle("Информация о событии")
         dialog.setMinimumSize(720, 640)
+        dialog.setStyleSheet(
+            f"QDialog {{ background-color: {self.SURFACE_COLOR}; }}"
+            f"QGroupBox {{ background-color: {self.PANEL_COLOR}; color: #f6f7fb; border: 1px solid #20242c; border-radius: 12px; padding: 10px; margin-top: 8px; }}"
+            "QLabel { color: #e5e7eb; }"
+            f"QPushButton {{ background-color: {self.ACCENT_COLOR}; color: #0b0c10; border: none; border-radius: 8px; padding: 8px 16px; font-weight: 700; }}"
+            f"QPushButton:hover {{ background-color: #4ddcf3; }}"
+        )
         dialog_layout = QtWidgets.QVBoxLayout(dialog)
 
         details = EventDetailView()
