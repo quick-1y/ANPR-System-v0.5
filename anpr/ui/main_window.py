@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # /anpr/ui/main_window.py
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import cv2
 import psutil
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt5 import QtCore, QtGui, QtWidgets
+from zoneinfo import ZoneInfo
 
 from anpr.postprocessing.country_config import CountryConfigLoader
 from anpr.workers.channel_worker import ChannelWorker
@@ -48,11 +49,19 @@ class PixmapPool:
 class ChannelView(QtWidgets.QWidget):
     """Отображает поток канала с подсказками и индикатором движения."""
 
+    channelDropped = QtCore.pyqtSignal(int, int)
+    channelActivated = QtCore.pyqtSignal(str)
+
     def __init__(self, name: str, pixmap_pool: Optional[PixmapPool]) -> None:
         super().__init__()
         self.name = name
         self._pixmap_pool = pixmap_pool
         self._current_pixmap: Optional[QtGui.QPixmap] = None
+        self._channel_name: Optional[str] = None
+        self._grid_position: int = -1
+        self._drag_start_pos: Optional[QtCore.QPoint] = None
+        self.setAcceptDrops(True)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
 
         self.video_label = QtWidgets.QLabel("Нет сигнала")
         self.video_label.setAlignment(QtCore.Qt.AlignCenter)
@@ -95,6 +104,15 @@ class ChannelView(QtWidgets.QWidget):
         self.status_hint.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
         self.status_hint.hide()
 
+    def set_channel_name(self, channel_name: Optional[str]) -> None:
+        self._channel_name = channel_name
+
+    def channel_name(self) -> Optional[str]:
+        return self._channel_name
+
+    def set_grid_position(self, position: int) -> None:
+        self._grid_position = position
+
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
         rect = self.video_label.contentsRect()
@@ -106,6 +124,59 @@ class ChannelView(QtWidgets.QWidget):
         self.last_plate.move(rect.left() + margin, rect.top() + margin)
         status_size = self.status_hint.sizeHint()
         self.status_hint.move(rect.left() + margin, rect.bottom() - status_size.height() - margin)
+
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if event.button() == QtCore.Qt.LeftButton:
+            self._drag_start_pos = event.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if (
+            self._channel_name
+            and event.buttons() & QtCore.Qt.LeftButton
+            and self._drag_start_pos
+            and (event.pos() - self._drag_start_pos).manhattanLength()
+            >= QtWidgets.QApplication.startDragDistance()
+        ):
+            drag = QtGui.QDrag(self)
+            mime_data = QtCore.QMimeData()
+            mime_data.setText(self._channel_name)
+            mime_data.setData("application/x-channel-index", str(self._grid_position).encode())
+            drag.setMimeData(mime_data)
+            drag.exec_(QtCore.Qt.MoveAction)
+            return
+        super().mouseMoveEvent(event)
+
+    def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:  # noqa: N802
+        if event.mimeData().hasFormat("application/x-channel-index"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event: QtGui.QDragMoveEvent) -> None:  # noqa: N802
+        if event.mimeData().hasFormat("application/x-channel-index"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QtGui.QDropEvent) -> None:  # noqa: N802
+        if not event.mimeData().hasFormat("application/x-channel-index"):
+            event.ignore()
+            return
+        try:
+            source_index = int(bytes(event.mimeData().data("application/x-channel-index")).decode())
+        except (ValueError, TypeError):
+            event.ignore()
+            return
+        self.channelDropped.emit(source_index, self._grid_position)
+        event.acceptProposedAction()
+
+    def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if event.button() == QtCore.Qt.LeftButton and self._channel_name:
+            self.channelActivated.emit(self._channel_name)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def set_pixmap(self, pixmap: QtGui.QPixmap) -> None:
         if self._pixmap_pool and self._current_pixmap is not None:
@@ -405,12 +476,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pixmap_pool = PixmapPool()
         self.channel_workers: List[ChannelWorker] = []
         self.channel_labels: Dict[str, ChannelView] = {}
+        self.focused_channel_name: Optional[str] = None
+        self._previous_grid: Optional[str] = None
         self.event_images: "OrderedDict[int, Tuple[Optional[QtGui.QImage], Optional[QtGui.QImage]]]" = OrderedDict()
         self._image_cache_bytes = 0
         self.event_cache: Dict[int, Dict] = {}
         self.flag_cache: Dict[str, Optional[QtGui.QIcon]] = {}
         self.flag_dir = Path(__file__).resolve().parents[2] / "images" / "flags"
         self.country_display_names = self._load_country_names()
+        self._pending_channels: Optional[List[Dict[str, Any]]] = None
+        self._channel_save_timer = QtCore.QTimer(self)
+        self._channel_save_timer.setSingleShot(True)
+        self._channel_save_timer.timeout.connect(self._flush_pending_channels)
 
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setStyleSheet(
@@ -498,7 +575,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.grid_widget = QtWidgets.QWidget()
         self.grid_layout = QtWidgets.QGridLayout(self.grid_widget)
+        self.grid_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
+        )
         self.grid_layout.setSpacing(6)
+        self.grid_layout.setContentsMargins(0, 0, 0, 0)
         left_column.addWidget(self.grid_widget, stretch=4)
 
         layout.addLayout(left_column, stretch=3)
@@ -555,21 +636,98 @@ class MainWindow(QtWidgets.QMainWindow):
         widget.setDateTime(min_dt)
 
     @staticmethod
+    def _offset_label(minutes: int) -> str:
+        sign = "+" if minutes >= 0 else "-"
+        total = abs(minutes)
+        hours = total // 60
+        mins = total % 60
+        return f"UTC{sign}{hours:02d}:{mins:02d}"
+
+    @staticmethod
+    def _available_offset_labels() -> List[str]:
+        now = QtCore.QDateTime.currentDateTime()
+        offsets = {0}
+        for tz_id in QtCore.QTimeZone.availableTimeZoneIds():
+            try:
+                offset = QtCore.QTimeZone(tz_id).offsetFromUtc(now) // 60
+                offsets.add(offset)
+            except Exception:
+                continue
+        return [MainWindow._offset_label(minutes) for minutes in sorted(offsets)]
+
+    @staticmethod
     def _get_datetime_value(widget: QtWidgets.QDateTimeEdit) -> Optional[str]:
         if widget.dateTime() == widget.minimumDateTime():
             return None
         return widget.dateTime().toString(QtCore.Qt.ISODate)
 
     @staticmethod
-    def _format_timestamp(value: str) -> str:
+    def _format_timestamp(value: str, target_zone: Optional[ZoneInfo], offset_minutes: int) -> str:
         if not value:
             return "—"
         cleaned = value.replace("Z", "+00:00") if value.endswith("Z") else value
         try:
             parsed = datetime.fromisoformat(cleaned)
-            return parsed.strftime("%d.%m.%Y %H:%M:%S")
         except ValueError:
             return value
+
+        if parsed.tzinfo is None:
+            assumed_zone = target_zone
+            if assumed_zone is None:
+                try:
+                    assumed_zone = datetime.now().astimezone().tzinfo
+                except Exception:
+                    assumed_zone = None
+            if assumed_zone:
+                parsed = parsed.replace(tzinfo=assumed_zone)
+            elif target_zone:
+                parsed = parsed.replace(tzinfo=target_zone)
+
+        if offset_minutes:
+            parsed = parsed + timedelta(minutes=offset_minutes)
+
+        if target_zone:
+            try:
+                parsed = parsed.astimezone(target_zone)
+            except Exception:
+                pass
+        return parsed.strftime("%d.%m.%Y %H:%M:%S")
+
+    @staticmethod
+    def _parse_utc_offset_minutes(label: str) -> Optional[int]:
+        if not label or not label.upper().startswith("UTC"):
+            return None
+        raw = label[3:].strip()
+        if not raw:
+            return 0
+        try:
+            sign = 1
+            if raw.startswith("-"):
+                sign = -1
+                raw = raw[1:]
+            elif raw.startswith("+"):
+                raw = raw[1:]
+            if not raw:
+                return 0
+            parts = raw.split(":")
+            hours = int(parts[0]) if parts[0] else 0
+            minutes = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+            return sign * (hours * 60 + minutes)
+        except (ValueError, TypeError):
+            return None
+
+    def _get_target_zone(self) -> Optional[timezone]:
+        tz_value = self.settings.get_timezone()
+        offset_minutes = self._parse_utc_offset_minutes(tz_value)
+        if offset_minutes is not None:
+            try:
+                return timezone(timedelta(minutes=offset_minutes))
+            except Exception:
+                pass
+        try:
+            return ZoneInfo(tz_value)
+        except Exception:
+            return None
 
     def _draw_grid(self) -> None:
         for i in reversed(range(self.grid_layout.count())):
@@ -579,7 +737,20 @@ class MainWindow(QtWidgets.QMainWindow):
                 widget.setParent(None)
 
         self.channel_labels.clear()
+        self.grid_cells: Dict[int, ChannelView] = {}
+        for col in range(3):
+            self.grid_layout.setColumnStretch(col, 0)
+        for row in range(3):
+            self.grid_layout.setRowStretch(row, 0)
         channels = self.settings.get_channels()
+        if self.current_grid == "1x1" and self.focused_channel_name:
+            focused = [
+                channel
+                for channel in channels
+                if channel.get("name") == self.focused_channel_name
+            ]
+            if focused:
+                channels = focused
         rows, cols = map(int, self.current_grid.split("x"))
         for col in range(cols):
             self.grid_layout.setColumnStretch(col, 1)
@@ -589,18 +760,108 @@ class MainWindow(QtWidgets.QMainWindow):
         for row in range(rows):
             for col in range(cols):
                 label = ChannelView(f"Канал {index+1}", self._pixmap_pool)
+                label.set_grid_position(index)
+                channel_name: Optional[str] = None
                 if index < len(channels):
                     channel_name = channels[index].get("name", f"Канал {index+1}")
                     self.channel_labels[channel_name] = label
+                label.set_channel_name(channel_name)
+                label.channelDropped.connect(self._on_channel_dropped)
+                label.channelActivated.connect(self._on_channel_activated)
                 self.grid_layout.addWidget(label, row, col)
+                self.grid_cells[index] = label
                 index += 1
+
+        self.grid_layout.invalidate()
+        self.grid_widget.updateGeometry()
 
     def _on_grid_combo_changed(self, index: int) -> None:
         variant = self.grid_combo.itemData(index)
         if variant:
             self._select_grid(str(variant))
 
-    def _select_grid(self, grid: str) -> None:
+    def _on_channel_dropped(self, source_index: int, target_index: int) -> None:
+        channels = self.settings.get_channels()
+        if (
+            source_index == target_index
+            or source_index < 0
+            or source_index >= len(channels)
+        ):
+            return
+
+        if target_index >= len(channels):
+            channel = channels.pop(source_index)
+            channels.append(channel)
+        else:
+            channels[source_index], channels[target_index] = (
+                channels[target_index],
+                channels[source_index],
+            )
+
+        self._update_channels_list_names(channels)
+        self._schedule_channels_save(channels)
+        if not self._swap_channel_views(source_index, target_index):
+            self._draw_grid()
+
+    def _swap_channel_views(self, source_index: int, target_index: int) -> bool:
+        source_view = getattr(self, "grid_cells", {}).get(source_index)
+        target_view = getattr(self, "grid_cells", {}).get(target_index)
+        if not source_view or not target_view:
+            return False
+
+        source_name = source_view.channel_name()
+        target_name = target_view.channel_name()
+        source_view.set_channel_name(target_name)
+        target_view.set_channel_name(source_name)
+
+        self.channel_labels.clear()
+        for view in self.grid_cells.values():
+            name = view.channel_name()
+            if name:
+                self.channel_labels[name] = view
+
+        for index, view in self.grid_cells.items():
+            view.set_grid_position(index)
+        return True
+
+    def _update_channels_list_names(self, channels: List[Dict[str, Any]]) -> None:
+        current_row = self.channels_list.currentRow()
+        self.channels_list.blockSignals(True)
+        self.channels_list.clear()
+        for channel in channels:
+            self.channels_list.addItem(channel.get("name", "Канал"))
+        self.channels_list.blockSignals(False)
+        if self.channels_list.count():
+            target_row = min(current_row if current_row >= 0 else 0, self.channels_list.count() - 1)
+            self.channels_list.setCurrentRow(target_row)
+
+    def _schedule_channels_save(self, channels: List[Dict[str, Any]]) -> None:
+        self._pending_channels = [dict(channel) for channel in channels]
+        self._channel_save_timer.start(150)
+
+    def _flush_pending_channels(self) -> None:
+        if self._pending_channels is None:
+            return
+        self.settings.save_channels(self._pending_channels)
+        self._pending_channels = None
+
+    def _on_channel_activated(self, channel_name: str) -> None:
+        if self.current_grid == "1x1" and self._previous_grid:
+            previous = self._previous_grid
+            self._previous_grid = None
+            self.focused_channel_name = None
+            self._select_grid(previous)
+            return
+
+        self.focused_channel_name = channel_name
+        self._select_grid("1x1", focused=True)
+
+    def _select_grid(self, grid: str, focused: bool = False) -> None:
+        if grid != "1x1":
+            self.focused_channel_name = None if not focused else self.focused_channel_name
+            self._previous_grid = None
+        elif not self._previous_grid and self.current_grid != "1x1":
+            self._previous_grid = self.current_grid
         self.current_grid = grid
         if hasattr(self, "grid_combo"):
             combo_index = self.grid_combo.findData(grid)
@@ -760,7 +1021,9 @@ class MainWindow(QtWidgets.QMainWindow):
         row_index = position if position is not None else self.events_table.rowCount()
         self.events_table.insertRow(row_index)
 
-        timestamp = self._format_timestamp(event.get("timestamp", ""))
+        target_zone = self._get_target_zone()
+        offset_minutes = self.settings.get_time_offset_minutes()
+        timestamp = self._format_timestamp(event.get("timestamp", ""), target_zone, offset_minutes)
         plate = event.get("plate", "—")
         channel = event.get("channel", "—")
         event_id = int(event.get("id") or 0)
@@ -825,7 +1088,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self._store_event_images(event_id, (frame_image, plate_image))
         display_event = dict(event) if event else None
         if display_event:
-            display_event["timestamp"] = self._format_timestamp(display_event.get("timestamp", ""))
+            target_zone = self._get_target_zone()
+            offset_minutes = self.settings.get_time_offset_minutes()
+            display_event["timestamp"] = self._format_timestamp(
+                display_event.get("timestamp", ""), target_zone, offset_minutes
+            )
             display_event["country"] = self._get_country_name(display_event.get("country"))
         self.event_detail.set_event(display_event, frame_image, plate_image)
 
@@ -901,10 +1168,12 @@ class MainWindow(QtWidgets.QMainWindow):
         plate_fragment = self.search_plate.text()
         rows = self.db.search_by_plate(plate_fragment, start=start or None, end=end or None)
         self.search_table.setRowCount(0)
+        target_zone = self._get_target_zone()
+        offset_minutes = self.settings.get_time_offset_minutes()
         for row_data in rows:
             row_index = self.search_table.rowCount()
             self.search_table.insertRow(row_index)
-            formatted_time = self._format_timestamp(row_data["timestamp"])
+            formatted_time = self._format_timestamp(row_data["timestamp"], target_zone, offset_minutes)
             self.search_table.setItem(row_index, 0, QtWidgets.QTableWidgetItem(formatted_time))
             self.search_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(row_data["channel"]))
             country_item = QtWidgets.QTableWidgetItem(row_data["country"] or "")
@@ -1066,6 +1335,48 @@ class MainWindow(QtWidgets.QMainWindow):
         screenshot_container.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Preferred)
         storage_form.addRow("Папка для скриншотов:", screenshot_container)
 
+        time_group, time_form = make_section("Дата и время")
+        time_group.setMaximumWidth(self.FIELD_MAX_WIDTH + 220)
+
+        self.timezone_combo = QtWidgets.QComboBox()
+        self.timezone_combo.setEditable(False)
+        self.timezone_combo.setMinimumWidth(self.COMPACT_FIELD_WIDTH + 80)
+        self.timezone_combo.setStyleSheet(
+            "QComboBox { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; }"
+            "QComboBox QAbstractItemView { background-color: #0b0c10; color: #f8fafc; selection-background-color: #1f2937; }"
+            "QComboBox:on { padding-top: 3px; padding-left: 4px; }"
+        )
+        for label in self._available_offset_labels():
+            self.timezone_combo.addItem(label, label)
+        time_form.addRow("Часовой пояс:", self.timezone_combo)
+
+        time_row = QtWidgets.QHBoxLayout()
+        time_row.setSpacing(8)
+        time_row.setContentsMargins(0, 0, 0, 0)
+        self.time_correction_input = QtWidgets.QDateTimeEdit(QtCore.QDateTime.currentDateTime())
+        self.time_correction_input.setDisplayFormat("dd.MM.yyyy HH:mm:ss")
+        self.time_correction_input.setCalendarPopup(True)
+        self.time_correction_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self.time_correction_input.setStyleSheet(
+            "QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
+            "QDateTimeEdit::drop-down { width: 26px; }")
+        calendar = self.time_correction_input.calendarWidget()
+        calendar.setStyleSheet(
+            "QCalendarWidget QWidget { background-color: #0b0c10; color: #f8fafc; }"
+            "QCalendarWidget QToolButton { background-color: #1f2937; color: #f8fafc; border: none; padding: 6px; }"
+            "QCalendarWidget QToolButton#qt_calendar_prevmonth, QCalendarWidget QToolButton#qt_calendar_nextmonth { width: 24px; }"
+            "QCalendarWidget QSpinBox { background-color: #1f2937; color: #f8fafc; }"
+            "QCalendarWidget QTableView { selection-background-color: rgba(34,211,238,0.18); selection-color: #22d3ee; alternate-background-color: #11131a; }")
+        sync_now_btn = QtWidgets.QPushButton("Текущее время")
+        self._polish_button(sync_now_btn, 160)
+        sync_now_btn.clicked.connect(self._sync_time_now)
+        time_row.addWidget(self.time_correction_input)
+        time_row.addWidget(sync_now_btn)
+        time_row.addStretch()
+        time_container = QtWidgets.QWidget()
+        time_container.setLayout(time_row)
+        time_form.addRow("Коррекция времени:", time_container)
+
         plate_group, plate_form = make_section("Валидация номеров")
 
         plate_dir_row = QtWidgets.QHBoxLayout()
@@ -1112,6 +1423,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         layout.addWidget(reconnect_group)
         layout.addWidget(storage_group)
+        layout.addWidget(time_group)
         layout.addWidget(plate_group)
         layout.addWidget(save_card)
         layout.addStretch()
@@ -1323,11 +1635,16 @@ class MainWindow(QtWidgets.QMainWindow):
         return widget
 
     def _reload_channels_list(self) -> None:
+        channels = self.settings.get_channels()
+        current_row = self.channels_list.currentRow()
+        self.channels_list.blockSignals(True)
         self.channels_list.clear()
-        for channel in self.settings.get_channels():
+        for channel in channels:
             self.channels_list.addItem(channel.get("name", "Канал"))
+        self.channels_list.blockSignals(False)
         if self.channels_list.count():
-            self.channels_list.setCurrentRow(0)
+            target_row = min(current_row if current_row >= 0 else 0, self.channels_list.count() - 1)
+            self.channels_list.setCurrentRow(target_row)
 
     def _load_general_settings(self) -> None:
         reconnect = self.settings.get_reconnect()
@@ -1345,6 +1662,31 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.periodic_reconnect_checkbox.setChecked(bool(periodic.get("enabled", False)))
         self.periodic_interval_input.setValue(int(periodic.get("interval_minutes", 60)))
+
+        time_settings = self.settings.get_time_settings()
+        tz_value = time_settings.get("timezone") or "UTC+00:00"
+        offset_label = tz_value
+        parsed_offset = self._parse_utc_offset_minutes(tz_value)
+        if parsed_offset is None:
+            try:
+                qtz = QtCore.QTimeZone(tz_value.encode())
+                parsed_offset = qtz.offsetFromUtc(QtCore.QDateTime.currentDateTime()) // 60
+            except Exception:
+                parsed_offset = 0
+        if parsed_offset is not None:
+            offset_label = self._offset_label(parsed_offset)
+        index = self.timezone_combo.findData(offset_label)
+        if index < 0:
+            self.timezone_combo.addItem(offset_label, offset_label)
+            index = self.timezone_combo.findData(offset_label)
+        if index >= 0:
+            self.timezone_combo.setCurrentIndex(index)
+        offset_minutes = int(time_settings.get("offset_minutes", 0) or 0)
+        adjusted_dt = QtCore.QDateTime.currentDateTime().addSecs(offset_minutes * 60)
+        self.time_correction_input.setDateTime(adjusted_dt)
+
+    def _sync_time_now(self) -> None:
+        self.time_correction_input.setDateTime(QtCore.QDateTime.currentDateTime())
 
     def _choose_screenshot_dir(self) -> None:
         directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Выбор папки для скриншотов")
@@ -1424,6 +1766,11 @@ class MainWindow(QtWidgets.QMainWindow):
         screenshot_dir = self.screenshot_dir_input.text().strip() or "data/screenshots"
         self.settings.save_screenshot_dir(screenshot_dir)
         os.makedirs(screenshot_dir, exist_ok=True)
+        tz_name = self.timezone_combo.currentData() or self.timezone_combo.currentText().strip() or "UTC+00:00"
+        offset_minutes = int(
+            QtCore.QDateTime.currentDateTime().secsTo(self.time_correction_input.dateTime()) / 60
+        )
+        self.settings.save_time_settings({"timezone": tz_name, "offset_minutes": offset_minutes})
         plate_settings = {
             "config_dir": self.country_config_dir_input.text().strip() or "config/countries",
             "enabled_countries": self._collect_enabled_countries(),
