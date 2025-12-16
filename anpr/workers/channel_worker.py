@@ -10,9 +10,10 @@ import threading
 import atexit
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
+import numpy as np
 from PyQt5 import QtCore, QtGui
 
 from anpr.detection.motion_detector import MotionDetector, MotionDetectorConfig
@@ -25,30 +26,88 @@ logger = get_logger(__name__)
 
 @dataclass
 class Region:
-    """Прямоугольная область в процентах относительно кадра."""
+    """Произвольная область кадра, заданная точками."""
 
-    x: int = 0
-    y: int = 0
-    width: int = 100
-    height: int = 100
+    points: List[Tuple[float, float]]
+    unit: str = "px"
 
-    def clamp(self) -> "Region":
-        self.x = max(0, min(100, int(self.x)))
-        self.y = max(0, min(100, int(self.y)))
-        self.width = max(1, min(100 - self.x, int(self.width)))
-        self.height = max(1, min(100 - self.y, int(self.height)))
-        return self
+    @classmethod
+    def from_dict(cls, region_conf: Optional[Dict[str, Any]]) -> "Region":
+        if not region_conf:
+            return cls(points=[], unit="px")
 
-    def to_rect(self, frame_shape: Tuple[int, int, int]) -> Tuple[int, int, int, int]:
+        unit = str(region_conf.get("unit", "px")).lower()
+        raw_points = region_conf.get("points")
+        if raw_points:
+            points = [
+                (float(p.get("x", 0)), float(p.get("y", 0)))
+                for p in raw_points
+                if isinstance(p, dict)
+            ]
+            return cls(points=points, unit=unit if unit in ("px", "percent") else "px")
+
+        x = float(region_conf.get("x", 0))
+        y = float(region_conf.get("y", 0))
+        width = float(region_conf.get("width", 100))
+        height = float(region_conf.get("height", 100))
+        rect_points = [(x, y), (x + width, y), (x + width, y + height), (x, y + height)]
+        return cls(points=rect_points, unit="percent")
+
+    def _clamp_points(self, points: List[Tuple[int, int]], width: int, height: int) -> List[Tuple[int, int]]:
+        if not points:
+            return []
+        clamped: List[Tuple[int, int]] = []
+        for x, y in points:
+            clamped.append(
+                (
+                    max(0, min(width - 1, int(round(x)))),
+                    max(0, min(height - 1, int(round(y)))),
+                )
+            )
+        return clamped
+
+    def polygon_points(self, frame_shape: Tuple[int, int, int]) -> List[Tuple[int, int]]:
         height, width, _ = frame_shape
-        x2_pct = min(100, self.x + self.width)
-        y2_pct = min(100, self.y + self.height)
+        if not self.points:
+            return [(0, 0), (width - 1, 0), (width - 1, height - 1), (0, height - 1)]
 
-        x1 = int(width * self.x / 100)
-        y1 = int(height * self.y / 100)
-        x2 = max(x1 + 1, int(width * x2_pct / 100))
-        y2 = max(y1 + 1, int(height * y2_pct / 100))
-        return x1, y1, x2, y2
+        if self.unit == "percent":
+            scaled = [
+                (width * x / 100.0, height * y / 100.0)
+                for (x, y) in self.points
+            ]
+        else:
+            scaled = self.points
+
+        return self._clamp_points([(int(x), int(y)) for x, y in scaled], width, height)
+
+    def bounding_rect(self, frame_shape: Tuple[int, int, int]) -> Tuple[int, int, int, int]:
+        polygon = self.polygon_points(frame_shape)
+        if not polygon:
+            height, width, _ = frame_shape
+            return 0, 0, width, height
+
+        xs, ys = zip(*polygon)
+        x1, x2 = min(xs), max(xs)
+        y1, y2 = min(ys), max(ys)
+        return x1, y1, x2 + 1, y2 + 1
+
+    def is_full_frame(self) -> bool:
+        return not self.points
+
+
+@dataclass
+class DebugOptions:
+    show_detection_boxes: bool = False
+    show_ocr_text: bool = False
+
+    @classmethod
+    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "DebugOptions":
+        debug_conf = data or {}
+        return cls(
+            show_detection_boxes=bool(debug_conf.get("show_detection_boxes", False)),
+            show_ocr_text=bool(debug_conf.get("show_ocr_text", False)),
+        )
 
 
 @dataclass
@@ -91,6 +150,7 @@ class ChannelRuntimeConfig:
     motion_activation_frames: int
     motion_release_frames: int
     region: Region
+    debug: DebugOptions
 
     @classmethod
     def from_dict(cls, channel_conf: Dict[str, Any]) -> "ChannelRuntimeConfig":
@@ -106,7 +166,8 @@ class ChannelRuntimeConfig:
             motion_frame_stride=int(channel_conf.get("motion_frame_stride", 1)),
             motion_activation_frames=int(channel_conf.get("motion_activation_frames", 3)),
             motion_release_frames=int(channel_conf.get("motion_release_frames", 6)),
-            region=Region(**(channel_conf.get("region") or {})).clamp(),
+            region=Region.from_dict(channel_conf.get("region")),
+            debug=DebugOptions.from_dict(channel_conf.get("debug")),
         )
 
 
@@ -249,6 +310,7 @@ class ChannelWorker(QtCore.QThread):
         self.motion_detector = MotionDetector(motion_config)
         self._inference_limiter = InferenceLimiter(self.config.detector_frame_stride)
         self._inference_task: Optional[asyncio.Task] = None
+        self._last_debug: Dict[str, list] = {"detections": [], "results": []}
 
     def _open_capture(self, source: str) -> Optional[cv2.VideoCapture]:
         """Открывает видеопоток с учетом типа источника."""
@@ -297,9 +359,18 @@ class ChannelWorker(QtCore.QThread):
         }
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:
-        """Извлекает ROI из кадра."""
-        x1, y1, x2, y2 = self.config.region.to_rect(frame.shape)
-        return frame[y1:y2, x1:x2], (x1, y1, x2, y2)
+        """Извлекает ROI из кадра с учетом произвольной формы."""
+        polygon = self.config.region.polygon_points(frame.shape)
+        x1, y1, x2, y2 = self.config.region.bounding_rect(frame.shape)
+        roi_frame = frame[y1:y2, x1:x2]
+
+        if not self.config.region.is_full_frame() and roi_frame.size:
+            local_polygon = np.array([[(x - x1), (y - y1)] for x, y in polygon], dtype=np.int32)
+            mask = np.zeros((roi_frame.shape[0], roi_frame.shape[1]), dtype=np.uint8)
+            cv2.fillPoly(mask, [local_polygon], 255)
+            roi_frame = cv2.bitwise_and(roi_frame, roi_frame, mask=mask)
+
+        return roi_frame, (x1, y1, x2, y2)
 
     def _motion_detected(self, roi_frame: cv2.Mat) -> bool:
         """Проверяет наличие движения в ROI."""
@@ -358,6 +429,51 @@ class ChannelWorker(QtCore.QThread):
             os.path.join(self.screenshot_dir, f"{base}_frame.jpg"),
             os.path.join(self.screenshot_dir, f"{base}_plate.jpg"),
         )
+
+    @staticmethod
+    def _draw_label(frame: cv2.Mat, text: str, origin: Tuple[int, int]) -> None:
+        if not text:
+            return
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        scale = 0.6
+        thickness = 2
+        text_size, _ = cv2.getTextSize(text, font, scale, thickness)
+        x, y = origin
+        x = max(0, x)
+        y = max(text_size[1] + 4, y)
+        cv2.rectangle(
+            frame,
+            (x, y - text_size[1] - 6),
+            (x + text_size[0] + 8, y + 4),
+            (0, 0, 0),
+            -1,
+        )
+        cv2.putText(frame, text, (x + 4, y - 2), font, scale, (0, 255, 0), thickness)
+
+    def _draw_debug_info(self, frame: cv2.Mat) -> None:
+        if not (self.config.debug.show_detection_boxes or self.config.debug.show_ocr_text):
+            return
+
+        detections = self._last_debug.get("detections", [])
+        results = self._last_debug.get("results", [])
+
+        if self.config.debug.show_detection_boxes:
+            for det in detections:
+                bbox = det.get("bbox")
+                if not bbox or len(bbox) != 4:
+                    continue
+                cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 200, 0), 2)
+                if self.config.debug.show_ocr_text:
+                    label = det.get("text") or ""
+                    self._draw_label(frame, label, (bbox[0], bbox[1] - 6))
+
+        if self.config.debug.show_ocr_text:
+            for res in results:
+                text = res.get("text")
+                bbox = res.get("bbox") or res.get("plate_bbox")
+                if not text or not bbox or len(bbox) != 4:
+                    continue
+                self._draw_label(frame, str(text), (bbox[0], bbox[1] - 6))
 
     def _save_bgr_image(self, path: str, image: Optional[cv2.Mat]) -> Optional[str]:
         """Сохраняет BGR изображение на диск."""
@@ -452,6 +568,7 @@ class ChannelWorker(QtCore.QThread):
         """Выполняет инференс и обработку результатов."""
         try:
             detections, results = await self._run_inference(frame, roi_frame, roi_rect)
+            self._last_debug = {"detections": detections, "results": results}
             await self._process_events(storage, source, results, channel_name, frame, rgb_frame)
         except Exception as e:
             logger.exception("Ошибка инференса для канала %s: %s", channel_name, e)
@@ -535,7 +652,7 @@ class ChannelWorker(QtCore.QThread):
                 if waiting_for_motion:
                     self.status_ready.emit(channel_name, "Движение обнаружено")
                 waiting_for_motion = False
-                
+
                 # Запуск инференса с учетом stride
                 if self._inference_limiter.allow():
                     if self._inference_task is None or self._inference_task.done():
@@ -557,12 +674,17 @@ class ChannelWorker(QtCore.QThread):
                         )
 
             # Отправка кадра в UI
-            height, width, channel = rgb_frame.shape
+            display_frame = rgb_frame
+            if self.config.debug.show_detection_boxes or self.config.debug.show_ocr_text:
+                display_frame = rgb_frame.copy()
+                self._draw_debug_info(display_frame)
+
+            height, width, channel = display_frame.shape
             bytes_per_line = 3 * width
             q_image = QtGui.QImage(
-                rgb_frame.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888
+                display_frame.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888
             ).copy()
-            
+
             self.frame_ready.emit(channel_name, q_image)
 
         # Завершение работы
