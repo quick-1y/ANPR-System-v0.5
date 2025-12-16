@@ -382,8 +382,9 @@ class ROIEditor(QtWidgets.QLabel):
         self.roi_changed.emit(roi)
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
-        if event.button() not in (QtCore.Qt.LeftButton, QtCore.Qt.RightButton):
+        if event.button() != QtCore.Qt.LeftButton:
             return
+
         img_pos = self._widget_to_image(event.pos())
         if img_pos is None:
             return
@@ -400,20 +401,10 @@ class ROIEditor(QtWidgets.QLabel):
                 closest_idx = idx
                 closest_dist = dist
 
-        if event.button() == QtCore.Qt.RightButton and closest_idx is not None:
-            self._points.pop(closest_idx)
-            self._emit_roi()
-            self.update()
-            return
-
         if closest_idx is not None:
             self._drag_index = closest_idx
-            return
-
-        self._points.append(img_pos)
-        self._clamp_points()
-        self._emit_roi()
-        self.update()
+        else:
+            self._drag_index = None
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
         if self._drag_index is None:
@@ -422,6 +413,39 @@ class ROIEditor(QtWidgets.QLabel):
         if img_pos is None:
             return
         self._points[self._drag_index] = img_pos
+        self._clamp_points()
+        self._emit_roi()
+        self.update()
+
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        self._drag_index = None
+
+    def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if event.button() != QtCore.Qt.LeftButton:
+            return
+
+        img_pos = self._widget_to_image(event.pos())
+        if img_pos is None:
+            return
+
+        handle_radius = 8
+        closest_idx = None
+        closest_dist = handle_radius + 1
+        for idx, point in enumerate(self._points):
+            widget_point = self._image_to_widget(point)
+            if widget_point is None:
+                continue
+            dist = (widget_point - QtCore.QPointF(event.pos())).manhattanLength()
+            if dist < closest_dist:
+                closest_idx = idx
+                closest_dist = dist
+
+        if closest_idx is not None:
+            self._points.pop(closest_idx)
+        else:
+            self._points.append(img_pos)
+
+        self._drag_index = None
         self._clamp_points()
         self._emit_roi()
         self.update()
