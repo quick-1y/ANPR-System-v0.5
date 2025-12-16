@@ -378,7 +378,7 @@ class EventDetailView(QtWidgets.QWidget):
         label.setStyleSheet(
             "background-color: #0b0c10; color: #9ca3af; border: 1px solid #1f2937; border-radius: 10px;"
         )
-        label.setScaledContents(True)
+        label.setScaledContents(not keep_aspect)
         label.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
         )
@@ -1306,26 +1306,25 @@ class MainWindow(QtWidgets.QMainWindow):
         filters_group.setStyleSheet(self.GROUP_BOX_STYLE)
         form = QtWidgets.QFormLayout(filters_group)
         form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
-        input_width = self.COMPACT_FIELD_WIDTH + 120
+        metrics = self.fontMetrics()
+        input_width = metrics.horizontalAdvance("00.00.0000 00:00:00") + 18
+
         self.search_plate = QtWidgets.QLineEdit()
-        self.search_plate.setMinimumWidth(input_width)
-        self.search_plate.setMaximumWidth(input_width)
+        self.search_plate.setFixedWidth(input_width)
         self.search_plate.setSizePolicy(
             QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
         )
         self.search_from = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_from)
         self._apply_dark_calendar_style(self.search_from)
-        self.search_from.setMinimumWidth(input_width)
-        self.search_from.setMaximumWidth(input_width)
+        self.search_from.setFixedWidth(input_width)
         self.search_from.setSizePolicy(
             QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
         )
         self.search_to = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_to)
         self._apply_dark_calendar_style(self.search_to)
-        self.search_to.setMinimumWidth(input_width)
-        self.search_to.setMaximumWidth(input_width)
+        self.search_to.setFixedWidth(input_width)
         self.search_to.setSizePolicy(
             QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
         )
