@@ -320,6 +320,47 @@ class ROIEditor(QtWidgets.QLabel):
         self.update()
 
 
+class PreviewLoader(QtCore.QThread):
+    """Фоновая загрузка превью кадра канала, чтобы не блокировать UI."""
+
+    frameReady = QtCore.pyqtSignal(QtGui.QPixmap)
+    failed = QtCore.pyqtSignal()
+
+    def __init__(self, source: str) -> None:
+        super().__init__()
+        self.source = source
+
+    def run(self) -> None:  # noqa: N802
+        capture: Optional[cv2.VideoCapture] = None
+        try:
+            capture = cv2.VideoCapture(
+                int(self.source) if self.source.isnumeric() else self.source
+            )
+            capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            ret, frame = capture.read()
+        except Exception:
+            ret, frame = False, None
+        finally:
+            if capture is not None:
+                capture.release()
+
+        if self.isInterruptionRequested():
+            return
+        if not ret or frame is None:
+            self.failed.emit()
+            return
+
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        height, width, _ = rgb_frame.shape
+        bytes_per_line = 3 * width
+        q_image = QtGui.QImage(
+            rgb_frame.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888
+        ).copy()
+        if self.isInterruptionRequested():
+            return
+        self.frameReady.emit(QtGui.QPixmap.fromImage(q_image))
+
+
 class EventDetailView(QtWidgets.QWidget):
     """Отображение выбранного события: метаданные, кадр и область номера."""
 
@@ -559,6 +600,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._channel_save_timer.timeout.connect(self._flush_pending_channels)
         self._drag_counter = 0
         self._skip_frame_updates = False
+        self._preview_worker: Optional[PreviewLoader] = None
+        self._preview_request_id = 0
 
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setStyleSheet(
@@ -709,8 +752,12 @@ class MainWindow(QtWidgets.QMainWindow):
         chooser_label.setStyleSheet("color: #e5e7eb; font-weight: 800;")
         chooser.addWidget(chooser_label)
         self.grid_combo = QtWidgets.QComboBox()
+        self.grid_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
+        self.grid_combo.setSizePolicy(
+            QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Fixed
+        )
         self.grid_combo.setStyleSheet(
-            "QComboBox { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 10px; padding: 6px 10px; min-width: 120px; max-width: 150px; }"
+            "QComboBox { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 10px; padding: 6px 10px; min-width: 0px; }"
             "QComboBox::drop-down { border: 0px; width: 28px; }"
             "QComboBox::down-arrow { image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png); width: 12px; height: 12px; margin-right: 6px; }"
             "QComboBox QAbstractItemView { background-color: #0b0c10; color: #e5e7eb; selection-background-color: rgba(34,211,238,0.14); border: 1px solid #1f2937; padding: 6px; }"
@@ -1309,28 +1356,28 @@ class MainWindow(QtWidgets.QMainWindow):
         filters_group = QtWidgets.QGroupBox("Фильтры поиска")
         filters_group.setStyleSheet(self.GROUP_BOX_STYLE)
         form = QtWidgets.QFormLayout(filters_group)
-        form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
+        form.setFieldGrowthPolicy(QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
         metrics = self.fontMetrics()
-        input_width = metrics.horizontalAdvance("00.00.0000 00:00:00") + 18
+        input_width = metrics.horizontalAdvance("00.00.0000 00:00:00") + 40
 
         self.search_plate = QtWidgets.QLineEdit()
-        self.search_plate.setFixedWidth(input_width)
+        self.search_plate.setMinimumWidth(input_width)
         self.search_plate.setSizePolicy(
             QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
         )
         self.search_from = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_from)
         self._apply_dark_calendar_style(self.search_from)
-        self.search_from.setFixedWidth(input_width)
+        self.search_from.setMinimumWidth(input_width)
         self.search_from.setSizePolicy(
-            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
+            QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Fixed
         )
         self.search_to = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_to)
         self._apply_dark_calendar_style(self.search_to)
-        self.search_to.setFixedWidth(input_width)
+        self.search_to.setMinimumWidth(input_width)
         self.search_to.setSizePolicy(
-            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
+            QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Fixed
         )
 
         self._reset_journal_range()
@@ -1980,7 +2027,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._reload_channels_list()
         return widget
 
-    def _reload_channels_list(self) -> None:
+    def _reload_channels_list(self, target_index: Optional[int] = None) -> None:
         channels = self.settings.get_channels()
         current_row = self.channels_list.currentRow()
         self.channels_list.blockSignals(True)
@@ -1989,7 +2036,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.channels_list.addItem(channel.get("name", "Канал"))
         self.channels_list.blockSignals(False)
         if self.channels_list.count():
-            target_row = min(current_row if current_row >= 0 else 0, self.channels_list.count() - 1)
+            if target_index is None:
+                target_index = current_row
+            target_row = min(max(target_index if target_index is not None else 0, 0), self.channels_list.count() - 1)
             self.channels_list.setCurrentRow(target_row)
 
     def _load_general_settings(self) -> None:
@@ -2181,7 +2230,7 @@ class MainWindow(QtWidgets.QMainWindow):
             }
         )
         self.settings.save_channels(channels)
-        self._reload_channels_list()
+        self._reload_channels_list(len(channels) - 1)
         self._draw_grid()
         self._start_channels()
 
@@ -2191,7 +2240,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if 0 <= index < len(channels):
             channels.pop(index)
             self.settings.save_channels(channels)
-            self._reload_channels_list()
+            self._reload_channels_list(index)
             self._draw_grid()
             self._start_channels()
 
@@ -2221,7 +2270,7 @@ class MainWindow(QtWidgets.QMainWindow):
             region["height"] = min(region["height"], max(1, 100 - region["y"]))
             channels[index]["region"] = region
             self.settings.save_channels(channels)
-            self._reload_channels_list()
+            self._reload_channels_list(index)
             self._draw_grid()
             self._start_channels()
 
@@ -2250,6 +2299,13 @@ class MainWindow(QtWidgets.QMainWindow):
         roi["height"] = min(roi["height"], max(1, 100 - roi["y"]))
         self.preview.set_roi(roi)
 
+    def _cancel_preview_worker(self) -> None:
+        if self._preview_worker:
+            self._preview_worker.requestInterruption()
+            self._preview_worker.wait(1000)
+            self._preview_worker.deleteLater()
+            self._preview_worker = None
+
     def _refresh_preview_frame(self) -> None:
         index = self.channels_list.currentRow()
         channels = self.settings.get_channels()
@@ -2259,21 +2315,33 @@ class MainWindow(QtWidgets.QMainWindow):
         if not source:
             self.preview.setPixmap(None)
             return
-        capture = cv2.VideoCapture(int(source) if source.isnumeric() else source)
-        ret, frame = capture.read()
-        capture.release()
-        if not ret or frame is None:
+        self._preview_request_id += 1
+        request_id = self._preview_request_id
+        self._cancel_preview_worker()
+        self.preview.setPixmap(None)
+
+        worker = PreviewLoader(source)
+        self._preview_worker = worker
+
+        def handle_frame(pixmap: QtGui.QPixmap, rid: int = request_id) -> None:
+            if rid != self._preview_request_id:
+                return
+            self.preview.setPixmap(pixmap)
+            self._preview_worker = None
+
+        def handle_failure(rid: int = request_id) -> None:
+            if rid != self._preview_request_id:
+                return
             self.preview.setPixmap(None)
-            return
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        height, width, _ = rgb_frame.shape
-        bytes_per_line = 3 * width
-        q_image = QtGui.QImage(
-            rgb_frame.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888
-        ).copy()
-        self.preview.setPixmap(QtGui.QPixmap.fromImage(q_image))
+            self._preview_worker = None
+
+        worker.frameReady.connect(handle_frame)
+        worker.failed.connect(handle_failure)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
 
     # ------------------ Жизненный цикл ------------------
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        self._cancel_preview_worker()
         self._stop_workers()
         event.accept()
