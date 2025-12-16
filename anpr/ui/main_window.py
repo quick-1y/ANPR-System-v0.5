@@ -378,7 +378,7 @@ class EventDetailView(QtWidgets.QWidget):
         label.setStyleSheet(
             "background-color: #0b0c10; color: #9ca3af; border: 1px solid #1f2937; border-radius: 10px;"
         )
-        label.setScaledContents(False)
+        label.setScaledContents(True)
         label.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
         )
@@ -495,6 +495,12 @@ class MainWindow(QtWidgets.QMainWindow):
         "QTableWidget { background-color: #0b0c10; color: #e5e7eb; gridline-color: #1f2937; selection-background-color: #11131a; }"
         "QTableWidget::item { border-bottom: 1px solid #1f2937; padding: 6px; }"
         "QTableWidget::item:selected { background-color: rgba(34,211,238,0.18); color: #22d3ee; border: 1px solid #22d3ee; }"
+        "QScrollBar:vertical { background: #0b0c10; width: 12px; margin: 0px; border: 1px solid #1f2937; border-radius: 6px; }"
+        "QScrollBar::handle:vertical { background: #1f2937; min-height: 24px; border-radius: 6px; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+        "QScrollBar:horizontal { background: #0b0c10; height: 12px; margin: 0px; border: 1px solid #1f2937; border-radius: 6px; }"
+        "QScrollBar::handle:horizontal { background: #1f2937; min-width: 24px; border-radius: 6px; }"
+        "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }"
     )
     LIST_STYLE = (
         "QListWidget { background-color: #0b0c10; color: #cbd5e1; border: 1px solid #1f2937; border-radius: 10px; padding: 6px; }"
@@ -506,6 +512,13 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("ANPR Desktop")
         self.resize(1280, 800)
+        screen = QtWidgets.QApplication.primaryScreen()
+        self._top_left = (
+            screen.availableGeometry().topLeft()
+            if screen is not None
+            else QtCore.QPoint(0, 0)
+        )
+        self.move(self._top_left)
         self.setWindowFlags(
             self.windowFlags()
             | QtCore.Qt.FramelessWindowHint
@@ -562,12 +575,6 @@ class MainWindow(QtWidgets.QMainWindow):
         root_layout.addWidget(header)
         root_layout.addWidget(self.tabs, 1)
 
-        grip_row = QtWidgets.QHBoxLayout()
-        grip_row.setContentsMargins(0, 0, 8, 8)
-        grip_row.addStretch()
-        grip_row.addWidget(QtWidgets.QSizeGrip(root))
-        root_layout.addLayout(grip_row)
-
         self.setCentralWidget(root)
         self.setStyleSheet(
             "QMainWindow { background-color: #0b0c10; }"
@@ -608,10 +615,11 @@ class MainWindow(QtWidgets.QMainWindow):
         maximize_btn.setToolTip("Развернуть/свернуть окно")
 
         def toggle_maximize() -> None:
-            if self.isMaximized():
+            if self.isFullScreen():
                 self.showNormal()
+                self.move(self._top_left)
             else:
-                self.showMaximized()
+                self.showFullScreen()
 
         maximize_btn.clicked.connect(toggle_maximize)
         layout.addWidget(maximize_btn)
@@ -624,7 +632,7 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(close_btn)
 
         def start_move(event: QtGui.QMouseEvent) -> None:  # type: ignore[override]
-            if event.button() == QtCore.Qt.LeftButton and not self.isMaximized():
+            if event.button() == QtCore.Qt.LeftButton and not self.isFullScreen():
                 self._window_drag_pos = event.globalPos() - self.frameGeometry().topLeft()
                 event.accept()
 
@@ -632,7 +640,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if (
                 event.buttons() & QtCore.Qt.LeftButton
                 and self._window_drag_pos is not None
-                and not self.isMaximized()
+                and not self.isFullScreen()
             ):
                 self.move(event.globalPos() - self._window_drag_pos)
                 event.accept()
@@ -694,7 +702,7 @@ class MainWindow(QtWidgets.QMainWindow):
         chooser.addWidget(chooser_label)
         self.grid_combo = QtWidgets.QComboBox()
         self.grid_combo.setStyleSheet(
-            "QComboBox { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 10px; padding: 8px 12px; min-width: 140px; }"
+            "QComboBox { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 10px; padding: 6px 10px; min-width: 120px; max-width: 150px; }"
             "QComboBox::drop-down { border: 0px; width: 28px; }"
             "QComboBox::down-arrow { image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png); width: 12px; height: 12px; margin-right: 6px; }"
             "QComboBox QAbstractItemView { background-color: #0b0c10; color: #e5e7eb; selection-background-color: rgba(34,211,238,0.14); border: 1px solid #1f2937; padding: 6px; }"
@@ -737,14 +745,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.events_table.setHorizontalHeaderLabels(["Дата/Время", "Гос. номер", "Страна", "Канал"])
         self.events_table.setStyleSheet(self.TABLE_STYLE)
         header = self.events_table.horizontalHeader()
-        header.setMinimumSectionSize(70)
-        header.setStretchLastSection(False)
-        for index in range(4):
-            header.setSectionResizeMode(index, QtWidgets.QHeaderView.Interactive)
-        self.events_table.setColumnWidth(0, 220)
-        self.events_table.setColumnWidth(1, 120)
-        self.events_table.setColumnWidth(2, 90)
-        self.events_table.setColumnWidth(3, 120)
+        header.setMinimumSectionSize(90)
+        header.setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         self.events_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.events_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.events_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -1304,23 +1306,26 @@ class MainWindow(QtWidgets.QMainWindow):
         filters_group.setStyleSheet(self.GROUP_BOX_STYLE)
         form = QtWidgets.QFormLayout(filters_group)
         form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
+        input_width = self.COMPACT_FIELD_WIDTH + 120
         self.search_plate = QtWidgets.QLineEdit()
-        self.search_plate.setMaximumWidth(self.COMPACT_FIELD_WIDTH + 80)
-        self.search_plate.setMinimumWidth(self.COMPACT_FIELD_WIDTH)
+        self.search_plate.setMinimumWidth(input_width)
+        self.search_plate.setMaximumWidth(input_width)
         self.search_plate.setSizePolicy(
             QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
         )
         self.search_from = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_from)
         self._apply_dark_calendar_style(self.search_from)
-        self.search_from.setMaximumWidth(self.COMPACT_FIELD_WIDTH + 60)
+        self.search_from.setMinimumWidth(input_width)
+        self.search_from.setMaximumWidth(input_width)
         self.search_from.setSizePolicy(
             QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
         )
         self.search_to = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_to)
         self._apply_dark_calendar_style(self.search_to)
-        self.search_to.setMaximumWidth(self.COMPACT_FIELD_WIDTH + 60)
+        self.search_to.setMinimumWidth(input_width)
+        self.search_to.setMaximumWidth(input_width)
         self.search_to.setSizePolicy(
             QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
         )
@@ -1347,7 +1352,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.search_table.setHorizontalHeaderLabels(
             ["Дата/Время", "Канал", "Страна", "Гос. номер", "Уверенность", "Источник"]
         )
-        self.search_table.horizontalHeader().setStretchLastSection(True)
+        header = self.search_table.horizontalHeader()
+        header.setSectionResizeMode(QtWidgets.QHeaderView.Interactive)
+        header.setStretchLastSection(True)
+        header.setMinimumSectionSize(90)
+        self.search_table.setColumnWidth(0, 220)
         self.search_table.setStyleSheet(self.TABLE_STYLE)
         self.search_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.search_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
