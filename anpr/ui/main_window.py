@@ -481,6 +481,14 @@ class MainWindow(QtWidgets.QMainWindow):
         "QPushButton:hover { background-color: #4ddcf3; }"
         "QCheckBox { color: #e5e7eb; font-size: 13px; }"
     )
+    FORM_STYLE = (
+        "QLabel { color: #cbd5e1; font-size: 13px; }"
+        "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
+        "QPushButton { background-color: #22d3ee; color: #0b0c10; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }"
+        "QPushButton:hover { background-color: #4ddcf3; }"
+        "QCheckBox { color: #e5e7eb; font-size: 13px; }"
+        f"QWidget {{ background-color: {SURFACE_COLOR}; }}"
+    )
     FIELD_MAX_WIDTH = 520
     COMPACT_FIELD_WIDTH = 180
 
@@ -1293,14 +1301,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _build_search_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
-        widget.setStyleSheet(
-            "QLabel { color: #f0f0f0; }"
-            "QLineEdit, QDateTimeEdit { background-color: #111; color: #f0f0f0; border: 1px solid #333; padding: 4px; }"
-            "QPushButton { background-color: #00ffff; color: #000; border-radius: 4px; padding: 6px 12px; font-weight: 600; }"
-            "QPushButton:hover { background-color: #4dfefe; }"
-        )
+        widget.setStyleSheet(self.FORM_STYLE)
 
         filters_group = QtWidgets.QGroupBox("Фильтры поиска")
         filters_group.setStyleSheet(self.GROUP_BOX_STYLE)
@@ -1337,12 +1341,15 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(filters_group)
 
         button_row = QtWidgets.QHBoxLayout()
+        button_row.setSpacing(10)
         search_btn = QtWidgets.QPushButton("Поиск")
         search_btn.clicked.connect(self._run_plate_search)
+        search_btn.setMinimumWidth(150)
         button_row.addWidget(search_btn)
 
         reset_btn = QtWidgets.QPushButton("Сбросить фильтр")
         reset_btn.clicked.connect(self._reset_journal_filters)
+        reset_btn.setMinimumWidth(180)
         button_row.addWidget(reset_btn)
         button_row.addStretch()
         layout.addLayout(button_row)
@@ -1581,14 +1588,7 @@ class MainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(widget)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
-        widget.setStyleSheet(
-            "QLabel { color: #cbd5e1; font-size: 13px; }"
-            "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
-            "QPushButton { background-color: #22d3ee; color: #0b0c10; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }"
-            "QPushButton:hover { background-color: #4ddcf3; }"
-            "QCheckBox { color: #e5e7eb; font-size: 13px; }"
-            f"QWidget {{ background-color: {self.SURFACE_COLOR}; }}"
-        )
+        widget.setStyleSheet(self.FORM_STYLE)
 
         section_style = f"QFrame {{ background-color: {self.PANEL_COLOR}; border: none; border-radius: 12px; }}"
 
