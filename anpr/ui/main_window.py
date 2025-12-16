@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # /anpr/ui/main_window.py
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -381,6 +382,34 @@ class ROIEditor(QtWidgets.QLabel):
         }
         self.roi_changed.emit(roi)
 
+    @staticmethod
+    def _point_to_segment_distance(point: QtCore.QPointF, a: QtCore.QPointF, b: QtCore.QPointF) -> float:
+        ab_x = b.x() - a.x()
+        ab_y = b.y() - a.y()
+        ab_len_sq = ab_x * ab_x + ab_y * ab_y
+        if ab_len_sq == 0:
+            return math.hypot(point.x() - a.x(), point.y() - a.y())
+        ap_x = point.x() - a.x()
+        ap_y = point.y() - a.y()
+        t = max(0.0, min(1.0, (ap_x * ab_x + ap_y * ab_y) / ab_len_sq))
+        proj_x = a.x() + t * ab_x
+        proj_y = a.y() + t * ab_y
+        return math.hypot(point.x() - proj_x, point.y() - proj_y)
+
+    def _find_insertion_index(self, img_pos: QtCore.QPointF) -> int:
+        if len(self._points) < 2:
+            return len(self._points)
+
+        best_index = len(self._points)
+        best_distance = float("inf")
+        for i, start in enumerate(self._points):
+            end = self._points[(i + 1) % len(self._points)]
+            dist = self._point_to_segment_distance(img_pos, start, end)
+            if dist < best_distance:
+                best_distance = dist
+                best_index = i + 1
+        return best_index
+
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
         if event.button() != QtCore.Qt.LeftButton:
             return
@@ -443,7 +472,8 @@ class ROIEditor(QtWidgets.QLabel):
         if closest_idx is not None:
             self._points.pop(closest_idx)
         else:
-            self._points.append(img_pos)
+            insert_at = self._find_insertion_index(img_pos)
+            self._points.insert(insert_at, img_pos)
 
         self._drag_index = None
         self._clamp_points()
