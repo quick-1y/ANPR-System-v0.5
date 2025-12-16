@@ -450,6 +450,9 @@ class ROIEditor(QtWidgets.QLabel):
         self._emit_roi()
         self.update()
 
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        self._drag_index = None
+
 
 class PreviewLoader(QtCore.QThread):
     """Фоновая загрузка превью кадра канала, чтобы не блокировать UI."""
