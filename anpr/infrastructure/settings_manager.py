@@ -31,6 +31,15 @@ class SettingsManager:
                     "motion_frame_stride": 1,
                     "motion_activation_frames": 3,
                     "motion_release_frames": 6,
+                    "detection_filters": {
+                        "mode": "percent",
+                        "min_width": 0,
+                        "min_height": 0,
+                        "max_width": 100,
+                        "max_height": 100,
+                        "min_area": 0,
+                        "max_area": 0,
+                    },
                 },
             ],
             "reconnect": {
@@ -114,6 +123,15 @@ class SettingsManager:
             "motion_frame_stride": 1,
             "motion_activation_frames": 3,
             "motion_release_frames": 6,
+            "detection_filters": {
+                "mode": "percent",
+                "min_width": 0,
+                "min_height": 0,
+                "max_width": 100,
+                "max_height": 100,
+                "min_area": 0,
+                "max_area": 0,
+            },
         }
 
     @staticmethod
@@ -162,6 +180,13 @@ class SettingsManager:
                 # Сохраняем только отсутствующие ключи, не перезаписывая пользовательские значения.
                 channel[key] = value
                 changed = True
+            elif key == "detection_filters":
+                existing_filters = channel.get("detection_filters") or {}
+                for f_key, f_val in value.items():
+                    if f_key not in existing_filters:
+                        existing_filters[f_key] = f_val
+                        changed = True
+                channel["detection_filters"] = existing_filters
         return changed
 
     def _fill_reconnect_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:

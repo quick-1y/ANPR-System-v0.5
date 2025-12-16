@@ -91,6 +91,7 @@ class ChannelRuntimeConfig:
     motion_activation_frames: int
     motion_release_frames: int
     region: Region
+    detection_filters: Dict[str, Any]
 
     @classmethod
     def from_dict(cls, channel_conf: Dict[str, Any]) -> "ChannelRuntimeConfig":
@@ -107,6 +108,7 @@ class ChannelRuntimeConfig:
             motion_activation_frames=int(channel_conf.get("motion_activation_frames", 3)),
             motion_release_frames=int(channel_conf.get("motion_release_frames", 6)),
             region=Region(**(channel_conf.get("region") or {})).clamp(),
+            detection_filters=channel_conf.get("detection_filters", {}),
         )
 
 
@@ -163,6 +165,69 @@ def _offset_detections_process(
     return adjusted
 
 
+def _normalize_filter_mode(mode: str) -> str:
+    if str(mode).lower() in {"pixels", "px", "absolute"}:
+        return "pixels"
+    return "percent"
+
+
+def _to_absolute_threshold(value: Any, total: float, mode: str) -> Optional[float]:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    if numeric <= 0:
+        return None
+
+    if mode == "percent":
+        return total * numeric / 100.0
+    return numeric
+
+
+def _apply_detection_filters(
+    detections: list[dict], roi_frame: cv2.Mat, filter_conf: Optional[Dict[str, Any]]
+) -> list[dict]:
+    if not filter_conf:
+        return detections
+
+    height, width = roi_frame.shape[:2]
+    roi_area = max(1, width * height)
+    mode = _normalize_filter_mode(filter_conf.get("mode", "percent"))
+
+    min_width = _to_absolute_threshold(filter_conf.get("min_width"), width, mode)
+    min_height = _to_absolute_threshold(filter_conf.get("min_height"), height, mode)
+    max_width = _to_absolute_threshold(filter_conf.get("max_width"), width, mode)
+    max_height = _to_absolute_threshold(filter_conf.get("max_height"), height, mode)
+    min_area = _to_absolute_threshold(filter_conf.get("min_area"), roi_area, mode)
+    max_area = _to_absolute_threshold(filter_conf.get("max_area"), roi_area, mode)
+
+    filtered: list[dict] = []
+    for det in detections:
+        box = det.get("bbox")
+        if not box or len(box) < 4:
+            continue
+        width_px = max(0, float(box[2]) - float(box[0]))
+        height_px = max(0, float(box[3]) - float(box[1]))
+        area_px = width_px * height_px
+
+        if min_width is not None and width_px < min_width:
+            continue
+        if min_height is not None and height_px < min_height:
+            continue
+        if max_width is not None and width_px > max_width:
+            continue
+        if max_height is not None and height_px > max_height:
+            continue
+        if min_area is not None and area_px < min_area:
+            continue
+        if max_area is not None and area_px > max_area:
+            continue
+        filtered.append(det)
+
+    return filtered
+
+
 def _run_inference_task(
     frame: cv2.Mat,
     roi_frame: cv2.Mat,
@@ -193,9 +258,10 @@ def _run_inference_task(
         _run_inference_task._local_cache[key] = (pipeline, detector)
     
     pipeline, detector = _run_inference_task._local_cache[key]
-    
+
     # Выполняем детекцию и распознавание
     detections = detector.track(roi_frame)
+    detections = _apply_detection_filters(detections, roi_frame, config.get("detection_filters"))
     detections = _offset_detections_process(detections, roi_rect)
     results = pipeline.process_frame(frame, detections)
     
@@ -288,12 +354,15 @@ class ChannelWorker(QtCore.QThread):
         plate_config = dict(self.plate_config)
         if plate_config.get("config_dir"):
             plate_config["config_dir"] = os.path.abspath(str(plate_config.get("config_dir")))
-        
+
+        detection_filters = dict(self.config.detection_filters or {})
+
         return {
             "best_shots": self.config.best_shots,
             "cooldown_seconds": self.config.cooldown_seconds,
             "min_confidence": self.config.min_confidence,
             "plate_config": plate_config,
+            "detection_filters": detection_filters,
         }
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:

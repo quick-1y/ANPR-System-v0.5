@@ -219,6 +219,8 @@ class ROIEditor(QtWidgets.QLabel):
         self._pixmap: Optional[QtGui.QPixmap] = None
         self._rubber_band = QtWidgets.QRubberBand(QtWidgets.QRubberBand.Rectangle, self)
         self._origin: Optional[QtCore.QPoint] = None
+        self._filter_guides: Dict[str, Any] = {}
+        self._filter_mode: str = "percent"
 
     def set_roi(self, roi: Dict[str, int]) -> None:
         self._roi = {
@@ -240,6 +242,11 @@ class ROIEditor(QtWidgets.QLabel):
         scaled = self._scaled_pixmap(self.size())
         super().setPixmap(scaled)
         self.setText("")
+
+    def set_detection_filters(self, filters: Optional[Dict[str, Any]]) -> None:
+        self._filter_guides = filters or {}
+        self._filter_mode = str(self._filter_guides.get("mode", "percent"))
+        self.update()
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -280,6 +287,52 @@ class ROIEditor(QtWidgets.QLabel):
         painter.setPen(pen)
         painter.setBrush(QtGui.QColor(0, 200, 0, 40))
         painter.drawRect(roi_rect)
+        self._draw_filter_guides(painter, roi_rect)
+
+    def _draw_filter_guides(self, painter: QtGui.QPainter, roi_rect: QtCore.QRect) -> None:
+        if roi_rect.width() <= 0 or roi_rect.height() <= 0:
+            return
+
+        def to_pixels(value: Any, total: int) -> Optional[float]:
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                return None
+            if numeric <= 0:
+                return None
+            if str(self._filter_mode).lower() == "percent":
+                return total * numeric / 100.0
+            return numeric
+
+        min_w = min(roi_rect.width(), to_pixels(self._filter_guides.get("min_width"), roi_rect.width()) or 0)
+        min_h = min(roi_rect.height(), to_pixels(self._filter_guides.get("min_height"), roi_rect.height()) or 0)
+        max_w = to_pixels(self._filter_guides.get("max_width"), roi_rect.width())
+        max_h = to_pixels(self._filter_guides.get("max_height"), roi_rect.height())
+        max_w = min(roi_rect.width(), max_w) if max_w is not None else roi_rect.width()
+        max_h = min(roi_rect.height(), max_h) if max_h is not None else roi_rect.height()
+
+        painter.setBrush(QtCore.Qt.NoBrush)
+
+        if min_w > 0 or min_h > 0:
+            rect = QtCore.QRect(roi_rect.left(), roi_rect.top(), int(max(min_w, 1)), int(max(min_h, 1)))
+            pen = QtGui.QPen(QtGui.QColor(255, 193, 7))
+            pen.setStyle(QtCore.Qt.DashLine)
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawRect(rect)
+
+        if max_w >= 0 and max_h >= 0:
+            rect = QtCore.QRect(
+                roi_rect.left(),
+                roi_rect.top(),
+                int(max(max_w, 1)),
+                int(max(max_h, 1)),
+            )
+            pen = QtGui.QPen(QtGui.QColor(86, 156, 214))
+            pen.setStyle(QtCore.Qt.DotLine)
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawRect(rect)
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
         geom = self._image_geometry()
@@ -2012,6 +2065,61 @@ class MainWindow(QtWidgets.QMainWindow):
         refresh_btn.clicked.connect(self._refresh_preview_frame)
         roi_form.addRow("", refresh_btn)
 
+        filters_form = make_form_tab()
+        tabs.setTabText(4, "Фильтры детекций")
+        self.filter_mode_input = QtWidgets.QComboBox()
+        self.filter_mode_input.addItem("Проценты от ROI", "percent")
+        self.filter_mode_input.addItem("Пиксели", "pixels")
+        self.filter_mode_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self.filter_mode_input.currentIndexChanged.connect(self._update_filter_units)
+        filters_form.addRow("Режим порогов:", self.filter_mode_input)
+
+        def make_size_spin() -> QtWidgets.QDoubleSpinBox:
+            spin = QtWidgets.QDoubleSpinBox()
+            spin.setDecimals(1)
+            spin.setSingleStep(1)
+            spin.setRange(0, 10000)
+            spin.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+            spin.setMinimumWidth(120)
+            spin.valueChanged.connect(self._on_detection_filter_changed)
+            return spin
+
+        def make_area_spin() -> QtWidgets.QDoubleSpinBox:
+            spin = QtWidgets.QDoubleSpinBox()
+            spin.setDecimals(1)
+            spin.setSingleStep(10)
+            spin.setRange(0, 250000)
+            spin.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+            spin.setMinimumWidth(120)
+            spin.valueChanged.connect(self._on_detection_filter_changed)
+            return spin
+
+        self.min_width_input = make_size_spin()
+        self.min_width_input.setToolTip("Минимальная ширина рамки номера")
+        filters_form.addRow("Мин. ширина:", self.min_width_input)
+
+        self.min_height_input = make_size_spin()
+        self.min_height_input.setToolTip("Минимальная высота рамки номера")
+        filters_form.addRow("Мин. высота:", self.min_height_input)
+
+        self.max_width_input = make_size_spin()
+        self.max_width_input.setToolTip("Максимальная ширина рамки номера")
+        filters_form.addRow("Макс. ширина:", self.max_width_input)
+
+        self.max_height_input = make_size_spin()
+        self.max_height_input.setToolTip("Максимальная высота рамки номера")
+        filters_form.addRow("Макс. высота:", self.max_height_input)
+
+        self.min_area_input = make_area_spin()
+        self.min_area_input.setToolTip("Минимальная площадь рамки номера")
+        filters_form.addRow("Мин. площадь:", self.min_area_input)
+
+        self.max_area_input = make_area_spin()
+        self.max_area_input.setToolTip("Максимальная площадь рамки номера")
+        filters_form.addRow("Макс. площадь:", self.max_area_input)
+
+        self._update_filter_units()
+
         right_panel.addWidget(tabs)
 
         save_btn = QtWidgets.QPushButton("Сохранить канал")
@@ -2194,6 +2302,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.motion_activation_frames_input.setValue(int(channel.get("motion_activation_frames", 3)))
             self.motion_release_frames_input.setValue(int(channel.get("motion_release_frames", 6)))
 
+            filters = channel.get("detection_filters") or {}
+            self.filter_mode_input.setCurrentIndex(
+                max(0, self.filter_mode_input.findData(filters.get("mode", "percent")))
+            )
+            self._update_filter_units()
+            self.min_width_input.setValue(float(filters.get("min_width", 0)))
+            self.min_height_input.setValue(float(filters.get("min_height", 0)))
+            self.max_width_input.setValue(float(filters.get("max_width", 100)))
+            self.max_height_input.setValue(float(filters.get("max_height", 100)))
+            self.min_area_input.setValue(float(filters.get("min_area", 0)))
+            self.max_area_input.setValue(float(filters.get("max_area", 0)))
+
             region = channel.get("region") or {"x": 0, "y": 0, "width": 100, "height": 100}
             self.roi_x_input.setValue(int(region.get("x", 0)))
             self.roi_y_input.setValue(int(region.get("y", 0)))
@@ -2207,6 +2327,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     "height": int(region.get("height", 100)),
                 }
             )
+            self._update_preview_filters()
             self._refresh_preview_frame()
 
     def _add_channel(self) -> None:
@@ -2227,6 +2348,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 "motion_frame_stride": 1,
                 "motion_activation_frames": 3,
                 "motion_release_frames": 6,
+                "detection_filters": {
+                    "mode": "percent",
+                    "min_width": 0,
+                    "min_height": 0,
+                    "max_width": 100,
+                    "max_height": 100,
+                    "min_area": 0,
+                    "max_area": 0,
+                },
             }
         )
         self.settings.save_channels(channels)
@@ -2259,6 +2389,7 @@ class MainWindow(QtWidgets.QMainWindow):
             channels[index]["motion_frame_stride"] = int(self.motion_stride_input.value())
             channels[index]["motion_activation_frames"] = int(self.motion_activation_frames_input.value())
             channels[index]["motion_release_frames"] = int(self.motion_release_frames_input.value())
+            channels[index]["detection_filters"] = self._current_filter_settings()
 
             region = {
                 "x": int(self.roi_x_input.value()),
@@ -2287,6 +2418,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.roi_y_input.blockSignals(False)
         self.roi_w_input.blockSignals(False)
         self.roi_h_input.blockSignals(False)
+        self._update_preview_filters()
 
     def _on_roi_inputs_changed(self) -> None:
         roi = {
@@ -2298,6 +2430,51 @@ class MainWindow(QtWidgets.QMainWindow):
         roi["width"] = min(roi["width"], max(1, 100 - roi["x"]))
         roi["height"] = min(roi["height"], max(1, 100 - roi["y"]))
         self.preview.set_roi(roi)
+        self._update_preview_filters()
+
+    def _current_filter_settings(self) -> Dict[str, Any]:
+        return {
+            "mode": self.filter_mode_input.currentData(),
+            "min_width": float(self.min_width_input.value()),
+            "min_height": float(self.min_height_input.value()),
+            "max_width": float(self.max_width_input.value()),
+            "max_height": float(self.max_height_input.value()),
+            "min_area": float(self.min_area_input.value()),
+            "max_area": float(self.max_area_input.value()),
+        }
+
+    def _on_detection_filter_changed(self) -> None:
+        self._update_preview_filters()
+
+    def _update_preview_filters(self) -> None:
+        self.preview.set_detection_filters(self._current_filter_settings())
+
+    def _update_filter_units(self) -> None:
+        mode = self.filter_mode_input.currentData()
+        is_percent = mode == "percent"
+        size_suffix = "%" if is_percent else " px"
+        area_suffix = "%" if is_percent else " px²"
+        size_max = 100 if is_percent else 10000
+        area_max = 100 if is_percent else 250000
+
+        for spin in (
+            self.min_width_input,
+            self.min_height_input,
+            self.max_width_input,
+            self.max_height_input,
+        ):
+            spin.blockSignals(True)
+            spin.setSuffix(size_suffix)
+            spin.setRange(0, size_max)
+            spin.blockSignals(False)
+
+        for spin in (self.min_area_input, self.max_area_input):
+            spin.blockSignals(True)
+            spin.setSuffix(area_suffix)
+            spin.setRange(0, area_max)
+            spin.blockSignals(False)
+
+        self._on_detection_filter_changed()
 
     def _cancel_preview_worker(self) -> None:
         if self._preview_worker:
