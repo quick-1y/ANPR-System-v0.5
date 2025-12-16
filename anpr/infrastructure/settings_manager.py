@@ -3,7 +3,7 @@
 import json
 import os
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 class SettingsManager:
@@ -24,13 +24,14 @@ class SettingsManager:
                     "best_shots": 3,
                     "cooldown_seconds": 5,
                     "ocr_min_confidence": 0.6,
-                    "region": {"x": 0, "y": 0, "width": 100, "height": 100},
+                    "region": {"unit": "px", "points": []},
                     "detection_mode": "continuous",
                     "detector_frame_stride": 2,
                     "motion_threshold": 0.01,
                     "motion_frame_stride": 1,
                     "motion_activation_frames": 3,
                     "motion_release_frames": 6,
+                    "debug": {"show_detection_boxes": False, "show_ocr_text": False},
                 },
             ],
             "reconnect": {
@@ -107,14 +108,36 @@ class SettingsManager:
             "best_shots": int(tracking_defaults.get("best_shots", 3)),
             "cooldown_seconds": int(tracking_defaults.get("cooldown_seconds", 5)),
             "ocr_min_confidence": float(tracking_defaults.get("ocr_min_confidence", 0.6)),
-            "region": {"x": 0, "y": 0, "width": 100, "height": 100},
+            "region": {"unit": "px", "points": []},
             "detection_mode": "continuous",
             "detector_frame_stride": 2,
             "motion_threshold": 0.01,
             "motion_frame_stride": 1,
             "motion_activation_frames": 3,
             "motion_release_frames": 6,
+            "debug": {"show_detection_boxes": False, "show_ocr_text": False},
         }
+
+    @staticmethod
+    def _upgrade_region(region: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not region:
+            return {"unit": "px", "points": []}
+
+        if "points" in region:
+            unit = region.get("unit") or "px"
+            return {"unit": unit, "points": region.get("points", [])}
+
+        x = float(region.get("x", 0))
+        y = float(region.get("y", 0))
+        width = float(region.get("width", 100))
+        height = float(region.get("height", 100))
+        points = [
+            {"x": x, "y": y},
+            {"x": x + width, "y": y},
+            {"x": x + width, "y": y + height},
+            {"x": x, "y": y + height},
+        ]
+        return {"unit": "percent", "points": points}
 
     @staticmethod
     def _reconnect_defaults() -> Dict[str, Any]:
@@ -162,6 +185,11 @@ class SettingsManager:
                 # Сохраняем только отсутствующие ключи, не перезаписывая пользовательские значения.
                 channel[key] = value
                 changed = True
+
+        upgraded_region = self._upgrade_region(channel.get("region"))
+        if channel.get("region") != upgraded_region:
+            channel["region"] = upgraded_region
+            changed = True
         return changed
 
     def _fill_reconnect_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:

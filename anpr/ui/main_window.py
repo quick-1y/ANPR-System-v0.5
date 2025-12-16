@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # /anpr/ui/main_window.py
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -215,20 +216,64 @@ class ROIEditor(QtWidgets.QLabel):
         self.setStyleSheet(
             "background-color: #111; color: #888; border: 1px solid #444; padding: 6px;"
         )
-        self._roi = {"x": 0, "y": 0, "width": 100, "height": 100}
         self._pixmap: Optional[QtGui.QPixmap] = None
-        self._rubber_band = QtWidgets.QRubberBand(QtWidgets.QRubberBand.Rectangle, self)
-        self._origin: Optional[QtCore.QPoint] = None
+        self._roi_data: Dict[str, Any] = {"unit": "px", "points": []}
+        self._points: List[QtCore.QPointF] = []
+        self._drag_index: Optional[int] = None
 
-    def set_roi(self, roi: Dict[str, int]) -> None:
-        self._roi = {
-            "x": int(roi.get("x", 0)),
-            "y": int(roi.get("y", 0)),
-            "width": int(roi.get("width", 100)),
-            "height": int(roi.get("height", 100)),
-        }
-        self._roi["width"] = min(self._roi["width"], max(1, 100 - self._roi["x"]))
-        self._roi["height"] = min(self._roi["height"], max(1, 100 - self._roi["y"]))
+    def image_size(self) -> Optional[QtCore.QSize]:
+        return self._pixmap.size() if self._pixmap else None
+
+    def _clamp_points(self) -> None:
+        if not self._pixmap:
+            return
+        width = self._pixmap.width()
+        height = self._pixmap.height()
+        clamped: List[QtCore.QPointF] = []
+        for p in self._points:
+            clamped.append(
+                QtCore.QPointF(
+                    max(0.0, min(float(width - 1), p.x())),
+                    max(0.0, min(float(height - 1), p.y())),
+                )
+            )
+        self._points = clamped
+
+    def _recalculate_points(self) -> None:
+        roi = self._roi_data or {}
+        unit = str(roi.get("unit", "px")).lower()
+        raw_points = roi.get("points") or []
+        if not raw_points:
+            self._points = []
+            return
+
+        if self._pixmap is None:
+            self._points = [
+                QtCore.QPointF(float(p.get("x", 0)), float(p.get("y", 0)))
+                for p in raw_points
+                if isinstance(p, dict)
+            ]
+            return
+
+        width = self._pixmap.width()
+        height = self._pixmap.height()
+        if unit == "percent":
+            self._points = [
+                QtCore.QPointF(width * float(p.get("x", 0)) / 100.0, height * float(p.get("y", 0)) / 100.0)
+                for p in raw_points
+                if isinstance(p, dict)
+            ]
+        else:
+            self._points = [
+                QtCore.QPointF(float(p.get("x", 0)), float(p.get("y", 0)))
+                for p in raw_points
+                if isinstance(p, dict)
+            ]
+        self._clamp_points()
+
+    def set_roi(self, roi: Dict[str, Any]) -> None:
+        self._roi_data = roi or {"unit": "px", "points": []}
+        self._recalculate_points()
         self.update()
 
     def setPixmap(self, pixmap: Optional[QtGui.QPixmap]) -> None:  # noqa: N802
@@ -237,6 +282,7 @@ class ROIEditor(QtWidgets.QLabel):
             super().setPixmap(QtGui.QPixmap())
             self.setText("Нет кадра")
             return
+        self._recalculate_points()
         scaled = self._scaled_pixmap(self.size())
         super().setPixmap(scaled)
         self.setText("")
@@ -261,62 +307,177 @@ class ROIEditor(QtWidgets.QLabel):
         y = area.y() + (area.height() - pixmap.height()) // 2
         return QtCore.QPoint(x, y), pixmap.size()
 
+    def _image_to_widget(self, point: QtCore.QPointF) -> Optional[QtCore.QPointF]:
+        geom = self._image_geometry()
+        if geom is None or self._pixmap is None:
+            return None
+        offset, scaled_size = geom
+        scale_x = scaled_size.width() / max(1, self._pixmap.width())
+        scale_y = scaled_size.height() / max(1, self._pixmap.height())
+        return QtCore.QPointF(
+            offset.x() + point.x() * scale_x,
+            offset.y() + point.y() * scale_y,
+        )
+
+    def _widget_to_image(self, point: QtCore.QPoint) -> Optional[QtCore.QPointF]:
+        geom = self._image_geometry()
+        if geom is None or self._pixmap is None:
+            return None
+        offset, scaled_size = geom
+        rect = QtCore.QRect(offset, scaled_size)
+        if not rect.contains(point):
+            return None
+        scale_x = max(1, self._pixmap.width()) / max(1, scaled_size.width())
+        scale_y = max(1, self._pixmap.height()) / max(1, scaled_size.height())
+        return QtCore.QPointF(
+            (point.x() - offset.x()) * scale_x,
+            (point.y() - offset.y()) * scale_y,
+        )
+
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802
         super().paintEvent(event)
         geom = self._image_geometry()
         if geom is None:
             return
-        offset, size = geom
+        _, scaled_size = geom
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        roi_rect = QtCore.QRect(
-            offset.x() + int(size.width() * self._roi["x"] / 100),
-            offset.y() + int(size.height() * self._roi["y"] / 100),
-            int(size.width() * self._roi["width"] / 100),
-            int(size.height() * self._roi["height"] / 100),
-        )
+
+        polygon_points = self._points
+        if not polygon_points and self._pixmap:
+            polygon_points = [
+                QtCore.QPointF(0, 0),
+                QtCore.QPointF(self._pixmap.width() - 1, 0),
+                QtCore.QPointF(self._pixmap.width() - 1, self._pixmap.height() - 1),
+                QtCore.QPointF(0, self._pixmap.height() - 1),
+            ]
+
+        if not polygon_points:
+            return
+
+        widget_points = [self._image_to_widget(p) for p in polygon_points]
+        widget_points = [p for p in widget_points if p is not None]
+        if len(widget_points) < 3:
+            return
+
         pen = QtGui.QPen(QtGui.QColor(0, 200, 0))
         pen.setWidth(2)
         painter.setPen(pen)
         painter.setBrush(QtGui.QColor(0, 200, 0, 40))
-        painter.drawRect(roi_rect)
+        painter.drawPolygon(QtGui.QPolygonF(widget_points))
+
+        handle_brush = QtGui.QBrush(QtGui.QColor(0, 255, 0))
+        painter.setBrush(handle_brush)
+        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0), 1))
+        for p in widget_points:
+            painter.drawEllipse(QtCore.QPointF(p), 5, 5)
+
+    def _emit_roi(self) -> None:
+        roi = {
+            "unit": "px",
+            "points": [
+                {"x": int(p.x()), "y": int(p.y())}
+                for p in self._points
+            ],
+        }
+        self.roi_changed.emit(roi)
+
+    @staticmethod
+    def _point_to_segment_distance(point: QtCore.QPointF, a: QtCore.QPointF, b: QtCore.QPointF) -> float:
+        ab_x = b.x() - a.x()
+        ab_y = b.y() - a.y()
+        ab_len_sq = ab_x * ab_x + ab_y * ab_y
+        if ab_len_sq == 0:
+            return math.hypot(point.x() - a.x(), point.y() - a.y())
+        ap_x = point.x() - a.x()
+        ap_y = point.y() - a.y()
+        t = max(0.0, min(1.0, (ap_x * ab_x + ap_y * ab_y) / ab_len_sq))
+        proj_x = a.x() + t * ab_x
+        proj_y = a.y() + t * ab_y
+        return math.hypot(point.x() - proj_x, point.y() - proj_y)
+
+    def _find_insertion_index(self, img_pos: QtCore.QPointF) -> int:
+        if len(self._points) < 2:
+            return len(self._points)
+
+        best_index = len(self._points)
+        best_distance = float("inf")
+        for i, start in enumerate(self._points):
+            end = self._points[(i + 1) % len(self._points)]
+            dist = self._point_to_segment_distance(img_pos, start, end)
+            if dist < best_distance:
+                best_distance = dist
+                best_index = i + 1
+        return best_index
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
-        geom = self._image_geometry()
-        if geom is None:
+        if event.button() != QtCore.Qt.LeftButton:
             return
-        offset, size = geom
-        area_rect = QtCore.QRect(offset, size)
-        if not area_rect.contains(event.pos()):
+
+        img_pos = self._widget_to_image(event.pos())
+        if img_pos is None:
             return
-        self._origin = event.pos()
-        self._rubber_band.setGeometry(QtCore.QRect(self._origin, QtCore.QSize()))
-        self._rubber_band.show()
+
+        handle_radius = 8
+        closest_idx = None
+        closest_dist = handle_radius + 1
+        for idx, point in enumerate(self._points):
+            widget_point = self._image_to_widget(point)
+            if widget_point is None:
+                continue
+            dist = (widget_point - QtCore.QPointF(event.pos())).manhattanLength()
+            if dist < closest_dist:
+                closest_idx = idx
+                closest_dist = dist
+
+        if closest_idx is not None:
+            self._drag_index = closest_idx
+        else:
+            self._drag_index = None
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
-        if self._origin is None:
+        if self._drag_index is None:
             return
-        rect = QtCore.QRect(self._origin, event.pos()).normalized()
-        self._rubber_band.setGeometry(rect)
+        img_pos = self._widget_to_image(event.pos())
+        if img_pos is None:
+            return
+        self._points[self._drag_index] = img_pos
+        self._clamp_points()
+        self._emit_roi()
+        self.update()
 
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
-        if self._origin is None:
+        self._drag_index = None
+
+    def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if event.button() != QtCore.Qt.LeftButton:
             return
-        geom = self._image_geometry()
-        self._rubber_band.hide()
-        if geom is None:
-            self._origin = None
+
+        img_pos = self._widget_to_image(event.pos())
+        if img_pos is None:
             return
-        offset, size = geom
-        selection = self._rubber_band.geometry().intersected(QtCore.QRect(offset, size))
-        if selection.isValid() and selection.width() > 5 and selection.height() > 5:
-            x_pct = max(0, min(100, int((selection.left() - offset.x()) * 100 / size.width())))
-            y_pct = max(0, min(100, int((selection.top() - offset.y()) * 100 / size.height())))
-            w_pct = max(1, min(100 - x_pct, int(selection.width() * 100 / size.width())))
-            h_pct = max(1, min(100 - y_pct, int(selection.height() * 100 / size.height())))
-            self._roi = {"x": x_pct, "y": y_pct, "width": w_pct, "height": h_pct}
-            self.roi_changed.emit(self._roi)
-        self._origin = None
+
+        handle_radius = 8
+        closest_idx = None
+        closest_dist = handle_radius + 1
+        for idx, point in enumerate(self._points):
+            widget_point = self._image_to_widget(point)
+            if widget_point is None:
+                continue
+            dist = (widget_point - QtCore.QPointF(event.pos())).manhattanLength()
+            if dist < closest_dist:
+                closest_idx = idx
+                closest_dist = dist
+
+        if closest_idx is not None:
+            self._points.pop(closest_idx)
+        else:
+            insert_at = self._find_insertion_index(img_pos)
+            self._points.insert(insert_at, img_pos)
+
+        self._drag_index = None
+        self._clamp_points()
+        self._emit_roi()
         self.update()
 
 
@@ -1921,6 +2082,20 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         recognition_form.addRow("Мин. уверенность OCR:", self.min_conf_input)
 
+        debug_row = QtWidgets.QHBoxLayout()
+        self.debug_detection_checkbox = QtWidgets.QCheckBox("Рамки детекции")
+        self.debug_detection_checkbox.setToolTip(
+            "Отображать рамки поиска номеров на кадре"
+        )
+        self.debug_ocr_checkbox = QtWidgets.QCheckBox("Символы OCR")
+        self.debug_ocr_checkbox.setToolTip(
+            "Выводить распознанные символы поверх рамок"
+        )
+        debug_row.addWidget(self.debug_detection_checkbox)
+        debug_row.addWidget(self.debug_ocr_checkbox)
+        debug_row.addStretch(1)
+        recognition_form.addRow("Отладка:", debug_row)
+
         motion_form = make_form_tab()
         tabs.setTabText(2, "Детектор движения")
         self.detection_mode_input = QtWidgets.QComboBox()
@@ -1970,42 +2145,32 @@ class MainWindow(QtWidgets.QMainWindow):
 
         roi_form = make_form_tab()
         tabs.setTabText(3, "Зона распознавания")
-        roi_grid = QtWidgets.QGridLayout()
-        roi_grid.setHorizontalSpacing(12)
-        roi_grid.setVerticalSpacing(10)
-        roi_grid.setContentsMargins(0, 0, 0, 0)
-        self.roi_x_input = QtWidgets.QSpinBox()
-        self.roi_x_input.setRange(0, 100)
-        self.roi_x_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
-        self.roi_x_input.setMinimumWidth(120)
-        self.roi_y_input = QtWidgets.QSpinBox()
-        self.roi_y_input.setRange(0, 100)
-        self.roi_y_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
-        self.roi_y_input.setMinimumWidth(120)
-        self.roi_w_input = QtWidgets.QSpinBox()
-        self.roi_w_input.setRange(1, 100)
-        self.roi_w_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
-        self.roi_w_input.setMinimumWidth(120)
-        self.roi_h_input = QtWidgets.QSpinBox()
-        self.roi_h_input.setRange(1, 100)
-        self.roi_h_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
-        self.roi_h_input.setMinimumWidth(120)
+        self.roi_points_table = QtWidgets.QTableWidget()
+        self.roi_points_table.setColumnCount(2)
+        self.roi_points_table.setHorizontalHeaderLabels(["X (px)", "Y (px)"])
+        self.roi_points_table.horizontalHeader().setStretchLastSection(True)
+        self.roi_points_table.verticalHeader().setVisible(False)
+        self.roi_points_table.setEditTriggers(QtWidgets.QAbstractItemView.AllEditTriggers)
+        self.roi_points_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.roi_points_table.setMaximumHeight(220)
+        self.roi_points_table.itemChanged.connect(self._on_roi_table_changed)
 
-        for spin in (self.roi_x_input, self.roi_y_input, self.roi_w_input, self.roi_h_input):
-            spin.valueChanged.connect(self._on_roi_inputs_changed)
+        roi_buttons = QtWidgets.QHBoxLayout()
+        add_point_btn = QtWidgets.QPushButton("Добавить точку")
+        self._polish_button(add_point_btn, 150)
+        add_point_btn.clicked.connect(self._add_roi_point)
+        remove_point_btn = QtWidgets.QPushButton("Удалить точку")
+        self._polish_button(remove_point_btn, 150)
+        remove_point_btn.clicked.connect(self._remove_roi_point)
+        clear_roi_btn = QtWidgets.QPushButton("Очистить зону")
+        self._polish_button(clear_roi_btn, 150)
+        clear_roi_btn.clicked.connect(self._clear_roi_points)
+        roi_buttons.addWidget(add_point_btn)
+        roi_buttons.addWidget(remove_point_btn)
+        roi_buttons.addWidget(clear_roi_btn)
 
-        roi_grid.addWidget(QtWidgets.QLabel("X (%):"), 0, 0)
-        roi_grid.addWidget(self.roi_x_input, 0, 1)
-        roi_grid.addWidget(QtWidgets.QLabel("Y (%):"), 1, 0)
-        roi_grid.addWidget(self.roi_y_input, 1, 1)
-        roi_grid.addWidget(QtWidgets.QLabel("Ширина (%):"), 2, 0)
-        roi_grid.addWidget(self.roi_w_input, 2, 1)
-        roi_grid.addWidget(QtWidgets.QLabel("Высота (%):"), 3, 0)
-        roi_grid.addWidget(self.roi_h_input, 3, 1)
-
-        roi_row_container = QtWidgets.QWidget()
-        roi_row_container.setLayout(roi_grid)
-        roi_form.addRow("", roi_row_container)
+        roi_form.addRow("Точки ROI:", self.roi_points_table)
+        roi_form.addRow("", roi_buttons)
 
         refresh_btn = QtWidgets.QPushButton("Обновить кадр")
         self._polish_button(refresh_btn, 160)
@@ -2194,19 +2359,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.motion_activation_frames_input.setValue(int(channel.get("motion_activation_frames", 3)))
             self.motion_release_frames_input.setValue(int(channel.get("motion_release_frames", 6)))
 
-            region = channel.get("region") or {"x": 0, "y": 0, "width": 100, "height": 100}
-            self.roi_x_input.setValue(int(region.get("x", 0)))
-            self.roi_y_input.setValue(int(region.get("y", 0)))
-            self.roi_w_input.setValue(int(region.get("width", 100)))
-            self.roi_h_input.setValue(int(region.get("height", 100)))
-            self.preview.set_roi(
-                {
-                    "x": int(region.get("x", 0)),
-                    "y": int(region.get("y", 0)),
-                    "width": int(region.get("width", 100)),
-                    "height": int(region.get("height", 100)),
-                }
-            )
+            debug_conf = channel.get("debug", {})
+            self.debug_detection_checkbox.setChecked(bool(debug_conf.get("show_detection_boxes", False)))
+            self.debug_ocr_checkbox.setChecked(bool(debug_conf.get("show_ocr_text", False)))
+
+            region = channel.get("region") or {"unit": "px", "points": []}
+            self.preview.set_roi(region)
+            self._sync_roi_table(region)
             self._refresh_preview_frame()
 
     def _add_channel(self) -> None:
@@ -2220,13 +2379,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 "best_shots": self.settings.get_best_shots(),
                 "cooldown_seconds": self.settings.get_cooldown_seconds(),
                 "ocr_min_confidence": self.settings.get_min_confidence(),
-                "region": {"x": 0, "y": 0, "width": 100, "height": 100},
+                "region": {"unit": "px", "points": []},
                 "detection_mode": "continuous",
                 "detector_frame_stride": 2,
                 "motion_threshold": 0.01,
                 "motion_frame_stride": 1,
                 "motion_activation_frames": 3,
                 "motion_release_frames": 6,
+                "debug": {"show_detection_boxes": False, "show_ocr_text": False},
             }
         )
         self.settings.save_channels(channels)
@@ -2259,45 +2419,74 @@ class MainWindow(QtWidgets.QMainWindow):
             channels[index]["motion_frame_stride"] = int(self.motion_stride_input.value())
             channels[index]["motion_activation_frames"] = int(self.motion_activation_frames_input.value())
             channels[index]["motion_release_frames"] = int(self.motion_release_frames_input.value())
-
-            region = {
-                "x": int(self.roi_x_input.value()),
-                "y": int(self.roi_y_input.value()),
-                "width": int(self.roi_w_input.value()),
-                "height": int(self.roi_h_input.value()),
+            channels[index]["region"] = {"unit": "px", "points": self._collect_roi_points_from_table()}
+            channels[index]["debug"] = {
+                "show_detection_boxes": self.debug_detection_checkbox.isChecked(),
+                "show_ocr_text": self.debug_ocr_checkbox.isChecked(),
             }
-            region["width"] = min(region["width"], max(1, 100 - region["x"]))
-            region["height"] = min(region["height"], max(1, 100 - region["y"]))
-            channels[index]["region"] = region
             self.settings.save_channels(channels)
             self._reload_channels_list(index)
             self._draw_grid()
             self._start_channels()
 
-    def _on_roi_drawn(self, roi: Dict[str, int]) -> None:
-        self.roi_x_input.blockSignals(True)
-        self.roi_y_input.blockSignals(True)
-        self.roi_w_input.blockSignals(True)
-        self.roi_h_input.blockSignals(True)
-        self.roi_x_input.setValue(roi["x"])
-        self.roi_y_input.setValue(roi["y"])
-        self.roi_w_input.setValue(roi["width"])
-        self.roi_h_input.setValue(roi["height"])
-        self.roi_x_input.blockSignals(False)
-        self.roi_y_input.blockSignals(False)
-        self.roi_w_input.blockSignals(False)
-        self.roi_h_input.blockSignals(False)
+    def _sync_roi_table(self, roi: Dict[str, Any]) -> None:
+        points = roi.get("points") or []
+        self.roi_points_table.blockSignals(True)
+        self.roi_points_table.setRowCount(len(points))
+        for row, point in enumerate(points):
+            x_item = QtWidgets.QTableWidgetItem(str(int(point.get("x", 0))))
+            y_item = QtWidgets.QTableWidgetItem(str(int(point.get("y", 0))))
+            self.roi_points_table.setItem(row, 0, x_item)
+            self.roi_points_table.setItem(row, 1, y_item)
+        self.roi_points_table.blockSignals(False)
 
-    def _on_roi_inputs_changed(self) -> None:
-        roi = {
-            "x": int(self.roi_x_input.value()),
-            "y": int(self.roi_y_input.value()),
-            "width": int(self.roi_w_input.value()),
-            "height": int(self.roi_h_input.value()),
-        }
-        roi["width"] = min(roi["width"], max(1, 100 - roi["x"]))
-        roi["height"] = min(roi["height"], max(1, 100 - roi["y"]))
+    def _collect_roi_points_from_table(self) -> List[Dict[str, int]]:
+        points: List[Dict[str, int]] = []
+        for row in range(self.roi_points_table.rowCount()):
+            x_item = self.roi_points_table.item(row, 0)
+            y_item = self.roi_points_table.item(row, 1)
+            try:
+                x_val = int(x_item.text()) if x_item else 0
+                y_val = int(y_item.text()) if y_item else 0
+            except ValueError:
+                continue
+            points.append({"x": x_val, "y": y_val})
+        return points
+
+    def _on_roi_drawn(self, roi: Dict[str, Any]) -> None:
+        self._sync_roi_table(roi)
+
+    def _on_roi_table_changed(self) -> None:
+        roi = {"unit": "px", "points": self._collect_roi_points_from_table()}
         self.preview.set_roi(roi)
+
+    def _add_roi_point(self) -> None:
+        img_size = self.preview.image_size()
+        x = img_size.width() // 2 if img_size else 0
+        y = img_size.height() // 2 if img_size else 0
+        row = self.roi_points_table.rowCount()
+        self.roi_points_table.blockSignals(True)
+        self.roi_points_table.insertRow(row)
+        self.roi_points_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(x)))
+        self.roi_points_table.setItem(row, 1, QtWidgets.QTableWidgetItem(str(y)))
+        self.roi_points_table.blockSignals(False)
+        self._on_roi_table_changed()
+
+    def _remove_roi_point(self) -> None:
+        rows = sorted({index.row() for index in self.roi_points_table.selectedIndexes()}, reverse=True)
+        if not rows and self.roi_points_table.rowCount():
+            rows = [self.roi_points_table.rowCount() - 1]
+        self.roi_points_table.blockSignals(True)
+        for row in rows:
+            self.roi_points_table.removeRow(row)
+        self.roi_points_table.blockSignals(False)
+        self._on_roi_table_changed()
+
+    def _clear_roi_points(self) -> None:
+        self.roi_points_table.blockSignals(True)
+        self.roi_points_table.setRowCount(0)
+        self.roi_points_table.blockSignals(False)
+        self._on_roi_table_changed()
 
     def _cancel_preview_worker(self) -> None:
         if self._preview_worker:
