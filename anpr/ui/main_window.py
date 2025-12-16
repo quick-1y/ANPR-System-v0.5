@@ -757,7 +757,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Fixed
         )
         self.grid_combo.setStyleSheet(
-            "QComboBox { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 10px; padding: 6px 10px; min-width: 0px; }"
+            "QComboBox { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 10px; padding: 6px 10px; min-width: 140px; max-width: 15; }"
             "QComboBox::drop-down { border: 0px; width: 28px; }"
             "QComboBox::down-arrow { image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png); width: 12px; height: 12px; margin-right: 6px; }"
             "QComboBox QAbstractItemView { background-color: #0b0c10; color: #e5e7eb; selection-background-color: rgba(34,211,238,0.14); border: 1px solid #1f2937; padding: 6px; }"
