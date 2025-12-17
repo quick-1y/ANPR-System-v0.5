@@ -225,6 +225,9 @@ class ROIEditor(QtWidgets.QLabel):
     def image_size(self) -> Optional[QtCore.QSize]:
         return self._pixmap.size() if self._pixmap else None
 
+    def current_pixmap(self) -> Optional[QtGui.QPixmap]:
+        return self._pixmap
+
     def _clamp_points(self) -> None:
         if not self._pixmap:
             return
@@ -484,6 +487,161 @@ class ROIEditor(QtWidgets.QLabel):
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
         self._drag_index = None
 
+
+class FrameSizeSelector(QtWidgets.QLabel):
+    """Виджет выбора прямоугольной области для замера размеров рамки."""
+
+    sizeSelected = QtCore.pyqtSignal(int, int)
+
+    def __init__(self, pixmap: QtGui.QPixmap) -> None:
+        super().__init__()
+        self._pixmap = pixmap
+        self._start: Optional[QtCore.QPointF] = None
+        self._end: Optional[QtCore.QPointF] = None
+        self.setAlignment(QtCore.Qt.AlignCenter)
+        self.setMinimumSize(420, 280)
+        self.setStyleSheet("background-color: #0f172a; border: 1px solid #1f2937;")
+        self.setPixmap(pixmap)
+
+    def setPixmap(self, pixmap: Optional[QtGui.QPixmap]) -> None:  # noqa: N802
+        self._pixmap = pixmap
+        if pixmap is None:
+            super().setPixmap(QtGui.QPixmap())
+            self.setText("Нет кадра")
+            return
+        super().setPixmap(self._scaled_pixmap(self.size()))
+        self.setText("")
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if self._pixmap:
+            super().setPixmap(self._scaled_pixmap(event.size()))
+
+    def _scaled_pixmap(self, size: QtCore.QSize) -> QtGui.QPixmap:
+        assert self._pixmap is not None
+        return self._pixmap.scaled(size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+
+    def _image_geometry(self) -> Optional[Tuple[QtCore.QPoint, QtCore.QSize]]:
+        if self._pixmap is None:
+            return None
+        pixmap = self._scaled_pixmap(self.size())
+        area = self.contentsRect()
+        x = area.x() + (area.width() - pixmap.width()) // 2
+        y = area.y() + (area.height() - pixmap.height()) // 2
+        return QtCore.QPoint(x, y), pixmap.size()
+
+    def _widget_to_image(self, point: QtCore.QPoint) -> Optional[QtCore.QPointF]:
+        geom = self._image_geometry()
+        if geom is None or self._pixmap is None:
+            return None
+        offset, scaled_size = geom
+        rect = QtCore.QRect(offset, scaled_size)
+        if not rect.contains(point):
+            return None
+        scale_x = max(1, self._pixmap.width()) / max(1, scaled_size.width())
+        scale_y = max(1, self._pixmap.height()) / max(1, scaled_size.height())
+        return QtCore.QPointF((point.x() - offset.x()) * scale_x, (point.y() - offset.y()) * scale_y)
+
+    def _image_to_widget(self, point: QtCore.QPointF) -> Optional[QtCore.QPointF]:
+        geom = self._image_geometry()
+        if geom is None or self._pixmap is None:
+            return None
+        offset, scaled_size = geom
+        scale_x = scaled_size.width() / max(1, self._pixmap.width())
+        scale_y = scaled_size.height() / max(1, self._pixmap.height())
+        return QtCore.QPointF(offset.x() + point.x() * scale_x, offset.y() + point.y() * scale_y)
+
+    def _normalized_selection(self) -> Optional[QtCore.QRectF]:
+        if self._start is None or self._end is None:
+            return None
+        x1, x2 = sorted([self._start.x(), self._end.x()])
+        y1, y2 = sorted([self._start.y(), self._end.y()])
+        return QtCore.QRectF(QtCore.QPointF(x1, y1), QtCore.QPointF(x2, y2))
+
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if event.button() != QtCore.Qt.LeftButton or self._pixmap is None:
+            return
+        img_pos = self._widget_to_image(event.pos())
+        if img_pos is None:
+            return
+        self._start = self._end = img_pos
+        self.update()
+
+    def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if self._start is None or self._pixmap is None:
+            return
+        img_pos = self._widget_to_image(event.pos())
+        if img_pos is None:
+            return
+        self._end = img_pos
+        self.update()
+
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if event.button() != QtCore.Qt.LeftButton or self._start is None or self._pixmap is None:
+            return
+        img_pos = self._widget_to_image(event.pos())
+        if img_pos is not None:
+            self._end = img_pos
+        rect = self._normalized_selection()
+        if rect and rect.width() >= 1 and rect.height() >= 1:
+            self.sizeSelected.emit(int(rect.width()), int(rect.height()))
+        self.update()
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802
+        super().paintEvent(event)
+        rect = self._normalized_selection()
+        if rect is None:
+            return
+        widget_start = self._image_to_widget(rect.topLeft())
+        widget_end = self._image_to_widget(rect.bottomRight())
+        if widget_start is None or widget_end is None:
+            return
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        pen = QtGui.QPen(QtGui.QColor(59, 130, 246))
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.setBrush(QtGui.QColor(59, 130, 246, 40))
+        rectf = QtCore.QRectF(widget_start, widget_end)
+        painter.drawRect(rectf.normalized())
+
+
+class SizeSelectionDialog(QtWidgets.QDialog):
+    """Диалог выбора прямоугольника для задания размера рамки."""
+
+    def __init__(self, pixmap: QtGui.QPixmap, title: str, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self._result: Tuple[int, int] = (0, 0)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(QtWidgets.QLabel("Выделите рамку на кадре, чтобы использовать её размеры."))
+        self.selector = FrameSizeSelector(pixmap)
+        layout.addWidget(self.selector)
+
+        self.hint_label = QtWidgets.QLabel("Размер не выбран")
+        layout.addWidget(self.hint_label)
+
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        self.ok_button = buttons.button(QtWidgets.QDialogButtonBox.Ok)
+        if self.ok_button:
+            self.ok_button.setEnabled(False)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.selector.sizeSelected.connect(self._on_size_selected)
+
+    @property
+    def result_size(self) -> Tuple[int, int]:
+        return self._result
+
+    def _on_size_selected(self, width: int, height: int) -> None:
+        self._result = (width, height)
+        if self.ok_button:
+            self.ok_button.setEnabled(True)
+        self.hint_label.setText(f"Выбрано: {width}×{height} px")
 
 class PreviewLoader(QtCore.QThread):
     """Фоновая загрузка превью кадра канала, чтобы не блокировать UI."""
@@ -2158,6 +2316,51 @@ class MainWindow(QtWidgets.QMainWindow):
 
         roi_form = make_form_tab()
         tabs.setTabText(3, "Зона распознавания")
+
+        size_group = QtWidgets.QGroupBox("Фильтр по размеру рамки")
+        size_layout = QtWidgets.QGridLayout()
+
+        self.min_plate_width_input = QtWidgets.QSpinBox()
+        self.min_plate_width_input.setRange(0, 5000)
+        self.min_plate_width_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.min_plate_width_input.setToolTip("Минимальная ширина рамки, меньшие детекции будут отброшены")
+
+        self.min_plate_height_input = QtWidgets.QSpinBox()
+        self.min_plate_height_input.setRange(0, 3000)
+        self.min_plate_height_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.min_plate_height_input.setToolTip("Минимальная высота рамки, меньшие детекции будут отброшены")
+
+        self.max_plate_width_input = QtWidgets.QSpinBox()
+        self.max_plate_width_input.setRange(0, 8000)
+        self.max_plate_width_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.max_plate_width_input.setToolTip("Максимальная ширина рамки, более крупные детекции будут отброшены")
+
+        self.max_plate_height_input = QtWidgets.QSpinBox()
+        self.max_plate_height_input.setRange(0, 4000)
+        self.max_plate_height_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.max_plate_height_input.setToolTip("Максимальная высота рамки, более крупные детекции будут отброшены")
+
+        pick_min_btn = QtWidgets.QPushButton("Указать мин. на кадре")
+        self._polish_button(pick_min_btn, 180)
+        pick_min_btn.clicked.connect(lambda: self._pick_plate_size(target="min"))
+
+        pick_max_btn = QtWidgets.QPushButton("Указать макс. на кадре")
+        self._polish_button(pick_max_btn, 180)
+        pick_max_btn.clicked.connect(lambda: self._pick_plate_size(target="max"))
+
+        size_layout.addWidget(QtWidgets.QLabel("Мин. ширина (px):"), 0, 0)
+        size_layout.addWidget(self.min_plate_width_input, 0, 1)
+        size_layout.addWidget(QtWidgets.QLabel("Мин. высота (px):"), 0, 2)
+        size_layout.addWidget(self.min_plate_height_input, 0, 3)
+        size_layout.addWidget(pick_min_btn, 0, 4)
+        size_layout.addWidget(QtWidgets.QLabel("Макс. ширина (px):"), 1, 0)
+        size_layout.addWidget(self.max_plate_width_input, 1, 1)
+        size_layout.addWidget(QtWidgets.QLabel("Макс. высота (px):"), 1, 2)
+        size_layout.addWidget(self.max_plate_height_input, 1, 3)
+        size_layout.addWidget(pick_max_btn, 1, 4)
+        size_group.setLayout(size_layout)
+
+        roi_form.addRow("", size_group)
         self.roi_points_table = QtWidgets.QTableWidget()
         self.roi_points_table.setColumnCount(2)
         self.roi_points_table.setHorizontalHeaderLabels(["X (px)", "Y (px)"])
@@ -2252,6 +2455,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.motion_release_frames_input.setValue(6)
         self.debug_detection_checkbox.setChecked(False)
         self.debug_ocr_checkbox.setChecked(False)
+        size_defaults = self.settings.get_plate_size_defaults()
+        min_size = size_defaults.get("min_plate_size", {})
+        max_size = size_defaults.get("max_plate_size", {})
+        self.min_plate_width_input.setValue(int(min_size.get("width", 0)))
+        self.min_plate_height_input.setValue(int(min_size.get("height", 0)))
+        self.max_plate_width_input.setValue(int(max_size.get("width", 0)))
+        self.max_plate_height_input.setValue(int(max_size.get("height", 0)))
         default_roi = self._default_roi_region()
         self.preview.setPixmap(None)
         self.preview.set_roi(default_roi)
@@ -2411,6 +2621,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.motion_stride_input.setValue(int(channel.get("motion_frame_stride", 1)))
             self.motion_activation_frames_input.setValue(int(channel.get("motion_activation_frames", 3)))
             self.motion_release_frames_input.setValue(int(channel.get("motion_release_frames", 6)))
+            min_size = channel.get("min_plate_size", self.settings.get_plate_size_defaults().get("min_plate_size", {}))
+            max_size = channel.get("max_plate_size", self.settings.get_plate_size_defaults().get("max_plate_size", {}))
+            self.min_plate_width_input.setValue(int(min_size.get("width", 0)))
+            self.min_plate_height_input.setValue(int(min_size.get("height", 0)))
+            self.max_plate_width_input.setValue(int(max_size.get("width", 0)))
+            self.max_plate_height_input.setValue(int(max_size.get("height", 0)))
 
             debug_conf = channel.get("debug", {})
             self.debug_detection_checkbox.setChecked(bool(debug_conf.get("show_detection_boxes", False)))
@@ -2441,6 +2657,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 "motion_frame_stride": 1,
                 "motion_activation_frames": 3,
                 "motion_release_frames": 6,
+                "min_plate_size": self.settings.get_plate_size_defaults().get("min_plate_size"),
+                "max_plate_size": self.settings.get_plate_size_defaults().get("max_plate_size"),
                 "debug": {"show_detection_boxes": False, "show_ocr_text": False},
             }
         )
@@ -2474,6 +2692,14 @@ class MainWindow(QtWidgets.QMainWindow):
             channels[index]["motion_frame_stride"] = int(self.motion_stride_input.value())
             channels[index]["motion_activation_frames"] = int(self.motion_activation_frames_input.value())
             channels[index]["motion_release_frames"] = int(self.motion_release_frames_input.value())
+            channels[index]["min_plate_size"] = {
+                "width": int(self.min_plate_width_input.value()),
+                "height": int(self.min_plate_height_input.value()),
+            }
+            channels[index]["max_plate_size"] = {
+                "width": int(self.max_plate_width_input.value()),
+                "height": int(self.max_plate_height_input.value()),
+            }
             channels[index]["region"] = {"unit": "px", "points": self._collect_roi_points_from_table()}
             channels[index]["debug"] = {
                 "show_detection_boxes": self.debug_detection_checkbox.isChecked(),
@@ -2541,6 +2767,28 @@ class MainWindow(QtWidgets.QMainWindow):
         default_roi = self._default_roi_region()
         self._sync_roi_table(default_roi)
         self.preview.set_roi(default_roi)
+
+    def _pick_plate_size(self, target: str) -> None:
+        pixmap = self.preview.current_pixmap()
+        if pixmap is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Нет кадра",
+                "Нет изображения для замера. Обновите кадр и попробуйте снова.",
+            )
+            return
+
+        title = "Мин. размер рамки" if target == "min" else "Макс. размер рамки"
+        dialog = SizeSelectionDialog(pixmap, title, self)
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            width, height = dialog.result_size
+            if width and height:
+                if target == "min":
+                    self.min_plate_width_input.setValue(width)
+                    self.min_plate_height_input.setValue(height)
+                else:
+                    self.max_plate_width_input.setValue(width)
+                    self.max_plate_height_input.setValue(height)
 
     def _cancel_preview_worker(self) -> None:
         if self._preview_worker:
