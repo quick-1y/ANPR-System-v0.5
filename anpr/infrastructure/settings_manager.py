@@ -16,6 +16,9 @@ class SettingsManager:
     def _default(self) -> Dict[str, Any]:
         return {
             "grid": "2x2",
+            "models": self._models_defaults(),
+            "ocr_constants": self._ocr_constants_defaults(),
+            "thresholds": self._threshold_defaults(),
             "channels": [
                 {
                     "id": 1,
@@ -82,6 +85,9 @@ class SettingsManager:
         storage_defaults = self._storage_defaults()
         plate_defaults = self._plate_defaults()
         time_defaults = self._time_defaults()
+        models_defaults = self._models_defaults()
+        ocr_defaults = self._ocr_constants_defaults()
+        threshold_defaults = self._threshold_defaults()
         for channel in data.get("channels", []):
             if self._fill_channel_defaults(channel, tracking_defaults):
                 changed = True
@@ -96,6 +102,15 @@ class SettingsManager:
             changed = True
 
         if self._fill_time_defaults(data, time_defaults):
+            changed = True
+
+        if self._fill_models_defaults(data, models_defaults):
+            changed = True
+
+        if self._fill_ocr_defaults(data, ocr_defaults):
+            changed = True
+
+        if self._fill_threshold_defaults(data, threshold_defaults):
             changed = True
 
         if changed:
@@ -176,6 +191,22 @@ class SettingsManager:
         mins = total % 60
         default_zone = f"UTC{sign}{hours:02d}:{mins:02d}"
         return {"timezone": default_zone, "offset_minutes": 0}
+
+    @staticmethod
+    def _models_defaults() -> Dict[str, Any]:
+        return {
+            "yolo_path": "models/yolo/best.pt",
+            "ocr_path": "models/ocr_crnn/crnn_ocr_model_int8_fx.pth",
+            "device": "cpu",
+        }
+
+    @staticmethod
+    def _ocr_constants_defaults() -> Dict[str, Any]:
+        return {"img_height": 32, "img_width": 128, "alphabet": "0123456789ABCEHKMOPTXY"}
+
+    @staticmethod
+    def _threshold_defaults() -> Dict[str, Any]:
+        return {"detection_confidence": 0.5, "ocr_confidence": 0.6}
 
     def _fill_channel_defaults(self, channel: Dict[str, Any], tracking_defaults: Dict[str, Any]) -> bool:
         defaults = self._channel_defaults(tracking_defaults)
@@ -259,6 +290,48 @@ class SettingsManager:
                 time_section[key] = val
                 changed = True
         data["time"] = time_section
+        return changed
+
+    def _fill_models_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
+        if "models" not in data:
+            data["models"] = defaults
+            return True
+
+        changed = False
+        models = data.get("models", {})
+        for key, val in defaults.items():
+            if key not in models:
+                models[key] = val
+                changed = True
+        data["models"] = models
+        return changed
+
+    def _fill_ocr_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
+        if "ocr_constants" not in data:
+            data["ocr_constants"] = defaults
+            return True
+
+        changed = False
+        constants = data.get("ocr_constants", {})
+        for key, val in defaults.items():
+            if key not in constants:
+                constants[key] = val
+                changed = True
+        data["ocr_constants"] = constants
+        return changed
+
+    def _fill_threshold_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
+        if "thresholds" not in data:
+            data["thresholds"] = defaults
+            return True
+
+        changed = False
+        thresholds = data.get("thresholds", {})
+        for key, val in defaults.items():
+            if key not in thresholds:
+                thresholds[key] = val
+                changed = True
+        data["thresholds"] = thresholds
         return changed
 
     def _save(self, data: Dict[str, Any]) -> None:
@@ -387,6 +460,33 @@ class SettingsManager:
 
     def get_logging_config(self) -> Dict[str, Any]:
         return self.settings.get("logging", {})
+
+    def get_models(self) -> Dict[str, Any]:
+        if self._fill_models_defaults(self.settings, self._models_defaults()):
+            self._save(self.settings)
+        return self.settings.get("models", {})
+
+    def save_models(self, models: Dict[str, Any]) -> None:
+        self.settings["models"] = models
+        self._save(self.settings)
+
+    def get_ocr_constants(self) -> Dict[str, Any]:
+        if self._fill_ocr_defaults(self.settings, self._ocr_constants_defaults()):
+            self._save(self.settings)
+        return self.settings.get("ocr_constants", {})
+
+    def save_ocr_constants(self, ocr_constants: Dict[str, Any]) -> None:
+        self.settings["ocr_constants"] = ocr_constants
+        self._save(self.settings)
+
+    def get_thresholds(self) -> Dict[str, Any]:
+        if self._fill_threshold_defaults(self.settings, self._threshold_defaults()):
+            self._save(self.settings)
+        return self.settings.get("thresholds", {})
+
+    def save_thresholds(self, thresholds: Dict[str, Any]) -> None:
+        self.settings["thresholds"] = thresholds
+        self._save(self.settings)
 
     def refresh(self) -> None:
         self.settings = self._load()

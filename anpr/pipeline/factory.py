@@ -6,7 +6,7 @@ import os
 from typing import Dict, Tuple
 import threading
 
-from anpr.config import ModelConfig
+from anpr.config import Config
 from anpr.detection.yolo_detector import YOLODetector
 from anpr.pipeline.anpr_pipeline import ANPRPipeline
 from anpr.postprocessing.country_config import CountryConfigLoader
@@ -32,9 +32,8 @@ def _get_shared_recognizer() -> CRNNRecognizer:
     if _RECOGNIZER_SINGLETON is None:
         with _RECOGNIZER_LOCK:
             if _RECOGNIZER_SINGLETON is None:
-                _RECOGNIZER_SINGLETON = CRNNRecognizer(
-                    ModelConfig.OCR_MODEL_PATH, ModelConfig.DEVICE
-                )
+                model_paths = Config.models()
+                _RECOGNIZER_SINGLETON = CRNNRecognizer(model_paths.ocr_path, model_paths.device)
     return _RECOGNIZER_SINGLETON
 
 
@@ -51,7 +50,8 @@ def build_components(
 ) -> Tuple[ANPRPipeline, YOLODetector]:
     """Создаёт независимые компоненты пайплайна (детектор, OCR и агрегация)."""
 
-    detector = YOLODetector(ModelConfig.YOLO_MODEL_PATH, ModelConfig.DEVICE)
+    model_paths = Config.models()
+    detector = YOLODetector(model_paths.yolo_path, model_paths.device)
     recognizer = _get_shared_recognizer()
     postprocessor = _build_postprocessor(plate_config or {})
     pipeline = ANPRPipeline(
