@@ -222,9 +222,11 @@ class ROIEditor(QtWidgets.QLabel):
         self._roi_data: Dict[str, Any] = {"unit": "px", "points": []}
         self._points: List[QtCore.QPointF] = []
         self._drag_index: Optional[int] = None
-        self._size_capture_target: Optional[str] = None
-        self._size_capture_start: Optional[QtCore.QPointF] = None
-        self._size_capture_end: Optional[QtCore.QPointF] = None
+        self._size_rects: Dict[str, Optional[QtCore.QRectF]] = {"min": None, "max": None}
+        self._active_size_target: Optional[str] = None
+        self._active_size_handle: Optional[str] = None
+        self._active_size_origin: Optional[QtCore.QPointF] = None
+        self._active_size_rect: Optional[QtCore.QRectF] = None
 
     def image_size(self) -> Optional[QtCore.QSize]:
         return self._pixmap.size() if self._pixmap else None
@@ -279,9 +281,31 @@ class ROIEditor(QtWidgets.QLabel):
             ]
         self._clamp_points()
 
+    def _clamp_rect(self, rect: QtCore.QRectF) -> QtCore.QRectF:
+        if self._pixmap is None:
+            return QtCore.QRectF(rect)
+        width = max(1.0, float(self._pixmap.width()))
+        height = max(1.0, float(self._pixmap.height()))
+        left = max(0.0, min(rect.left(), width))
+        top = max(0.0, min(rect.top(), height))
+        right = max(left + 1.0, min(rect.right(), width))
+        bottom = max(top + 1.0, min(rect.bottom(), height))
+        return QtCore.QRectF(QtCore.QPointF(left, top), QtCore.QPointF(right, bottom))
+
     def set_roi(self, roi: Dict[str, Any]) -> None:
         self._roi_data = roi or {"unit": "px", "points": []}
         self._recalculate_points()
+        self.update()
+
+    def set_plate_sizes(
+        self,
+        min_width: int,
+        min_height: int,
+        max_width: int,
+        max_height: int,
+    ) -> None:
+        self._update_size_rect("min", float(min_width), float(min_height))
+        self._update_size_rect("max", float(max_width), float(max_height))
         self.update()
 
     def setPixmap(self, pixmap: Optional[QtGui.QPixmap]) -> None:  # noqa: N802
@@ -294,6 +318,7 @@ class ROIEditor(QtWidgets.QLabel):
             self._size_capture_end = None
             return
         self._recalculate_points()
+        self._clamp_size_rects()
         scaled = self._scaled_pixmap(self.size())
         super().setPixmap(scaled)
         self.setText("")
@@ -302,6 +327,46 @@ class ROIEditor(QtWidgets.QLabel):
         super().resizeEvent(event)
         if self._pixmap:
             super().setPixmap(self._scaled_pixmap(event.size()))
+
+    def _update_size_rect(self, target: str, width: float, height: float) -> None:
+        if width <= 0 or height <= 0:
+            self._size_rects[target] = None
+            return
+
+        if self._pixmap is None:
+            left = 0.0
+            top = 0.0
+        else:
+            existing = self._size_rects.get(target)
+            anchor = existing.center() if existing else QtCore.QPointF(
+                float(self._pixmap.width()) / 2.0,
+                float(self._pixmap.height()) / 2.0,
+            )
+            left = anchor.x() - width / 2.0
+            top = anchor.y() - height / 2.0
+        rect = QtCore.QRectF(left, top, width, height)
+        self._size_rects[target] = self._clamp_rect(rect)
+
+    def _clamp_size_rects(self) -> None:
+        for key, rect in self._size_rects.items():
+            if rect is not None:
+                if (
+                    self._pixmap is not None
+                    and rect.topLeft() == QtCore.QPointF(0.0, 0.0)
+                    and rect.width() > 0
+                    and rect.height() > 0
+                ):
+                    centered = QtCore.QPointF(
+                        float(self._pixmap.width()) / 2.0,
+                        float(self._pixmap.height()) / 2.0,
+                    )
+                    rect = QtCore.QRectF(
+                        centered.x() - rect.width() / 2.0,
+                        centered.y() - rect.height() / 2.0,
+                        rect.width(),
+                        rect.height(),
+                    )
+                self._size_rects[key] = self._clamp_rect(rect)
 
     def _scaled_pixmap(self, size: QtCore.QSize) -> QtGui.QPixmap:
         assert self._pixmap is not None
@@ -345,6 +410,26 @@ class ROIEditor(QtWidgets.QLabel):
             (point.y() - offset.y()) * scale_y,
         )
 
+    def _widget_to_image_clamped(self, point: QtCore.QPoint) -> Optional[QtCore.QPointF]:
+        img_pos = self._widget_to_image(point)
+        if img_pos is not None:
+            return img_pos
+        geom = self._image_geometry()
+        if geom is None or self._pixmap is None:
+            return None
+        offset, scaled_size = geom
+        rect = QtCore.QRect(offset, scaled_size)
+        clamped = QtCore.QPoint(
+            max(rect.left(), min(point.x(), rect.right())),
+            max(rect.top(), min(point.y(), rect.bottom())),
+        )
+        scale_x = max(1, self._pixmap.width()) / max(1, scaled_size.width())
+        scale_y = max(1, self._pixmap.height()) / max(1, scaled_size.height())
+        return QtCore.QPointF(
+            (clamped.x() - offset.x()) * scale_x,
+            (clamped.y() - offset.y()) * scale_y,
+        )
+
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802
         super().paintEvent(event)
         geom = self._image_geometry()
@@ -353,18 +438,6 @@ class ROIEditor(QtWidgets.QLabel):
         _, scaled_size = geom
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
-
-        if self._size_capture_start and self._size_capture_end:
-            start = self._image_to_widget(self._size_capture_start)
-            end = self._image_to_widget(self._size_capture_end)
-            if start is not None and end is not None:
-                rect = QtCore.QRectF(start, end).normalized()
-                pen = QtGui.QPen(QtGui.QColor(59, 130, 246))
-                pen.setWidth(2)
-                pen.setStyle(QtCore.Qt.DashLine)
-                painter.setPen(pen)
-                painter.setBrush(QtGui.QColor(59, 130, 246, 40))
-                painter.drawRect(rect)
 
         # ROI отрисовываем поверх, чтобы рамка выбора не закрывала границы полигона
 
@@ -396,6 +469,51 @@ class ROIEditor(QtWidgets.QLabel):
         painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0), 1))
         for p in widget_points:
             painter.drawEllipse(QtCore.QPointF(p), 5, 5)
+
+        for target, color in ("min", QtGui.QColor(34, 211, 238)), ("max", QtGui.QColor(249, 115, 22)):
+            rect = self._size_rects.get(target)
+            if rect is None:
+                continue
+            top_left = self._image_to_widget(rect.topLeft())
+            bottom_right = self._image_to_widget(rect.bottomRight())
+            if top_left is None or bottom_right is None:
+                continue
+            widget_rect = QtCore.QRectF(top_left, bottom_right).normalized()
+            pen = QtGui.QPen(color)
+            pen.setWidth(2)
+            pen.setStyle(QtCore.Qt.DashLine)
+            painter.setPen(pen)
+            painter.setBrush(QtGui.QColor(color.red(), color.green(), color.blue(), 40))
+            painter.drawRect(widget_rect)
+
+            painter.setPen(QtGui.QPen(color))
+            painter.setBrush(QtGui.QBrush(color))
+            for corner in (
+                widget_rect.topLeft(),
+                widget_rect.topRight(),
+                widget_rect.bottomLeft(),
+                widget_rect.bottomRight(),
+            ):
+                painter.drawEllipse(corner, 5, 5)
+
+            label = "Мин" if target == "min" else "Макс"
+            painter.setPen(QtGui.QPen(QtGui.QColor(17, 24, 39)))
+            painter.setBrush(QtGui.QBrush(color))
+            metrics = painter.fontMetrics()
+            text = f"{label}: {int(rect.width())}×{int(rect.height())}"
+            padding = QtCore.QPointF(8, 6)
+            text_rect = metrics.boundingRect(text)
+            text_box = QtCore.QRectF(
+                widget_rect.topLeft(),
+                QtCore.QSizeF(text_rect.width() + padding.x() * 2, text_rect.height() + padding.y() * 2),
+            )
+            painter.drawRoundedRect(text_box, 6, 6)
+            painter.setPen(QtGui.QPen(QtGui.QColor(17, 24, 39)))
+            painter.drawText(
+                text_box.adjusted(padding.x(), padding.y(), -padding.x(), -padding.y()),
+                QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter,
+                text,
+            )
 
     def _emit_roi(self) -> None:
         roi = {
@@ -435,8 +553,42 @@ class ROIEditor(QtWidgets.QLabel):
                 best_index = i + 1
         return best_index
 
+    def _size_handle_at(self, pos: QtCore.QPoint) -> Optional[Tuple[str, str]]:
+        if self._pixmap is None:
+            return None
+        handle_radius = 10
+        for target in ("min", "max"):
+            rect = self._size_rects.get(target)
+            if rect is None:
+                continue
+            top_left = self._image_to_widget(rect.topLeft())
+            bottom_right = self._image_to_widget(rect.bottomRight())
+            if top_left is None or bottom_right is None:
+                continue
+            widget_rect = QtCore.QRectF(top_left, bottom_right).normalized()
+            corners = {
+                "tl": widget_rect.topLeft(),
+                "tr": widget_rect.topRight(),
+                "bl": widget_rect.bottomLeft(),
+                "br": widget_rect.bottomRight(),
+            }
+            for name, corner in corners.items():
+                if (corner - QtCore.QPointF(pos)).manhattanLength() <= handle_radius:
+                    return target, name
+            if widget_rect.contains(pos):
+                return target, "move"
+        return None
+
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
         if event.button() != QtCore.Qt.LeftButton:
+            return
+
+        size_handle = self._size_handle_at(event.pos())
+        if size_handle:
+            self._active_size_target, self._active_size_handle = size_handle
+            self._active_size_origin = self._widget_to_image_clamped(event.pos())
+            rect = self._size_rects.get(self._active_size_target)
+            self._active_size_rect = QtCore.QRectF(rect) if rect else None
             return
 
         img_pos = self._widget_to_image(event.pos())
@@ -466,13 +618,32 @@ class ROIEditor(QtWidgets.QLabel):
             self._drag_index = None
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
-        if self._size_capture_target:
-            if self._size_capture_start is None:
-                return
-            img_pos = self._widget_to_image(event.pos())
+        if self._active_size_target and self._active_size_rect:
+            img_pos = self._widget_to_image_clamped(event.pos())
             if img_pos is None:
                 return
-            self._size_capture_end = img_pos
+            rect = QtCore.QRectF(
+                self._size_rects.get(self._active_size_target) or self._active_size_rect
+            )
+            handle = self._active_size_handle
+            if handle == "move" and self._active_size_origin is not None:
+                delta = img_pos - self._active_size_origin
+                rect.translate(delta)
+            elif handle:
+                if "l" in handle:
+                    rect.setLeft(img_pos.x())
+                if "r" in handle:
+                    rect.setRight(img_pos.x())
+                if "t" in handle:
+                    rect.setTop(img_pos.y())
+                if "b" in handle:
+                    rect.setBottom(img_pos.y())
+            rect = rect.normalized()
+            rect = self._clamp_rect(rect)
+            self._size_rects[self._active_size_target] = rect
+            self.plate_size_selected.emit(
+                self._active_size_target, int(rect.width()), int(rect.height())
+            )
             self.update()
             return
 
@@ -487,21 +658,11 @@ class ROIEditor(QtWidgets.QLabel):
         self.update()
 
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
-        if self._size_capture_target:
-            if (
-                event.button() == QtCore.Qt.LeftButton
-                and self._size_capture_start is not None
-                and self._size_capture_end is not None
-            ):
-                rect = QtCore.QRectF(self._size_capture_start, self._size_capture_end).normalized()
-                if rect.width() >= 1 and rect.height() >= 1:
-                    self.plate_size_selected.emit(
-                        self._size_capture_target, int(rect.width()), int(rect.height())
-                    )
-            self._size_capture_target = None
-            self._size_capture_start = None
-            self._size_capture_end = None
-            self.update()
+        if self._active_size_target:
+            self._active_size_target = None
+            self._active_size_handle = None
+            self._active_size_origin = None
+            self._active_size_rect = None
             return
 
         self._drag_index = None
@@ -536,167 +697,6 @@ class ROIEditor(QtWidgets.QLabel):
         self._clamp_points()
         self._emit_roi()
         self.update()
-
-    def start_plate_size_capture(self, target: str) -> None:
-        self._size_capture_target = target
-        self._size_capture_start = None
-        self._size_capture_end = None
-        self.update()
-
-class FrameSizeSelector(QtWidgets.QLabel):
-    """Виджет выбора прямоугольной области для замера размеров рамки."""
-
-    sizeSelected = QtCore.pyqtSignal(int, int)
-
-    def __init__(self, pixmap: QtGui.QPixmap) -> None:
-        super().__init__()
-        self._pixmap = pixmap
-        self._start: Optional[QtCore.QPointF] = None
-        self._end: Optional[QtCore.QPointF] = None
-        self.setAlignment(QtCore.Qt.AlignCenter)
-        self.setMinimumSize(420, 280)
-        self.setStyleSheet("background-color: #0f172a; border: 1px solid #1f2937;")
-        self.setPixmap(pixmap)
-
-    def setPixmap(self, pixmap: Optional[QtGui.QPixmap]) -> None:  # noqa: N802
-        self._pixmap = pixmap
-        if pixmap is None:
-            super().setPixmap(QtGui.QPixmap())
-            self.setText("Нет кадра")
-            return
-        super().setPixmap(self._scaled_pixmap(self.size()))
-        self.setText("")
-
-    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
-        super().resizeEvent(event)
-        if self._pixmap:
-            super().setPixmap(self._scaled_pixmap(event.size()))
-
-    def _scaled_pixmap(self, size: QtCore.QSize) -> QtGui.QPixmap:
-        assert self._pixmap is not None
-        return self._pixmap.scaled(size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
-
-    def _image_geometry(self) -> Optional[Tuple[QtCore.QPoint, QtCore.QSize]]:
-        if self._pixmap is None:
-            return None
-        pixmap = self._scaled_pixmap(self.size())
-        area = self.contentsRect()
-        x = area.x() + (area.width() - pixmap.width()) // 2
-        y = area.y() + (area.height() - pixmap.height()) // 2
-        return QtCore.QPoint(x, y), pixmap.size()
-
-    def _widget_to_image(self, point: QtCore.QPoint) -> Optional[QtCore.QPointF]:
-        geom = self._image_geometry()
-        if geom is None or self._pixmap is None:
-            return None
-        offset, scaled_size = geom
-        rect = QtCore.QRect(offset, scaled_size)
-        if not rect.contains(point):
-            return None
-        scale_x = max(1, self._pixmap.width()) / max(1, scaled_size.width())
-        scale_y = max(1, self._pixmap.height()) / max(1, scaled_size.height())
-        return QtCore.QPointF((point.x() - offset.x()) * scale_x, (point.y() - offset.y()) * scale_y)
-
-    def _image_to_widget(self, point: QtCore.QPointF) -> Optional[QtCore.QPointF]:
-        geom = self._image_geometry()
-        if geom is None or self._pixmap is None:
-            return None
-        offset, scaled_size = geom
-        scale_x = scaled_size.width() / max(1, self._pixmap.width())
-        scale_y = scaled_size.height() / max(1, self._pixmap.height())
-        return QtCore.QPointF(offset.x() + point.x() * scale_x, offset.y() + point.y() * scale_y)
-
-    def _normalized_selection(self) -> Optional[QtCore.QRectF]:
-        if self._start is None or self._end is None:
-            return None
-        x1, x2 = sorted([self._start.x(), self._end.x()])
-        y1, y2 = sorted([self._start.y(), self._end.y()])
-        return QtCore.QRectF(QtCore.QPointF(x1, y1), QtCore.QPointF(x2, y2))
-
-    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
-        if event.button() != QtCore.Qt.LeftButton or self._pixmap is None:
-            return
-        img_pos = self._widget_to_image(event.pos())
-        if img_pos is None:
-            return
-        self._start = self._end = img_pos
-        self.update()
-
-    def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
-        if self._start is None or self._pixmap is None:
-            return
-        img_pos = self._widget_to_image(event.pos())
-        if img_pos is None:
-            return
-        self._end = img_pos
-        self.update()
-
-    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
-        if event.button() != QtCore.Qt.LeftButton or self._start is None or self._pixmap is None:
-            return
-        img_pos = self._widget_to_image(event.pos())
-        if img_pos is not None:
-            self._end = img_pos
-        rect = self._normalized_selection()
-        if rect and rect.width() >= 1 and rect.height() >= 1:
-            self.sizeSelected.emit(int(rect.width()), int(rect.height()))
-        self.update()
-
-    def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802
-        super().paintEvent(event)
-        rect = self._normalized_selection()
-        if rect is None:
-            return
-        widget_start = self._image_to_widget(rect.topLeft())
-        widget_end = self._image_to_widget(rect.bottomRight())
-        if widget_start is None or widget_end is None:
-            return
-        painter = QtGui.QPainter(self)
-        painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        pen = QtGui.QPen(QtGui.QColor(59, 130, 246))
-        pen.setWidth(2)
-        painter.setPen(pen)
-        painter.setBrush(QtGui.QColor(59, 130, 246, 40))
-        rectf = QtCore.QRectF(widget_start, widget_end)
-        painter.drawRect(rectf.normalized())
-
-
-class SizeSelectionDialog(QtWidgets.QDialog):
-    """Диалог выбора прямоугольника для задания размера рамки."""
-
-    def __init__(self, pixmap: QtGui.QPixmap, title: str, parent: Optional[QtWidgets.QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(title)
-        self.setModal(True)
-        self._result: Tuple[int, int] = (0, 0)
-
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(QtWidgets.QLabel("Выделите рамку на кадре, чтобы использовать её размеры."))
-        self.selector = FrameSizeSelector(pixmap)
-        layout.addWidget(self.selector)
-
-        self.hint_label = QtWidgets.QLabel("Размер не выбран")
-        layout.addWidget(self.hint_label)
-
-        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
-        self.ok_button = buttons.button(QtWidgets.QDialogButtonBox.Ok)
-        if self.ok_button:
-            self.ok_button.setEnabled(False)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-        self.selector.sizeSelected.connect(self._on_size_selected)
-
-    @property
-    def result_size(self) -> Tuple[int, int]:
-        return self._result
-
-    def _on_size_selected(self, width: int, height: int) -> None:
-        self._result = (width, height)
-        if self.ok_button:
-            self.ok_button.setEnabled(True)
-        self.hint_label.setText(f"Выбрано: {width}×{height} px")
 
 class PreviewLoader(QtCore.QThread):
     """Фоновая загрузка превью кадра канала, чтобы не блокировать UI."""
@@ -2381,43 +2381,43 @@ class MainWindow(QtWidgets.QMainWindow):
         self.min_plate_width_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
         self.min_plate_width_input.setToolTip("Минимальная ширина рамки, меньшие детекции будут отброшены")
 
+        self.min_plate_width_input.valueChanged.connect(self._sync_plate_rects_from_inputs)
+
         self.min_plate_height_input = QtWidgets.QSpinBox()
         self.min_plate_height_input.setRange(0, 3000)
         self.min_plate_height_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
         self.min_plate_height_input.setToolTip("Минимальная высота рамки, меньшие детекции будут отброшены")
+
+        self.min_plate_height_input.valueChanged.connect(self._sync_plate_rects_from_inputs)
 
         self.max_plate_width_input = QtWidgets.QSpinBox()
         self.max_plate_width_input.setRange(0, 8000)
         self.max_plate_width_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
         self.max_plate_width_input.setToolTip("Максимальная ширина рамки, более крупные детекции будут отброшены")
 
+        self.max_plate_width_input.valueChanged.connect(self._sync_plate_rects_from_inputs)
+
         self.max_plate_height_input = QtWidgets.QSpinBox()
         self.max_plate_height_input.setRange(0, 4000)
         self.max_plate_height_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
         self.max_plate_height_input.setToolTip("Максимальная высота рамки, более крупные детекции будут отброшены")
 
-        pick_min_btn = QtWidgets.QPushButton("Указать мин. на кадре")
-        self._polish_button(pick_min_btn, 180)
-        pick_min_btn.clicked.connect(lambda: self._start_plate_size_capture(target="min"))
-
-        pick_max_btn = QtWidgets.QPushButton("Указать макс. на кадре")
-        self._polish_button(pick_max_btn, 180)
-        pick_max_btn.clicked.connect(lambda: self._start_plate_size_capture(target="max"))
+        self.max_plate_height_input.valueChanged.connect(self._sync_plate_rects_from_inputs)
 
         size_layout.addWidget(QtWidgets.QLabel("Мин. ширина (px):"), 0, 0)
         size_layout.addWidget(self.min_plate_width_input, 0, 1)
         size_layout.addWidget(QtWidgets.QLabel("Мин. высота (px):"), 0, 2)
         size_layout.addWidget(self.min_plate_height_input, 0, 3)
-        size_layout.addWidget(pick_min_btn, 0, 4)
         size_layout.addWidget(QtWidgets.QLabel("Макс. ширина (px):"), 1, 0)
         size_layout.addWidget(self.max_plate_width_input, 1, 1)
         size_layout.addWidget(QtWidgets.QLabel("Макс. высота (px):"), 1, 2)
         size_layout.addWidget(self.max_plate_height_input, 1, 3)
-        size_layout.addWidget(pick_max_btn, 1, 4)
 
-        self.plate_size_hint = QtWidgets.QLabel("Выбор на кадре: кликните кнопку и выделите рамку на превью слева")
+        self.plate_size_hint = QtWidgets.QLabel(
+            "Перетаскивайте прямоугольники мин/макс на превью слева, значения сохраняются автоматически"
+        )
         self.plate_size_hint.setStyleSheet("color: #9ca3af; padding-top: 6px;")
-        size_layout.addWidget(self.plate_size_hint, 2, 0, 1, 5)
+        size_layout.addWidget(self.plate_size_hint, 2, 0, 1, 4)
         size_group.setLayout(size_layout)
 
         roi_form.addRow("", size_group)
@@ -2522,6 +2522,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.min_plate_height_input.setValue(int(min_size.get("height", 0)))
         self.max_plate_width_input.setValue(int(max_size.get("width", 0)))
         self.max_plate_height_input.setValue(int(max_size.get("height", 0)))
+        self.plate_size_hint.setText(
+            "Перетаскивайте прямоугольники мин/макс на превью слева, значения сохраняются автоматически"
+        )
+        self.preview.set_plate_sizes(
+            self.min_plate_width_input.value(),
+            self.min_plate_height_input.value(),
+            self.max_plate_width_input.value(),
+            self.max_plate_height_input.value(),
+        )
         default_roi = self._default_roi_region()
         self.preview.setPixmap(None)
         self.preview.set_roi(default_roi)
@@ -2691,6 +2700,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"Текущие рамки: мин {self.min_plate_width_input.value()}×{self.min_plate_height_input.value()} px, "
                 f"макс {self.max_plate_width_input.value()}×{self.max_plate_height_input.value()} px"
             )
+            self._sync_plate_rects_from_inputs()
 
             debug_conf = channel.get("debug", {})
             self.debug_detection_checkbox.setChecked(bool(debug_conf.get("show_detection_boxes", False)))
@@ -2832,21 +2842,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._sync_roi_table(default_roi)
         self.preview.set_roi(default_roi)
 
-    def _start_plate_size_capture(self, target: str) -> None:
-        pixmap = self.preview.current_pixmap()
-        if pixmap is None:
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Нет кадра",
-                "Нет изображения для замера. Обновите кадр и попробуйте снова.",
-            )
-            return
-
-        label = "мин" if target == "min" else "макс"
-        self.plate_size_hint.setText(
-            f"Выбор {label} рамки: выделите прямоугольник на превью слева"
+    def _sync_plate_rects_from_inputs(self) -> None:
+        self.preview.set_plate_sizes(
+            self.min_plate_width_input.value(),
+            self.min_plate_height_input.value(),
+            self.max_plate_width_input.value(),
+            self.max_plate_height_input.value(),
         )
-        self.preview.start_plate_size_capture(target)
 
     def _on_plate_size_selected(self, target: str, width: int, height: int) -> None:
         if target == "min":
@@ -2858,7 +2860,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.max_plate_height_input.setValue(height)
             label = "макс"
         self.plate_size_hint.setText(
-            f"Выбрано {label}: {width}×{height} px. Нажмите кнопку, чтобы выбрать снова"
+            f"Прямоугольник {label}: {width}×{height} px"
         )
 
     def _cancel_preview_worker(self) -> None:
