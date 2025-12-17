@@ -203,12 +203,12 @@ ANPR-System-v0.5/
 │
 └── anpr/                     # Основной пакет приложения
     ├── __init__.py
-    ├── config.py             # Singleton Config: фасад над settings.json
+    ├── config.py             # Константы путей к моделям и пороги
     │
     ├── infrastructure/       # Инфраструктурный слой
     │   ├── __init__.py
     │   ├── logging_manager.py  # Централизованный менеджер логирования с ротацией
-    │   ├── settings_manager.py # Управление settings.json с миграцией и умолчаниями
+    │   ├── settings_manager.py # Управление настройками с миграцией версий
     │   └── storage.py          # Синхронный и асинхронный доступ к SQLite БД
     │
     ├── detection/            # Детекция объектов
