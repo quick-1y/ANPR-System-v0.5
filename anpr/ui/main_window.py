@@ -208,6 +208,7 @@ class ROIEditor(QtWidgets.QLabel):
     """Виджет предпросмотра канала с настраиваемой областью распознавания."""
 
     roi_changed = QtCore.pyqtSignal(dict)
+    size_selected = QtCore.pyqtSignal(str, int, int)
 
     def __init__(self) -> None:
         super().__init__("Нет кадра")
@@ -220,6 +221,11 @@ class ROIEditor(QtWidgets.QLabel):
         self._roi_data: Dict[str, Any] = {"unit": "px", "points": []}
         self._points: List[QtCore.QPointF] = []
         self._drag_index: Optional[int] = None
+        self._min_size: Tuple[int, int] = (0, 0)
+        self._max_size: Tuple[int, int] = (0, 0)
+        self._size_capture_mode: Optional[str] = None
+        self._size_drag_start: Optional[QtCore.QPointF] = None
+        self._size_drag_current: Optional[QtCore.QPointF] = None
 
     def image_size(self) -> Optional[QtCore.QSize]:
         return self._pixmap.size() if self._pixmap else None
@@ -276,9 +282,27 @@ class ROIEditor(QtWidgets.QLabel):
         self._recalculate_points()
         self.update()
 
+    def set_size_guides(self, min_size: Tuple[int, int], max_size: Tuple[int, int]) -> None:
+        self._min_size = (max(0, int(min_size[0])), max(0, int(min_size[1])))
+        self._max_size = (max(0, int(max_size[0])), max(0, int(max_size[1])))
+        self.update()
+
+    def start_size_capture(self, mode: str) -> None:
+        if self._pixmap is None:
+            return
+        self._size_capture_mode = mode
+        self._size_drag_start = None
+        self._size_drag_current = None
+        self.setCursor(QtCore.Qt.CrossCursor)
+        self.update()
+
     def setPixmap(self, pixmap: Optional[QtGui.QPixmap]) -> None:  # noqa: N802
         self._pixmap = pixmap
         if pixmap is None:
+            self._size_capture_mode = None
+            self._size_drag_start = None
+            self._size_drag_current = None
+            self.setCursor(QtCore.Qt.ArrowCursor)
             super().setPixmap(QtGui.QPixmap())
             self.setText("Нет кадра")
             return
@@ -306,6 +330,22 @@ class ROIEditor(QtWidgets.QLabel):
         x = area.x() + (area.width() - pixmap.width()) // 2
         y = area.y() + (area.height() - pixmap.height()) // 2
         return QtCore.QPoint(x, y), pixmap.size()
+
+    def _roi_bounds(self) -> Optional[QtCore.QRectF]:
+        if self._pixmap is None:
+            return None
+
+        if self._points:
+            xs = [p.x() for p in self._points]
+            ys = [p.y() for p in self._points]
+            return QtCore.QRectF(
+                min(xs),
+                min(ys),
+                max(xs) - min(xs),
+                max(ys) - min(ys),
+            )
+
+        return QtCore.QRectF(0, 0, float(self._pixmap.width()), float(self._pixmap.height()))
 
     def _image_to_widget(self, point: QtCore.QPointF) -> Optional[QtCore.QPointF]:
         geom = self._image_geometry()
@@ -372,6 +412,37 @@ class ROIEditor(QtWidgets.QLabel):
         for p in widget_points:
             painter.drawEllipse(QtCore.QPointF(p), 5, 5)
 
+        bounds = self._roi_bounds()
+        anchor = None if bounds is None else QtCore.QPointF(bounds.x(), bounds.y())
+
+        def _draw_size_box(size: Tuple[int, int], color: QtGui.QColor, style: QtCore.Qt.PenStyle) -> None:
+            if anchor is None:
+                return
+            if size[0] <= 0 or size[1] <= 0:
+                return
+            anchor_widget = self._image_to_widget(anchor)
+            bottom = QtCore.QPointF(anchor.x() + size[0], anchor.y() + size[1])
+            bottom_widget = self._image_to_widget(bottom)
+            if anchor_widget is None or bottom_widget is None:
+                return
+            painter.setBrush(QtCore.Qt.NoBrush)
+            pen = QtGui.QPen(color)
+            pen.setStyle(style)
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawRect(QtCore.QRectF(anchor_widget, bottom_widget).normalized())
+
+        _draw_size_box(self._min_size, QtGui.QColor(0, 200, 0), QtCore.Qt.DashLine)
+        _draw_size_box(self._max_size, QtGui.QColor(200, 80, 80), QtCore.Qt.DotLine)
+
+        if self._size_drag_start is not None and self._size_drag_current is not None:
+            start_widget = self._image_to_widget(self._size_drag_start)
+            end_widget = self._image_to_widget(self._size_drag_current)
+            if start_widget is not None and end_widget is not None:
+                painter.setBrush(QtGui.QColor(80, 160, 255, 60))
+                painter.setPen(QtGui.QPen(QtGui.QColor(80, 160, 255), 2, QtCore.Qt.SolidLine))
+                painter.drawRect(QtCore.QRectF(start_widget, end_widget).normalized())
+
     def _emit_roi(self) -> None:
         roi = {
             "unit": "px",
@@ -418,6 +489,12 @@ class ROIEditor(QtWidgets.QLabel):
         if img_pos is None:
             return
 
+        if self._size_capture_mode:
+            self._size_drag_start = img_pos
+            self._size_drag_current = img_pos
+            self.update()
+            return
+
         handle_radius = 8
         closest_idx = None
         closest_dist = handle_radius + 1
@@ -436,6 +513,15 @@ class ROIEditor(QtWidgets.QLabel):
             self._drag_index = None
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if self._size_capture_mode:
+            if self._size_drag_start is None:
+                return
+            img_pos = self._widget_to_image(event.pos())
+            if img_pos is None:
+                return
+            self._size_drag_current = img_pos
+            self.update()
+            return
         if self._drag_index is None:
             return
         img_pos = self._widget_to_image(event.pos())
@@ -447,9 +533,24 @@ class ROIEditor(QtWidgets.QLabel):
         self.update()
 
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if self._size_capture_mode:
+            if self._size_drag_start is not None and self._size_drag_current is not None:
+                dx = self._size_drag_current.x() - self._size_drag_start.x()
+                dy = self._size_drag_current.y() - self._size_drag_start.y()
+                width = max(1, int(abs(dx)))
+                height = max(1, int(abs(dy)))
+                self.size_selected.emit(self._size_capture_mode, width, height)
+            self._size_capture_mode = None
+            self._size_drag_start = None
+            self._size_drag_current = None
+            self.setCursor(QtCore.Qt.ArrowCursor)
+            self.update()
+            return
         self._drag_index = None
 
     def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if self._size_capture_mode:
+            return
         if event.button() != QtCore.Qt.LeftButton:
             return
 
@@ -479,9 +580,6 @@ class ROIEditor(QtWidgets.QLabel):
         self._clamp_points()
         self._emit_roi()
         self.update()
-
-    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
-        self._drag_index = None
 
 
 class PreviewLoader(QtCore.QThread):
@@ -2017,6 +2115,7 @@ class MainWindow(QtWidgets.QMainWindow):
         center_panel = QtWidgets.QVBoxLayout()
         self.preview = ROIEditor()
         self.preview.roi_changed.connect(self._on_roi_drawn)
+        self.preview.size_selected.connect(self._on_size_selected)
         center_panel.addWidget(self.preview)
         layout.addLayout(center_panel, 2)
 
@@ -2084,6 +2183,52 @@ class MainWindow(QtWidgets.QMainWindow):
             "Минимальная уверенность OCR (0-1) для приема результата; ниже — помечается как нечитаемое"
         )
         recognition_form.addRow("Мин. уверенность OCR:", self.min_conf_input)
+
+        size_group = QtWidgets.QGroupBox("Фильтр размера номера")
+        size_layout = QtWidgets.QGridLayout(size_group)
+
+        self.min_width_input = QtWidgets.QSpinBox()
+        self.min_width_input.setRange(0, 10000)
+        self.min_width_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.min_height_input = QtWidgets.QSpinBox()
+        self.min_height_input.setRange(0, 10000)
+        self.min_height_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+
+        self.max_width_input = QtWidgets.QSpinBox()
+        self.max_width_input.setRange(0, 10000)
+        self.max_width_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.max_height_input = QtWidgets.QSpinBox()
+        self.max_height_input.setRange(0, 10000)
+        self.max_height_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+
+        for spin in (
+            self.min_width_input,
+            self.min_height_input,
+            self.max_width_input,
+            self.max_height_input,
+        ):
+            spin.valueChanged.connect(self._update_size_guides_from_inputs)
+
+        pick_min_btn = QtWidgets.QPushButton("Указать минимум на кадре")
+        self._polish_button(pick_min_btn, 220)
+        pick_min_btn.clicked.connect(lambda: self._start_size_capture("min"))
+        pick_max_btn = QtWidgets.QPushButton("Указать максимум на кадре")
+        self._polish_button(pick_max_btn, 220)
+        pick_max_btn.clicked.connect(lambda: self._start_size_capture("max"))
+
+        size_layout.addWidget(QtWidgets.QLabel("Мин. ширина"), 0, 0)
+        size_layout.addWidget(self.min_width_input, 0, 1)
+        size_layout.addWidget(QtWidgets.QLabel("Мин. высота"), 0, 2)
+        size_layout.addWidget(self.min_height_input, 0, 3)
+        size_layout.addWidget(pick_min_btn, 0, 4)
+
+        size_layout.addWidget(QtWidgets.QLabel("Макс. ширина"), 1, 0)
+        size_layout.addWidget(self.max_width_input, 1, 1)
+        size_layout.addWidget(QtWidgets.QLabel("Макс. высота"), 1, 2)
+        size_layout.addWidget(self.max_height_input, 1, 3)
+        size_layout.addWidget(pick_max_btn, 1, 4)
+
+        recognition_form.addRow(size_group)
 
         debug_row = QtWidgets.QHBoxLayout()
         self.debug_detection_checkbox = QtWidgets.QCheckBox("Рамки детекции")
@@ -2362,6 +2507,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self.motion_activation_frames_input.setValue(int(channel.get("motion_activation_frames", 3)))
             self.motion_release_frames_input.setValue(int(channel.get("motion_release_frames", 6)))
 
+            min_size = channel.get("min_plate_size") or {}
+            max_size = channel.get("max_plate_size") or {}
+            self.min_width_input.setValue(int(min_size.get("width", 0)))
+            self.min_height_input.setValue(int(min_size.get("height", 0)))
+            self.max_width_input.setValue(int(max_size.get("width", 0)))
+            self.max_height_input.setValue(int(max_size.get("height", 0)))
+            self._update_size_guides_from_inputs()
+
             debug_conf = channel.get("debug", {})
             self.debug_detection_checkbox.setChecked(bool(debug_conf.get("show_detection_boxes", False)))
             self.debug_ocr_checkbox.setChecked(bool(debug_conf.get("show_ocr_text", False)))
@@ -2382,6 +2535,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 "best_shots": self.settings.get_best_shots(),
                 "cooldown_seconds": self.settings.get_cooldown_seconds(),
                 "ocr_min_confidence": self.settings.get_min_confidence(),
+                "min_plate_size": {"width": 0, "height": 0},
+                "max_plate_size": {"width": 0, "height": 0},
                 "region": {"unit": "px", "points": []},
                 "detection_mode": "continuous",
                 "detector_frame_stride": 2,
@@ -2422,6 +2577,14 @@ class MainWindow(QtWidgets.QMainWindow):
             channels[index]["motion_frame_stride"] = int(self.motion_stride_input.value())
             channels[index]["motion_activation_frames"] = int(self.motion_activation_frames_input.value())
             channels[index]["motion_release_frames"] = int(self.motion_release_frames_input.value())
+            channels[index]["min_plate_size"] = {
+                "width": int(self.min_width_input.value()),
+                "height": int(self.min_height_input.value()),
+            }
+            channels[index]["max_plate_size"] = {
+                "width": int(self.max_width_input.value()),
+                "height": int(self.max_height_input.value()),
+            }
             channels[index]["region"] = {"unit": "px", "points": self._collect_roi_points_from_table()}
             channels[index]["debug"] = {
                 "show_detection_boxes": self.debug_detection_checkbox.isChecked(),
@@ -2491,6 +2654,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.roi_points_table.blockSignals(False)
         self._on_roi_table_changed()
 
+    def _start_size_capture(self, mode: str) -> None:
+        if self.preview.image_size() is None:
+            return
+        self.preview.start_size_capture(mode)
+
+    def _on_size_selected(self, mode: str, width: int, height: int) -> None:
+        if mode == "min":
+            self.min_width_input.setValue(width)
+            self.min_height_input.setValue(height)
+        elif mode == "max":
+            self.max_width_input.setValue(width)
+            self.max_height_input.setValue(height)
+        self._update_size_guides_from_inputs()
+
+    def _update_size_guides_from_inputs(self) -> None:
+        self.preview.set_size_guides(
+            (int(self.min_width_input.value()), int(self.min_height_input.value())),
+            (int(self.max_width_input.value()), int(self.max_height_input.value())),
+        )
+
     def _cancel_preview_worker(self) -> None:
         if self._preview_worker:
             self._preview_worker.requestInterruption()
@@ -2519,6 +2702,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if rid != self._preview_request_id:
                 return
             self.preview.setPixmap(pixmap)
+            self._update_size_guides_from_inputs()
             self._preview_worker = None
 
         def handle_failure(rid: int = request_id) -> None:
