@@ -6,7 +6,6 @@ from .storage import AsyncEventDatabase, EventDatabase
 
 __all__ = [
     "LoggingManager",
-    "SettingsManager",
     "AsyncEventDatabase",
     "EventDatabase",
     "get_logger",
