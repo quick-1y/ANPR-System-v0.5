@@ -12,7 +12,7 @@ import torch.ao.quantization.quantize_fx as quantize_fx
 from torch.ao.quantization import QConfigMapping
 from torchvision import transforms
 
-from anpr.config import ModelConfig
+from anpr.config import Config
 from anpr.recognition.crnn import CRNN
 from anpr.infrastructure.logging_manager import get_logger
 
@@ -24,23 +24,24 @@ class CRNNRecognizer:
 
     def __init__(self, model_path: str, device: torch.device) -> None:
         self.device = device
+        config = Config()
         self.transform = transforms.Compose(
             [
                 transforms.ToPILImage(),
                 transforms.Grayscale(),
-                transforms.Resize((ModelConfig.OCR_IMG_HEIGHT, ModelConfig.OCR_IMG_WIDTH)),
+                transforms.Resize((config.ocr_height, config.ocr_width)),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.5], std=[0.5]),
             ]
         )
-        self.int_to_char: Dict[int, str] = {i + 1: char for i, char in enumerate(ModelConfig.OCR_ALPHABET)}
+        self.int_to_char: Dict[int, str] = {i + 1: char for i, char in enumerate(config.ocr_alphabet)}
         self.int_to_char[0] = ""
 
-        num_classes = len(ModelConfig.OCR_ALPHABET) + 1
+        num_classes = len(config.ocr_alphabet) + 1
 
         model_to_load = CRNN(num_classes).eval()
         qconfig_mapping = QConfigMapping().set_global(torch.ao.quantization.get_default_qconfig("fbgemm"))
-        example_inputs = (torch.randn(1, 1, ModelConfig.OCR_IMG_HEIGHT, ModelConfig.OCR_IMG_WIDTH),)
+        example_inputs = (torch.randn(1, 1, config.ocr_height, config.ocr_width),)
         model_prepared = quantize_fx.prepare_fx(model_to_load, qconfig_mapping, example_inputs)
         model_quantized = quantize_fx.convert_fx(model_prepared)
 

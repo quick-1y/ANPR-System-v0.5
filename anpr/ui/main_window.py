@@ -13,10 +13,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from PyQt5 import QtCore, QtGui, QtWidgets
 from zoneinfo import ZoneInfo
 
+from anpr.config import Config
 from anpr.postprocessing.country_config import CountryConfigLoader
 from anpr.workers.channel_worker import ChannelWorker
 from anpr.infrastructure.logging_manager import get_logger
-from anpr.infrastructure.settings_manager import SettingsManager
 from anpr.infrastructure.storage import EventDatabase
 
 logger = get_logger(__name__)
@@ -721,7 +721,7 @@ class MainWindow(QtWidgets.QMainWindow):
         "QListWidget::item { padding: 8px 10px; margin: 2px 0; }"
     )
 
-    def __init__(self, settings: Optional[SettingsManager] = None) -> None:
+    def __init__(self, settings: Optional[Config] = None) -> None:
         super().__init__()
         self.setWindowTitle("ANPR Desktop")
         self.resize(1280, 800)
@@ -740,7 +740,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self._window_drag_pos: Optional[QtCore.QPoint] = None
 
-        self.settings = settings or SettingsManager()
+        self.settings = settings or Config()
         self.current_grid = self.settings.get_grid()
         if self.current_grid not in self.GRID_VARIANTS:
             self.current_grid = self.GRID_VARIANTS[0]

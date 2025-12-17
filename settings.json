@@ -1,4 +1,18 @@
 {
+  "models": {
+    "yolo_model_path": "models/yolo/best.pt",
+    "ocr_model_path": "models/ocr_crnn/crnn_ocr_model_int8_fx.pth",
+    "device": "cpu"
+  },
+  "ocr": {
+    "img_height": 32,
+    "img_width": 128,
+    "alphabet": "0123456789ABCEHKMOPTXY",
+    "confidence_threshold": 0.6
+  },
+  "detector": {
+    "confidence_threshold": 0.5
+  },
   "grid": "2x2",
   "channels": [
     {
