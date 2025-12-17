@@ -496,24 +496,17 @@ class ROIEditor(QtWidgets.QLabel):
             ):
                 painter.drawEllipse(corner, 5, 5)
 
-            label = "Мин" if target == "min" else "Макс"
-            painter.setPen(QtGui.QPen(QtGui.QColor(17, 24, 39)))
-            painter.setBrush(QtGui.QBrush(color))
+            label = "минимальный" if target == "min" else "максимальный"
             metrics = painter.fontMetrics()
-            text = f"{label}: {int(rect.width())}×{int(rect.height())}"
-            padding = QtCore.QPointF(8, 6)
-            text_rect = metrics.boundingRect(text)
-            text_box = QtCore.QRectF(
-                widget_rect.topLeft(),
-                QtCore.QSizeF(text_rect.width() + padding.x() * 2, text_rect.height() + padding.y() * 2),
+            text_rect = metrics.boundingRect(label)
+            label_rect = QtCore.QRectF(
+                widget_rect.left(),
+                max(0.0, widget_rect.top() - text_rect.height() - 4),
+                text_rect.width(),
+                text_rect.height(),
             )
-            painter.drawRoundedRect(text_box, 6, 6)
-            painter.setPen(QtGui.QPen(QtGui.QColor(17, 24, 39)))
-            painter.drawText(
-                text_box.adjusted(padding.x(), padding.y(), -padding.x(), -padding.y()),
-                QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter,
-                text,
-            )
+            painter.setPen(QtGui.QPen(color))
+            painter.drawText(label_rect, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, label)
 
     def _emit_roi(self) -> None:
         roi = {
@@ -629,6 +622,7 @@ class ROIEditor(QtWidgets.QLabel):
             if handle == "move" and self._active_size_origin is not None:
                 delta = img_pos - self._active_size_origin
                 rect.translate(delta)
+                self._active_size_origin = img_pos
             elif handle:
                 if "l" in handle:
                     rect.setLeft(img_pos.x())
