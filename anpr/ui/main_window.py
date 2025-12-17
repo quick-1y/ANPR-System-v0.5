@@ -313,6 +313,9 @@ class ROIEditor(QtWidgets.QLabel):
         if pixmap is None:
             super().setPixmap(QtGui.QPixmap())
             self.setText("Нет кадра")
+            self._size_capture_target = None
+            self._size_capture_start = None
+            self._size_capture_end = None
             return
         self._recalculate_points()
         self._clamp_size_rects()
@@ -590,6 +593,11 @@ class ROIEditor(QtWidgets.QLabel):
 
         img_pos = self._widget_to_image(event.pos())
         if img_pos is None:
+            return
+
+        if self._size_capture_target:
+            self._size_capture_start = self._size_capture_end = img_pos
+            self.update()
             return
 
         handle_radius = 8
