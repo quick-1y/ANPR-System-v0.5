@@ -292,11 +292,6 @@ class ROIEditor(QtWidgets.QLabel):
         self._clamp_size_anchors()
         self.update()
 
-    def set_size_guides(self, min_size: Tuple[int, int], max_size: Tuple[int, int]) -> None:
-        self._min_size = (max(0, int(min_size[0])), max(0, int(min_size[1])))
-        self._max_size = (max(0, int(max_size[0])), max(0, int(max_size[1])))
-        self.update()
-
     def setPixmap(self, pixmap: Optional[QtGui.QPixmap]) -> None:  # noqa: N802
         self._pixmap = pixmap
         if pixmap is None:
@@ -703,6 +698,8 @@ class ROIEditor(QtWidgets.QLabel):
                 closest_dist = dist
 
         if closest_idx is not None:
+            if len(self._points) <= 3:
+                return
             self._points.pop(closest_idx)
         else:
             insert_at = self._find_insertion_index(img_pos)
@@ -2858,8 +2855,12 @@ class MainWindow(QtWidgets.QMainWindow):
         rows = sorted({index.row() for index in self.roi_points_table.selectedIndexes()}, reverse=True)
         if not rows and self.roi_points_table.rowCount():
             rows = [self.roi_points_table.rowCount() - 1]
+        if self.roi_points_table.rowCount() <= 3:
+            return
         self.roi_points_table.blockSignals(True)
         for row in rows:
+            if self.roi_points_table.rowCount() <= 3:
+                break
             self.roi_points_table.removeRow(row)
         self.roi_points_table.blockSignals(False)
         self._on_roi_table_changed()

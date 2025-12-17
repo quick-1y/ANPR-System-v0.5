@@ -449,9 +449,12 @@ class ChannelWorker(QtCore.QThread):
 
         if not self.config.region.is_full_frame() and roi_frame.size:
             local_polygon = np.array([[(x - x1), (y - y1)] for x, y in polygon], dtype=np.int32)
-            mask = np.zeros((roi_frame.shape[0], roi_frame.shape[1]), dtype=np.uint8)
-            cv2.fillPoly(mask, [local_polygon], 255)
-            roi_frame = cv2.bitwise_and(roi_frame, roi_frame, mask=mask)
+            if len(local_polygon) >= 3:
+                mask = np.zeros((roi_frame.shape[0], roi_frame.shape[1]), dtype=np.uint8)
+                cv2.fillPoly(mask, [local_polygon], 255)
+                roi_frame = cv2.bitwise_and(roi_frame, roi_frame, mask=mask)
+            else:
+                logger.warning("ROI polygon has fewer than 3 points; skipping mask application")
 
         return roi_frame, (x1, y1, x2, y2)
 
