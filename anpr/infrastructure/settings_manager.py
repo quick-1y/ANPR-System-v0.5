@@ -12,6 +12,13 @@ DEFAULT_ROI_POINTS = [
     {"x": 500, "y": 900},
 ]
 
+DEFAULT_PLATE_SIZE_LIMITS = {
+    "min_width": 80,
+    "min_height": 25,
+    "max_width": 480,
+    "max_height": 180,
+}
+
 
 class SettingsManager:
     """Управляет конфигурацией приложения и каналами."""
@@ -114,6 +121,7 @@ class SettingsManager:
             "cooldown_seconds": int(tracking_defaults.get("cooldown_seconds", 5)),
             "ocr_min_confidence": float(tracking_defaults.get("ocr_min_confidence", 0.6)),
             "region": {"unit": "px", "points": [point.copy() for point in DEFAULT_ROI_POINTS]},
+            "plate_size": DEFAULT_PLATE_SIZE_LIMITS.copy(),
             "detection_mode": "motion",
             "detector_frame_stride": 2,
             "motion_threshold": 0.01,
@@ -144,6 +152,32 @@ class SettingsManager:
             {"x": x, "y": y + height},
         ]
         return {"unit": "percent", "points": points}
+
+    @staticmethod
+    def _upgrade_plate_size(plate_size: Optional[Dict[str, Any]]) -> Dict[str, int]:
+        defaults = DEFAULT_PLATE_SIZE_LIMITS
+        data = plate_size or {}
+
+        def _valid_int(value: Any, default: int) -> int:
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError):
+                return default
+            return max(0, parsed)
+
+        upgraded = {
+            "min_width": _valid_int(data.get("min_width"), defaults["min_width"]),
+            "min_height": _valid_int(data.get("min_height"), defaults["min_height"]),
+            "max_width": _valid_int(data.get("max_width"), defaults["max_width"]),
+            "max_height": _valid_int(data.get("max_height"), defaults["max_height"]),
+        }
+
+        if upgraded["max_width"] and upgraded["min_width"]:
+            upgraded["min_width"] = min(upgraded["min_width"], upgraded["max_width"])
+        if upgraded["max_height"] and upgraded["min_height"]:
+            upgraded["min_height"] = min(upgraded["min_height"], upgraded["max_height"])
+
+        return upgraded
 
     @staticmethod
     def _reconnect_defaults() -> Dict[str, Any]:
@@ -216,6 +250,11 @@ class SettingsManager:
         upgraded_region = self._upgrade_region(channel.get("region"))
         if channel.get("region") != upgraded_region:
             channel["region"] = upgraded_region
+            changed = True
+
+        upgraded_plate_size = self._upgrade_plate_size(channel.get("plate_size"))
+        if channel.get("plate_size") != upgraded_plate_size:
+            channel["plate_size"] = upgraded_plate_size
             changed = True
         return changed
 
