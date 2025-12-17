@@ -210,6 +210,7 @@ class ROIEditor(QtWidgets.QLabel):
 
     roi_changed = QtCore.pyqtSignal(dict)
     size_selected = QtCore.pyqtSignal(str, int, int)
+    size_anchor_changed = QtCore.pyqtSignal(str, int, int)
 
     def __init__(self) -> None:
         super().__init__("Нет кадра")
@@ -225,6 +226,9 @@ class ROIEditor(QtWidgets.QLabel):
         self._min_size: Tuple[int, int] = (0, 0)
         self._max_size: Tuple[int, int] = (0, 0)
         self._active_size_handle: Optional[str] = None
+        self._size_anchors: Dict[str, QtCore.QPointF] = {}
+        self._dragging_size_box: Optional[str] = None
+        self._drag_offset: Optional[QtCore.QPointF] = None
 
     def image_size(self) -> Optional[QtCore.QSize]:
         return self._pixmap.size() if self._pixmap else None
@@ -279,6 +283,13 @@ class ROIEditor(QtWidgets.QLabel):
     def set_roi(self, roi: Dict[str, Any]) -> None:
         self._roi_data = roi or {"unit": "px", "points": []}
         self._recalculate_points()
+        self._clamp_size_anchors()
+        self.update()
+
+    def set_size_guides(self, min_size: Tuple[int, int], max_size: Tuple[int, int]) -> None:
+        self._min_size = (max(0, int(min_size[0])), max(0, int(min_size[1])))
+        self._max_size = (max(0, int(max_size[0])), max(0, int(max_size[1])))
+        self._clamp_size_anchors()
         self.update()
 
     def set_size_guides(self, min_size: Tuple[int, int], max_size: Tuple[int, int]) -> None:
@@ -294,6 +305,7 @@ class ROIEditor(QtWidgets.QLabel):
             self.setText("Нет кадра")
             return
         self._recalculate_points()
+        self._clamp_size_anchors()
         scaled = self._scaled_pixmap(self.size())
         super().setPixmap(scaled)
         self.setText("")
@@ -308,6 +320,11 @@ class ROIEditor(QtWidgets.QLabel):
         return self._pixmap.scaled(
             size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
         )
+
+    def _clamp_size_anchors(self) -> None:
+        for label in ("min", "max"):
+            size = self._min_size if label == "min" else self._max_size
+            self._size_anchors[label] = self._clamp_anchor(self._anchor_for(label, size), size)
 
     def _image_geometry(self) -> Optional[Tuple[QtCore.QPoint, QtCore.QSize]]:
         if self._pixmap is None:
@@ -334,11 +351,55 @@ class ROIEditor(QtWidgets.QLabel):
 
         return QtCore.QRectF(0, 0, float(self._pixmap.width()), float(self._pixmap.height()))
 
-    def _anchor_point(self) -> Optional[QtCore.QPointF]:
+    def _default_anchor(self) -> QtCore.QPointF:
         bounds = self._roi_bounds()
         if bounds is None:
-            return None
+            return QtCore.QPointF(0.0, 0.0)
         return QtCore.QPointF(bounds.x(), bounds.y())
+
+    def _clamp_anchor(self, anchor: QtCore.QPointF, size: Tuple[int, int]) -> QtCore.QPointF:
+        if self._pixmap is None:
+            return anchor
+        max_x = max(0, self._pixmap.width() - 1)
+        max_y = max(0, self._pixmap.height() - 1)
+        width = max(0, size[0])
+        height = max(0, size[1])
+        max_anchor_x = max(0, max_x - width)
+        max_anchor_y = max(0, max_y - height)
+        return QtCore.QPointF(
+            max(0.0, min(float(max_anchor_x), anchor.x())),
+            max(0.0, min(float(max_anchor_y), anchor.y())),
+        )
+
+    def _anchor_for(self, label: str, size: Optional[Tuple[int, int]] = None) -> QtCore.QPointF:
+        if label not in self._size_anchors:
+            self._size_anchors[label] = QtCore.QPointF(self._default_anchor())
+        anchor = self._size_anchors[label]
+        if size is None:
+            size = self._min_size if label == "min" else self._max_size
+        clamped = self._clamp_anchor(anchor, size)
+        self._size_anchors[label] = clamped
+        return clamped
+
+    def _set_anchor(self, label: str, anchor: QtCore.QPointF) -> None:
+        size = self._min_size if label == "min" else self._max_size
+        clamped = self._clamp_anchor(anchor, size)
+        self._size_anchors[label] = clamped
+        self.size_anchor_changed.emit(label, int(clamped.x()), int(clamped.y()))
+        self.update()
+
+    def set_size_anchor(self, label: str, x: int, y: int) -> None:
+        self._size_anchors[label] = QtCore.QPointF(float(x), float(y))
+        self.update()
+
+    def size_anchor(self, label: str) -> Tuple[int, int]:
+        anchor = self._anchor_for(label)
+        return int(anchor.x()), int(anchor.y())
+
+    def reset_size_anchors(self, anchor: Tuple[int, int]) -> None:
+        point = QtCore.QPointF(float(anchor[0]), float(anchor[1]))
+        self._size_anchors = {"min": point, "max": point}
+        self.update()
 
     def _image_to_widget(self, point: QtCore.QPointF) -> Optional[QtCore.QPointF]:
         geom = self._image_geometry()
@@ -353,13 +414,11 @@ class ROIEditor(QtWidgets.QLabel):
         )
 
     def _size_boxes(self) -> Dict[str, Tuple[QtCore.QPointF, QtCore.QPointF]]:
-        anchor = self._anchor_point()
-        if anchor is None:
-            return {}
-        return {
-            "min": (anchor, QtCore.QPointF(anchor.x() + self._min_size[0], anchor.y() + self._min_size[1])),
-            "max": (anchor, QtCore.QPointF(anchor.x() + self._max_size[0], anchor.y() + self._max_size[1])),
-        }
+        boxes: Dict[str, Tuple[QtCore.QPointF, QtCore.QPointF]] = {}
+        for label, size in ("min", self._min_size), ("max", self._max_size):
+            anchor = self._anchor_for(label, size)
+            boxes[label] = (anchor, QtCore.QPointF(anchor.x() + size[0], anchor.y() + size[1]))
+        return boxes
 
     def _locate_size_handle(self, widget_pos: QtCore.QPoint) -> Optional[str]:
         boxes = self._size_boxes()
@@ -376,10 +435,22 @@ class ROIEditor(QtWidgets.QLabel):
                 return label
         return None
 
+    def _hit_size_box(self, widget_pos: QtCore.QPoint) -> Optional[str]:
+        boxes = self._size_boxes()
+        for label, (anchor, bottom) in boxes.items():
+            top_left = self._image_to_widget(anchor)
+            bottom_right = self._image_to_widget(bottom)
+            if top_left is None or bottom_right is None:
+                continue
+            rect = QtCore.QRectF(top_left, bottom_right).normalized()
+            if rect.contains(QtCore.QPointF(widget_pos)):
+                return label
+        return None
+
     def _update_size_from_drag(self, label: str, img_pos: QtCore.QPointF) -> None:
-        anchor = self._anchor_point()
-        if anchor is None or self._pixmap is None:
+        if self._pixmap is None:
             return
+        anchor = self._anchor_for(label)
         max_width = self._pixmap.width() - anchor.x()
         max_height = self._pixmap.height() - anchor.y()
         width = max(1, int(min(max_width, max(1.0, img_pos.x() - anchor.x()))))
@@ -446,16 +517,16 @@ class ROIEditor(QtWidgets.QLabel):
         for p in widget_points:
             painter.drawEllipse(QtCore.QPointF(p), 5, 5)
 
-        bounds = self._roi_bounds()
-        anchor = None if bounds is None else QtCore.QPointF(bounds.x(), bounds.y())
+        size_boxes = self._size_boxes()
 
-        def _draw_size_box(size: Tuple[int, int], color: QtGui.QColor, style: QtCore.Qt.PenStyle) -> None:
-            if anchor is None:
-                return
+        def _draw_size_box(label: str, size: Tuple[int, int], color: QtGui.QColor, style: QtCore.Qt.PenStyle) -> None:
             if size[0] <= 0 or size[1] <= 0:
                 return
+            box = size_boxes.get(label)
+            if not box:
+                return
+            anchor, bottom = box
             anchor_widget = self._image_to_widget(anchor)
-            bottom = QtCore.QPointF(anchor.x() + size[0], anchor.y() + size[1])
             bottom_widget = self._image_to_widget(bottom)
             if anchor_widget is None or bottom_widget is None:
                 return
@@ -466,8 +537,8 @@ class ROIEditor(QtWidgets.QLabel):
             painter.setPen(pen)
             painter.drawRect(QtCore.QRectF(anchor_widget, bottom_widget).normalized())
 
-        _draw_size_box(self._min_size, QtGui.QColor(0, 200, 0), QtCore.Qt.DashLine)
-        _draw_size_box(self._max_size, QtGui.QColor(200, 80, 80), QtCore.Qt.DotLine)
+        _draw_size_box("min", self._min_size, QtGui.QColor(0, 200, 0), QtCore.Qt.DashLine)
+        _draw_size_box("max", self._max_size, QtGui.QColor(200, 80, 80), QtCore.Qt.DotLine)
 
         handle_brushes = {
             "min": QtGui.QBrush(QtGui.QColor(0, 200, 0)),
@@ -475,11 +546,12 @@ class ROIEditor(QtWidgets.QLabel):
         }
 
         def _draw_handle(size: Tuple[int, int], label: str) -> None:
-            if anchor is None:
-                return
             if size[0] <= 0 or size[1] <= 0:
                 return
-            bottom = QtCore.QPointF(anchor.x() + size[0], anchor.y() + size[1])
+            box = size_boxes.get(label)
+            if not box:
+                return
+            _, bottom = box
             bottom_widget = self._image_to_widget(bottom)
             if bottom_widget is None:
                 return
@@ -543,6 +615,13 @@ class ROIEditor(QtWidgets.QLabel):
             self.setCursor(QtCore.Qt.SizeFDiagCursor)
             return
 
+        box_label = self._hit_size_box(event.pos())
+        if box_label:
+            self._dragging_size_box = box_label
+            self._drag_offset = QtCore.QPointF(img_pos - self._anchor_for(box_label))
+            self.setCursor(QtCore.Qt.ClosedHandCursor)
+            return
+
         handle_radius = 8
         closest_idx = None
         closest_dist = handle_radius + 1
@@ -567,6 +646,13 @@ class ROIEditor(QtWidgets.QLabel):
                 return
             self._update_size_from_drag(self._active_size_handle, img_pos)
             return
+        if self._dragging_size_box:
+            img_pos = self._widget_to_image(event.pos())
+            if img_pos is None:
+                return
+            offset = self._drag_offset or QtCore.QPointF(0, 0)
+            self._set_anchor(self._dragging_size_box, img_pos - offset)
+            return
         if self._drag_index is None:
             return
         img_pos = self._widget_to_image(event.pos())
@@ -583,12 +669,21 @@ class ROIEditor(QtWidgets.QLabel):
             self.setCursor(QtCore.Qt.ArrowCursor)
             self.update()
             return
+        if self._dragging_size_box:
+            self._dragging_size_box = None
+            self._drag_offset = None
+            self.setCursor(QtCore.Qt.ArrowCursor)
+            self.update()
+            return
         self._drag_index = None
 
     def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
         if self._size_capture_mode:
             return
         if event.button() != QtCore.Qt.LeftButton:
+            return
+
+        if self._locate_size_handle(event.pos()) or self._hit_size_box(event.pos()):
             return
 
         img_pos = self._widget_to_image(event.pos())
@@ -903,6 +998,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._preview_request_id = 0
 
         self.default_region = SettingsManager._default_region()
+        self.default_size_anchor = (int(self.default_region["points"][0]["x"]), int(self.default_region["points"][0]["y"]))
         self.default_min_plate = {"width": 80, "height": 30}
         self.default_max_plate = {"width": 400, "height": 160}
         self.roi_unit = self.default_region.get("unit", "px")
@@ -2598,6 +2694,18 @@ class MainWindow(QtWidgets.QMainWindow):
                 min_size = dict(self.default_min_plate)
             if not max_size.get("width") or not max_size.get("height"):
                 max_size = dict(self.default_max_plate)
+            min_anchor_conf = channel.get("min_plate_anchor") or channel.get("plate_size_anchor") or {}
+            max_anchor_conf = channel.get("max_plate_anchor") or channel.get("plate_size_anchor") or min_anchor_conf
+            min_anchor = (
+                int(min_anchor_conf.get("x", self.default_size_anchor[0])),
+                int(min_anchor_conf.get("y", self.default_size_anchor[1])),
+            )
+            max_anchor = (
+                int(max_anchor_conf.get("x", self.default_size_anchor[0])),
+                int(max_anchor_conf.get("y", self.default_size_anchor[1])),
+            )
+            self.preview.set_size_anchor("min", *min_anchor)
+            self.preview.set_size_anchor("max", *max_anchor)
             self.min_width_input.setValue(int(min_size.get("width", 0)))
             self.min_height_input.setValue(int(min_size.get("height", 0)))
             self.max_width_input.setValue(int(max_size.get("width", 0)))
@@ -2629,6 +2737,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 "ocr_min_confidence": self.settings.get_min_confidence(),
                 "min_plate_size": dict(self.default_min_plate),
                 "max_plate_size": dict(self.default_max_plate),
+                "min_plate_anchor": {"x": self.default_size_anchor[0], "y": self.default_size_anchor[1]},
+                "max_plate_anchor": {"x": self.default_size_anchor[0], "y": self.default_size_anchor[1]},
+                "plate_size_anchor": {"x": self.default_size_anchor[0], "y": self.default_size_anchor[1]},
                 "region": copy.deepcopy(self.default_region),
                 "detection_mode": "motion",
                 "detector_frame_stride": 2,
@@ -2677,6 +2788,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 "width": int(self.max_width_input.value()),
                 "height": int(self.max_height_input.value()),
             }
+            min_anchor = self.preview.size_anchor("min")
+            max_anchor = self.preview.size_anchor("max")
+            channels[index]["min_plate_anchor"] = {"x": int(min_anchor[0]), "y": int(min_anchor[1])}
+            channels[index]["max_plate_anchor"] = {"x": int(max_anchor[0]), "y": int(max_anchor[1])}
+            channels[index]["plate_size_anchor"] = {"x": int(min_anchor[0]), "y": int(min_anchor[1])}
             channels[index]["region"] = {
                 "unit": self.roi_unit,
                 "points": self._collect_roi_points_from_table(),
@@ -2752,28 +2868,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.roi_unit = self.default_region.get("unit", "px")
         default_roi = copy.deepcopy(self.default_region)
         self.preview.set_roi(default_roi)
+        self.preview.reset_size_anchors(self.default_size_anchor)
         self._sync_roi_table(default_roi)
         self._update_size_guides_from_inputs()
-
-    def _on_size_selected(self, mode: str, width: int, height: int) -> None:
-        if mode == "min":
-            self.min_width_input.setValue(width)
-            self.min_height_input.setValue(height)
-        elif mode == "max":
-            self.max_width_input.setValue(width)
-            self.max_height_input.setValue(height)
-        self._update_size_guides_from_inputs()
-
-    def _update_size_guides_from_inputs(self) -> None:
-        self.preview.set_size_guides(
-            (int(self.min_width_input.value()), int(self.min_height_input.value())),
-            (int(self.max_width_input.value()), int(self.max_height_input.value())),
-        )
-
-    def _start_size_capture(self, mode: str) -> None:
-        if self.preview.image_size() is None:
-            return
-        self.preview.start_size_capture(mode)
 
     def _on_size_selected(self, mode: str, width: int, height: int) -> None:
         if mode == "min":

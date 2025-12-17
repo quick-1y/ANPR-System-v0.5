@@ -93,6 +93,9 @@ class SettingsManager:
             "ocr_min_confidence": float(tracking_defaults.get("ocr_min_confidence", 0.6)),
             "min_plate_size": {"width": 80, "height": 30},
             "max_plate_size": {"width": 400, "height": 160},
+            "plate_size_anchor": {"x": 500, "y": 300},
+            "min_plate_anchor": {"x": 500, "y": 300},
+            "max_plate_anchor": {"x": 500, "y": 300},
             "region": SettingsManager._default_region(),
             "detection_mode": "motion",
             "detector_frame_stride": 2,
@@ -106,12 +109,12 @@ class SettingsManager:
     @staticmethod
     def _default_region() -> Dict[str, Any]:
         return {
-            "unit": "percent",
+            "unit": "px",
             "points": [
-                {"x": 40, "y": 40},
-                {"x": 60, "y": 40},
-                {"x": 60, "y": 60},
-                {"x": 40, "y": 60},
+                {"x": 500, "y": 300},
+                {"x": 1200, "y": 300},
+                {"x": 1200, "y": 900},
+                {"x": 500, "y": 900},
             ],
         }
 

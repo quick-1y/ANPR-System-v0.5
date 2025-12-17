@@ -23,6 +23,8 @@ from anpr.infrastructure.storage import AsyncEventDatabase
 
 logger = get_logger(__name__)
 
+DEFAULT_SIZE_ANCHOR: Tuple[int, int] = (500, 300)
+
 
 @dataclass
 class Region:
@@ -174,9 +176,23 @@ class ChannelRuntimeConfig:
     debug: DebugOptions
     min_plate_size: PlateSize
     max_plate_size: PlateSize
+    min_plate_anchor: Tuple[int, int]
+    max_plate_anchor: Tuple[int, int]
 
     @classmethod
     def from_dict(cls, channel_conf: Dict[str, Any]) -> "ChannelRuntimeConfig":
+        def _anchor(conf: Optional[Dict[str, Any]], fallback: Tuple[int, int]) -> Tuple[int, int]:
+            if not conf:
+                return fallback
+            try:
+                return int(conf.get("x", fallback[0])), int(conf.get("y", fallback[1]))
+            except Exception:
+                return fallback
+
+        min_anchor_conf = channel_conf.get("min_plate_anchor") or channel_conf.get("plate_size_anchor")
+        min_anchor = _anchor(min_anchor_conf, DEFAULT_SIZE_ANCHOR)
+        max_anchor_conf = channel_conf.get("max_plate_anchor") or channel_conf.get("plate_size_anchor")
+        max_anchor = _anchor(max_anchor_conf, min_anchor)
         return cls(
             name=channel_conf.get("name", "Канал"),
             source=str(channel_conf.get("source", "0")),
@@ -193,6 +209,8 @@ class ChannelRuntimeConfig:
             debug=DebugOptions.from_dict(channel_conf.get("debug")),
             min_plate_size=PlateSize.from_dict(channel_conf.get("min_plate_size")),
             max_plate_size=PlateSize.from_dict(channel_conf.get("max_plate_size")),
+            min_plate_anchor=min_anchor,
+            max_plate_anchor=max_anchor,
         )
 
 
@@ -518,20 +536,26 @@ class ChannelWorker(QtCore.QThread):
     def _draw_size_guides(self, frame: cv2.Mat) -> None:
         """Отображает пороги min/max размера номера."""
 
-        roi_rect = self.config.region.bounding_rect(frame.shape)
-        anchor_x, anchor_y, _, _ = roi_rect
         frame_h, frame_w, _ = frame.shape
 
-        def _draw_box(size: PlateSize, color: Tuple[int, int, int]) -> None:
+        def _clamped_anchor(anchor: Tuple[int, int], size: PlateSize) -> Tuple[int, int]:
+            x = max(0, min(frame_w - 1, int(anchor[0])))
+            y = max(0, min(frame_h - 1, int(anchor[1])))
+            max_x = max(0, frame_w - 1 - max(0, size.width))
+            max_y = max(0, frame_h - 1 - max(0, size.height))
+            return min(x, max_x), min(y, max_y)
+
+        def _draw_box(size: PlateSize, anchor: Tuple[int, int], color: Tuple[int, int, int]) -> None:
             if size.width <= 0 or size.height <= 0:
                 return
 
+            anchor_x, anchor_y = _clamped_anchor(anchor, size)
             x2 = min(frame_w - 1, anchor_x + size.width)
             y2 = min(frame_h - 1, anchor_y + size.height)
             cv2.rectangle(frame, (anchor_x, anchor_y), (x2, y2), color, 1, lineType=cv2.LINE_AA)
 
-        _draw_box(self.config.min_plate_size, (0, 200, 0))
-        _draw_box(self.config.max_plate_size, (200, 80, 80))
+        _draw_box(self.config.min_plate_size, self.config.min_plate_anchor, (0, 200, 0))
+        _draw_box(self.config.max_plate_size, self.config.max_plate_anchor, (200, 80, 80))
 
     def _draw_debug_info(self, frame: cv2.Mat) -> None:
         if not (self.config.debug.show_detection_boxes or self.config.debug.show_ocr_text):
