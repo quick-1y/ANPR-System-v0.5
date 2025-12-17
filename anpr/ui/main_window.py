@@ -974,6 +974,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._channel_save_timer = QtCore.QTimer(self)
         self._channel_save_timer.setSingleShot(True)
         self._channel_save_timer.timeout.connect(self._flush_pending_channels)
+        self._channels_restart_timer = QtCore.QTimer(self)
+        self._channels_restart_timer.setSingleShot(True)
+        self._channels_restart_timer.timeout.connect(self._restart_channels)
+        self._channels_restart_in_progress = False
+        self._preview_reload_timer = QtCore.QTimer(self)
+        self._preview_reload_timer.setSingleShot(True)
+        self._preview_reload_timer.timeout.connect(self._refresh_preview_frame)
         self._drag_counter = 0
         self._skip_frame_updates = False
         self._preview_worker: Optional[PreviewLoader] = None
@@ -1443,11 +1450,31 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pending_channels = [dict(channel) for channel in channels]
         self._channel_save_timer.start(150)
 
+    def _schedule_channels_restart(self) -> None:
+        self._channels_restart_timer.start(10)
+
     def _flush_pending_channels(self) -> None:
         if self._pending_channels is None:
             return
         self.settings.save_channels(self._pending_channels)
         self._pending_channels = None
+
+    def _restart_channels(self) -> None:
+        if self._channels_restart_in_progress:
+            self._channels_restart_timer.start(10)
+            return
+
+        self._channels_restart_in_progress = True
+        self.channels_list.setEnabled(False)
+        self.channel_details_container.setEnabled(False)
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.BusyCursor)
+        try:
+            self._start_channels()
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+            self.channels_list.setEnabled(True)
+            self.channel_details_container.setEnabled(True)
+            self._channels_restart_in_progress = False
 
     def _on_channel_activated(self, channel_name: str) -> None:
         if self.current_grid == "1x1" and self._previous_grid:
@@ -2663,13 +2690,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.settings.save_plate_settings(plate_settings)
         self.db = EventDatabase(self.settings.get_db_path())
         self._refresh_events_table()
-        self._start_channels()
+        self._schedule_channels_restart()
 
     def _load_channel_form(self, index: int) -> None:
         channels = self.settings.get_channels()
         has_channel = 0 <= index < len(channels)
         self._set_channel_settings_visible(has_channel)
         if has_channel:
+            self._cancel_preview_worker()
             channel = channels[index]
             self.channel_name_input.setText(channel.get("name", ""))
             self.channel_source_input.setText(channel.get("source", ""))
@@ -2705,7 +2733,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 region = {"unit": region.get("unit", "px"), "points": self._default_roi_region()["points"]}
             self.preview.set_roi(region)
             self._sync_roi_table(region)
-            self._refresh_preview_frame()
+            self._queue_preview_frame()
 
     def _add_channel(self) -> None:
         channels = self.settings.get_channels()
@@ -2733,7 +2761,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.settings.save_channels(channels)
         self._reload_channels_list(len(channels) - 1)
         self._draw_grid()
-        self._start_channels()
+        self._schedule_channels_restart()
 
     def _remove_channel(self) -> None:
         index = self.channels_list.currentRow()
@@ -2743,7 +2771,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.settings.save_channels(channels)
             self._reload_channels_list(index)
             self._draw_grid()
-            self._start_channels()
+            self._schedule_channels_restart()
 
     def _save_channel(self) -> None:
         index = self.channels_list.currentRow()
@@ -2776,7 +2804,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.settings.save_channels(channels)
             self._reload_channels_list(index)
             self._draw_grid()
-            self._start_channels()
+            self._schedule_channels_restart()
 
     def _sync_roi_table(self, roi: Dict[str, Any]) -> None:
         points = roi.get("points") or []
@@ -2860,11 +2888,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def _cancel_preview_worker(self) -> None:
         if self._preview_worker:
             self._preview_worker.requestInterruption()
-            self._preview_worker.wait(1000)
-            self._preview_worker.deleteLater()
             self._preview_worker = None
 
+    def _queue_preview_frame(self) -> None:
+        self._preview_reload_timer.start(120)
+
     def _refresh_preview_frame(self) -> None:
+        self._preview_reload_timer.stop()
+        if self._channels_restart_in_progress:
+            self._preview_reload_timer.start(120)
+            return
         index = self.channels_list.currentRow()
         channels = self.settings.get_channels()
         if not (0 <= index < len(channels)):
