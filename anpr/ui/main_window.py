@@ -673,6 +673,8 @@ class ROIEditor(QtWidgets.QLabel):
         self._drag_index = None
 
     def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if self._size_capture_mode:
+            return
         if event.button() != QtCore.Qt.LeftButton:
             return
 
@@ -2316,6 +2318,52 @@ class MainWindow(QtWidgets.QMainWindow):
             "Минимальная уверенность OCR (0-1) для приема результата; ниже — помечается как нечитаемое"
         )
         recognition_form.addRow("Мин. уверенность OCR:", self.min_conf_input)
+
+        size_group = QtWidgets.QGroupBox("Фильтр размера номера")
+        size_layout = QtWidgets.QGridLayout(size_group)
+
+        self.min_width_input = QtWidgets.QSpinBox()
+        self.min_width_input.setRange(0, 10000)
+        self.min_width_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.min_height_input = QtWidgets.QSpinBox()
+        self.min_height_input.setRange(0, 10000)
+        self.min_height_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+
+        self.max_width_input = QtWidgets.QSpinBox()
+        self.max_width_input.setRange(0, 10000)
+        self.max_width_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.max_height_input = QtWidgets.QSpinBox()
+        self.max_height_input.setRange(0, 10000)
+        self.max_height_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+
+        for spin in (
+            self.min_width_input,
+            self.min_height_input,
+            self.max_width_input,
+            self.max_height_input,
+        ):
+            spin.valueChanged.connect(self._update_size_guides_from_inputs)
+
+        pick_min_btn = QtWidgets.QPushButton("Указать минимум на кадре")
+        self._polish_button(pick_min_btn, 220)
+        pick_min_btn.clicked.connect(lambda: self._start_size_capture("min"))
+        pick_max_btn = QtWidgets.QPushButton("Указать максимум на кадре")
+        self._polish_button(pick_max_btn, 220)
+        pick_max_btn.clicked.connect(lambda: self._start_size_capture("max"))
+
+        size_layout.addWidget(QtWidgets.QLabel("Мин. ширина"), 0, 0)
+        size_layout.addWidget(self.min_width_input, 0, 1)
+        size_layout.addWidget(QtWidgets.QLabel("Мин. высота"), 0, 2)
+        size_layout.addWidget(self.min_height_input, 0, 3)
+        size_layout.addWidget(pick_min_btn, 0, 4)
+
+        size_layout.addWidget(QtWidgets.QLabel("Макс. ширина"), 1, 0)
+        size_layout.addWidget(self.max_width_input, 1, 1)
+        size_layout.addWidget(QtWidgets.QLabel("Макс. высота"), 1, 2)
+        size_layout.addWidget(self.max_height_input, 1, 3)
+        size_layout.addWidget(pick_max_btn, 1, 4)
+
+        recognition_form.addRow(size_group)
 
         debug_row = QtWidgets.QHBoxLayout()
         self.debug_detection_checkbox = QtWidgets.QCheckBox("Рамки детекции")
