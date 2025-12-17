@@ -23,6 +23,8 @@ from anpr.infrastructure.storage import AsyncEventDatabase
 
 logger = get_logger(__name__)
 
+DEFAULT_SIZE_ANCHOR: Tuple[int, int] = (500, 300)
+
 
 @dataclass
 class Region:
@@ -111,6 +113,27 @@ class DebugOptions:
 
 
 @dataclass
+class PlateSize:
+    """Порог размеров номера в пикселях."""
+
+    width: int = 0
+    height: int = 0
+
+    @classmethod
+    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "PlateSize":
+        size = data or {}
+        try:
+            width = max(0, int(size.get("width", 0)))
+            height = max(0, int(size.get("height", 0)))
+        except (TypeError, ValueError):
+            width, height = 0, 0
+        return cls(width=width, height=height)
+
+    def as_tuple(self) -> Tuple[int, int]:
+        return self.width, self.height
+
+
+@dataclass
 class ReconnectPolicy:
     """Политика переподключения канала."""
 
@@ -151,9 +174,25 @@ class ChannelRuntimeConfig:
     motion_release_frames: int
     region: Region
     debug: DebugOptions
+    min_plate_size: PlateSize
+    max_plate_size: PlateSize
+    min_plate_anchor: Tuple[int, int]
+    max_plate_anchor: Tuple[int, int]
 
     @classmethod
     def from_dict(cls, channel_conf: Dict[str, Any]) -> "ChannelRuntimeConfig":
+        def _anchor(conf: Optional[Dict[str, Any]], fallback: Tuple[int, int]) -> Tuple[int, int]:
+            if not conf:
+                return fallback
+            try:
+                return int(conf.get("x", fallback[0])), int(conf.get("y", fallback[1]))
+            except Exception:
+                return fallback
+
+        min_anchor_conf = channel_conf.get("min_plate_anchor") or channel_conf.get("plate_size_anchor")
+        min_anchor = _anchor(min_anchor_conf, DEFAULT_SIZE_ANCHOR)
+        max_anchor_conf = channel_conf.get("max_plate_anchor") or channel_conf.get("plate_size_anchor")
+        max_anchor = _anchor(max_anchor_conf, min_anchor)
         return cls(
             name=channel_conf.get("name", "Канал"),
             source=str(channel_conf.get("source", "0")),
@@ -168,6 +207,10 @@ class ChannelRuntimeConfig:
             motion_release_frames=int(channel_conf.get("motion_release_frames", 6)),
             region=Region.from_dict(channel_conf.get("region")),
             debug=DebugOptions.from_dict(channel_conf.get("debug")),
+            min_plate_size=PlateSize.from_dict(channel_conf.get("min_plate_size")),
+            max_plate_size=PlateSize.from_dict(channel_conf.get("max_plate_size")),
+            min_plate_anchor=min_anchor,
+            max_plate_anchor=max_anchor,
         )
 
 
@@ -224,6 +267,37 @@ def _offset_detections_process(
     return adjusted
 
 
+def _filter_by_size(
+    detections: list[dict], min_size: Tuple[int, int], max_size: Tuple[int, int]
+) -> list[dict]:
+    """Отсекает детекции, не попадающие в диапазон размеров."""
+
+    min_w, min_h = (max(0, int(min_size[0])), max(0, int(min_size[1])))
+    max_w, max_h = (max(0, int(max_size[0])), max(0, int(max_size[1])))
+
+    filtered: list[dict] = []
+    for det in detections:
+        box = det.get("bbox")
+        if not box or len(box) != 4:
+            continue
+
+        width = int(box[2]) - int(box[0])
+        height = int(box[3]) - int(box[1])
+
+        if min_w and width < min_w:
+            continue
+        if min_h and height < min_h:
+            continue
+        if max_w and width > max_w:
+            continue
+        if max_h and height > max_h:
+            continue
+
+        filtered.append(det)
+
+    return filtered
+
+
 def _run_inference_task(
     frame: cv2.Mat,
     roi_frame: cv2.Mat,
@@ -254,12 +328,17 @@ def _run_inference_task(
         _run_inference_task._local_cache[key] = (pipeline, detector)
     
     pipeline, detector = _run_inference_task._local_cache[key]
-    
+
     # Выполняем детекцию и распознавание
     detections = detector.track(roi_frame)
+    detections = _filter_by_size(
+        detections,
+        (int(config.get("min_plate_width", 0)), int(config.get("min_plate_height", 0))),
+        (int(config.get("max_plate_width", 0)), int(config.get("max_plate_height", 0))),
+    )
     detections = _offset_detections_process(detections, roi_rect)
     results = pipeline.process_frame(frame, detections)
-    
+
     return detections, results
 
 
@@ -350,12 +429,16 @@ class ChannelWorker(QtCore.QThread):
         plate_config = dict(self.plate_config)
         if plate_config.get("config_dir"):
             plate_config["config_dir"] = os.path.abspath(str(plate_config.get("config_dir")))
-        
+
         return {
             "best_shots": self.config.best_shots,
             "cooldown_seconds": self.config.cooldown_seconds,
             "min_confidence": self.config.min_confidence,
             "plate_config": plate_config,
+            "min_plate_width": self.config.min_plate_size.width,
+            "min_plate_height": self.config.min_plate_size.height,
+            "max_plate_width": self.config.max_plate_size.width,
+            "max_plate_height": self.config.max_plate_size.height,
         }
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:
@@ -366,9 +449,12 @@ class ChannelWorker(QtCore.QThread):
 
         if not self.config.region.is_full_frame() and roi_frame.size:
             local_polygon = np.array([[(x - x1), (y - y1)] for x, y in polygon], dtype=np.int32)
-            mask = np.zeros((roi_frame.shape[0], roi_frame.shape[1]), dtype=np.uint8)
-            cv2.fillPoly(mask, [local_polygon], 255)
-            roi_frame = cv2.bitwise_and(roi_frame, roi_frame, mask=mask)
+            if len(local_polygon) >= 3:
+                mask = np.zeros((roi_frame.shape[0], roi_frame.shape[1]), dtype=np.uint8)
+                cv2.fillPoly(mask, [local_polygon], 255)
+                roi_frame = cv2.bitwise_and(roi_frame, roi_frame, mask=mask)
+            else:
+                logger.warning("ROI polygon has fewer than 3 points; skipping mask application")
 
         return roi_frame, (x1, y1, x2, y2)
 
@@ -449,6 +535,30 @@ class ChannelWorker(QtCore.QThread):
             -1,
         )
         cv2.putText(frame, text, (x + 4, y - 2), font, scale, (0, 255, 0), thickness)
+
+    def _draw_size_guides(self, frame: cv2.Mat) -> None:
+        """Отображает пороги min/max размера номера."""
+
+        frame_h, frame_w, _ = frame.shape
+
+        def _clamped_anchor(anchor: Tuple[int, int], size: PlateSize) -> Tuple[int, int]:
+            x = max(0, min(frame_w - 1, int(anchor[0])))
+            y = max(0, min(frame_h - 1, int(anchor[1])))
+            max_x = max(0, frame_w - 1 - max(0, size.width))
+            max_y = max(0, frame_h - 1 - max(0, size.height))
+            return min(x, max_x), min(y, max_y)
+
+        def _draw_box(size: PlateSize, anchor: Tuple[int, int], color: Tuple[int, int, int]) -> None:
+            if size.width <= 0 or size.height <= 0:
+                return
+
+            anchor_x, anchor_y = _clamped_anchor(anchor, size)
+            x2 = min(frame_w - 1, anchor_x + size.width)
+            y2 = min(frame_h - 1, anchor_y + size.height)
+            cv2.rectangle(frame, (anchor_x, anchor_y), (x2, y2), color, 1, lineType=cv2.LINE_AA)
+
+        _draw_box(self.config.min_plate_size, self.config.min_plate_anchor, (0, 200, 0))
+        _draw_box(self.config.max_plate_size, self.config.max_plate_anchor, (200, 80, 80))
 
     def _draw_debug_info(self, frame: cv2.Mat) -> None:
         if not (self.config.debug.show_detection_boxes or self.config.debug.show_ocr_text):
@@ -674,9 +784,9 @@ class ChannelWorker(QtCore.QThread):
                         )
 
             # Отправка кадра в UI
-            display_frame = rgb_frame
+            display_frame = rgb_frame.copy()
+            self._draw_size_guides(display_frame)
             if self.config.debug.show_detection_boxes or self.config.debug.show_ocr_text:
-                display_frame = rgb_frame.copy()
                 self._draw_debug_info(display_frame)
 
             height, width, channel = display_frame.shape
