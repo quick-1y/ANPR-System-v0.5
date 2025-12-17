@@ -14,6 +14,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from zoneinfo import ZoneInfo
 
 from anpr.config import Config
+from anpr.infrastructure.settings_manager import DEFAULT_ROI_POINTS
 from anpr.postprocessing.country_config import CountryConfigLoader
 from anpr.workers.channel_worker import ChannelWorker
 from anpr.infrastructure.logging_manager import get_logger
@@ -720,6 +721,10 @@ class MainWindow(QtWidgets.QMainWindow):
         "QListWidget::item:selected { background-color: rgba(34,211,238,0.16); color: #22d3ee; border-radius: 6px; }"
         "QListWidget::item { padding: 8px 10px; margin: 2px 0; }"
     )
+
+    @staticmethod
+    def _default_roi_region() -> Dict[str, Any]:
+        return {"unit": "px", "points": [point.copy() for point in DEFAULT_ROI_POINTS]}
 
     def __init__(self, settings: Optional[Config] = None) -> None:
         super().__init__()
@@ -2238,7 +2243,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cooldown_input.setValue(self.settings.get_cooldown_seconds())
         self.min_conf_input.setValue(self.settings.get_min_confidence())
         self.detection_mode_input.setCurrentIndex(
-            max(0, self.detection_mode_input.findData("continuous"))
+            max(0, self.detection_mode_input.findData("motion"))
         )
         self.detector_stride_input.setValue(2)
         self.motion_threshold_input.setValue(0.01)
@@ -2247,10 +2252,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.motion_release_frames_input.setValue(6)
         self.debug_detection_checkbox.setChecked(False)
         self.debug_ocr_checkbox.setChecked(False)
-        empty_roi = {"unit": "px", "points": []}
+        default_roi = self._default_roi_region()
         self.preview.setPixmap(None)
-        self.preview.set_roi(empty_roi)
-        self._sync_roi_table(empty_roi)
+        self.preview.set_roi(default_roi)
+        self._sync_roi_table(default_roi)
 
     def _load_general_settings(self) -> None:
         reconnect = self.settings.get_reconnect()
@@ -2399,7 +2404,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.cooldown_input.setValue(int(channel.get("cooldown_seconds", self.settings.get_cooldown_seconds())))
             self.min_conf_input.setValue(float(channel.get("ocr_min_confidence", self.settings.get_min_confidence())))
             self.detection_mode_input.setCurrentIndex(
-                max(0, self.detection_mode_input.findData(channel.get("detection_mode", "continuous")))
+                max(0, self.detection_mode_input.findData(channel.get("detection_mode", "motion")))
             )
             self.detector_stride_input.setValue(int(channel.get("detector_frame_stride", 2)))
             self.motion_threshold_input.setValue(float(channel.get("motion_threshold", 0.01)))
@@ -2411,7 +2416,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.debug_detection_checkbox.setChecked(bool(debug_conf.get("show_detection_boxes", False)))
             self.debug_ocr_checkbox.setChecked(bool(debug_conf.get("show_ocr_text", False)))
 
-            region = channel.get("region") or {"unit": "px", "points": []}
+            region = channel.get("region") or self._default_roi_region()
+            if not region.get("points"):
+                region = {"unit": region.get("unit", "px"), "points": self._default_roi_region()["points"]}
             self.preview.set_roi(region)
             self._sync_roi_table(region)
             self._refresh_preview_frame()
@@ -2427,8 +2434,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 "best_shots": self.settings.get_best_shots(),
                 "cooldown_seconds": self.settings.get_cooldown_seconds(),
                 "ocr_min_confidence": self.settings.get_min_confidence(),
-                "region": {"unit": "px", "points": []},
-                "detection_mode": "continuous",
+                "region": self._default_roi_region(),
+                "detection_mode": "motion",
                 "detector_frame_stride": 2,
                 "motion_threshold": 0.01,
                 "motion_frame_stride": 1,
@@ -2531,10 +2538,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._on_roi_table_changed()
 
     def _clear_roi_points(self) -> None:
-        self.roi_points_table.blockSignals(True)
-        self.roi_points_table.setRowCount(0)
-        self.roi_points_table.blockSignals(False)
-        self._on_roi_table_changed()
+        default_roi = self._default_roi_region()
+        self._sync_roi_table(default_roi)
+        self.preview.set_roi(default_roi)
 
     def _cancel_preview_worker(self) -> None:
         if self._preview_worker:
