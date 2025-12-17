@@ -5,6 +5,13 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+DEFAULT_ROI_POINTS = [
+    {"x": 500, "y": 300},
+    {"x": 1200, "y": 300},
+    {"x": 1200, "y": 900},
+    {"x": 500, "y": 900},
+]
+
 
 class SettingsManager:
     """Управляет конфигурацией приложения и каналами."""
@@ -19,24 +26,7 @@ class SettingsManager:
             "ocr": self._ocr_defaults(),
             "detector": self._detector_defaults(),
             "grid": "2x2",
-            "channels": [
-                {
-                    "id": 1,
-                    "name": "Канал 1",
-                    "source": "0",
-                    "best_shots": 3,
-                    "cooldown_seconds": 5,
-                    "ocr_min_confidence": 0.6,
-                    "region": {"unit": "px", "points": []},
-                    "detection_mode": "continuous",
-                    "detector_frame_stride": 2,
-                    "motion_threshold": 0.01,
-                    "motion_frame_stride": 1,
-                    "motion_activation_frames": 3,
-                    "motion_release_frames": 6,
-                    "debug": {"show_detection_boxes": False, "show_ocr_text": False},
-                },
-            ],
+            "channels": [],
             "reconnect": {
                 "signal_loss": {
                     "enabled": True,
@@ -123,8 +113,8 @@ class SettingsManager:
             "best_shots": int(tracking_defaults.get("best_shots", 3)),
             "cooldown_seconds": int(tracking_defaults.get("cooldown_seconds", 5)),
             "ocr_min_confidence": float(tracking_defaults.get("ocr_min_confidence", 0.6)),
-            "region": {"unit": "px", "points": []},
-            "detection_mode": "continuous",
+            "region": {"unit": "px", "points": [point.copy() for point in DEFAULT_ROI_POINTS]},
+            "detection_mode": "motion",
             "detector_frame_stride": 2,
             "motion_threshold": 0.01,
             "motion_frame_stride": 1,
@@ -136,11 +126,12 @@ class SettingsManager:
     @staticmethod
     def _upgrade_region(region: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if not region:
-            return {"unit": "px", "points": []}
+            return {"unit": "px", "points": [point.copy() for point in DEFAULT_ROI_POINTS]}
 
         if "points" in region:
             unit = region.get("unit") or "px"
-            return {"unit": unit, "points": region.get("points", [])}
+            points = region.get("points") or [point.copy() for point in DEFAULT_ROI_POINTS]
+            return {"unit": unit, "points": points}
 
         x = float(region.get("x", 0))
         y = float(region.get("y", 0))
