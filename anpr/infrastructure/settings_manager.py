@@ -16,24 +16,7 @@ class SettingsManager:
     def _default(self) -> Dict[str, Any]:
         return {
             "grid": "2x2",
-            "channels": [
-                {
-                    "id": 1,
-                    "name": "Канал 1",
-                    "source": "0",
-                    "best_shots": 3,
-                    "cooldown_seconds": 5,
-                    "ocr_min_confidence": 0.6,
-                    "region": {"unit": "px", "points": []},
-                    "detection_mode": "continuous",
-                    "detector_frame_stride": 2,
-                    "motion_threshold": 0.01,
-                    "motion_frame_stride": 1,
-                    "motion_activation_frames": 3,
-                    "motion_release_frames": 6,
-                    "debug": {"show_detection_boxes": False, "show_ocr_text": False},
-                },
-            ],
+            "channels": [],
             "reconnect": {
                 "signal_loss": {
                     "enabled": True,
@@ -108,10 +91,10 @@ class SettingsManager:
             "best_shots": int(tracking_defaults.get("best_shots", 3)),
             "cooldown_seconds": int(tracking_defaults.get("cooldown_seconds", 5)),
             "ocr_min_confidence": float(tracking_defaults.get("ocr_min_confidence", 0.6)),
-            "min_plate_size": {"width": 0, "height": 0},
-            "max_plate_size": {"width": 0, "height": 0},
-            "region": {"unit": "px", "points": []},
-            "detection_mode": "continuous",
+            "min_plate_size": {"width": 80, "height": 30},
+            "max_plate_size": {"width": 400, "height": 160},
+            "region": SettingsManager._default_region(),
+            "detection_mode": "motion",
             "detector_frame_stride": 2,
             "motion_threshold": 0.01,
             "motion_frame_stride": 1,
@@ -121,13 +104,28 @@ class SettingsManager:
         }
 
     @staticmethod
+    def _default_region() -> Dict[str, Any]:
+        return {
+            "unit": "percent",
+            "points": [
+                {"x": 40, "y": 40},
+                {"x": 60, "y": 40},
+                {"x": 60, "y": 60},
+                {"x": 40, "y": 60},
+            ],
+        }
+
+    @staticmethod
     def _upgrade_region(region: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if not region:
-            return {"unit": "px", "points": []}
+            return SettingsManager._default_region()
 
         if "points" in region:
             unit = region.get("unit") or "px"
-            return {"unit": unit, "points": region.get("points", [])}
+            points = region.get("points")
+            if not points:
+                return SettingsManager._default_region()
+            return {"unit": unit, "points": points}
 
         x = float(region.get("x", 0))
         y = float(region.get("y", 0))
