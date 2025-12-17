@@ -19,6 +19,7 @@ from PyQt5 import QtCore, QtGui
 from anpr.detection.motion_detector import MotionDetector, MotionDetectorConfig
 from anpr.pipeline.factory import build_components
 from anpr.infrastructure.logging_manager import get_logger
+from anpr.infrastructure.settings_manager import SettingsManager
 from anpr.infrastructure.storage import AsyncEventDatabase
 
 logger = get_logger(__name__)
@@ -111,6 +112,24 @@ class DebugOptions:
 
 
 @dataclass
+class PlateSize:
+    """Размер рамки номерного знака в пикселях."""
+
+    width: int = 0
+    height: int = 0
+
+    @classmethod
+    def from_dict(cls, data: Optional[Dict[str, Any]], defaults: Optional[Dict[str, Any]] = None) -> "PlateSize":
+        defaults = defaults or {}
+        width = int((data or {}).get("width", defaults.get("width", 0)) or 0)
+        height = int((data or {}).get("height", defaults.get("height", 0)) or 0)
+        return cls(width=max(0, width), height=max(0, height))
+
+    def to_dict(self) -> Dict[str, int]:
+        return {"width": int(self.width), "height": int(self.height)}
+
+
+@dataclass
 class ReconnectPolicy:
     """Политика переподключения канала."""
 
@@ -151,9 +170,12 @@ class ChannelRuntimeConfig:
     motion_release_frames: int
     region: Region
     debug: DebugOptions
+    min_plate_size: PlateSize
+    max_plate_size: PlateSize
 
     @classmethod
     def from_dict(cls, channel_conf: Dict[str, Any]) -> "ChannelRuntimeConfig":
+        size_defaults = SettingsManager().get_plate_size_defaults()
         return cls(
             name=channel_conf.get("name", "Канал"),
             source=str(channel_conf.get("source", "0")),
@@ -168,6 +190,8 @@ class ChannelRuntimeConfig:
             motion_release_frames=int(channel_conf.get("motion_release_frames", 6)),
             region=Region.from_dict(channel_conf.get("region")),
             debug=DebugOptions.from_dict(channel_conf.get("debug")),
+            min_plate_size=PlateSize.from_dict(channel_conf.get("min_plate_size"), size_defaults.get("min_plate_size")),
+            max_plate_size=PlateSize.from_dict(channel_conf.get("max_plate_size"), size_defaults.get("max_plate_size")),
         )
 
 
@@ -179,6 +203,41 @@ _EXECUTOR_LOCK = threading.Lock()
 def _config_fingerprint(config: dict) -> str:
     """Детерминированный отпечаток для разделения экзекьюторов."""
     return json.dumps(config, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _filter_detections_by_size(
+    detections: list[dict], min_size: Dict[str, int] | None, max_size: Dict[str, int] | None
+) -> list[dict]:
+    """Отбрасывает детекции, которые не укладываются в указанные размеры."""
+
+    if not detections:
+        return []
+
+    min_width = int((min_size or {}).get("width", 0) or 0)
+    min_height = int((min_size or {}).get("height", 0) or 0)
+    max_width = int((max_size or {}).get("width", 0) or 0)
+    max_height = int((max_size or {}).get("height", 0) or 0)
+
+    filtered: list[dict] = []
+    for det in detections:
+        bbox = det.get("bbox")
+        if not bbox or len(bbox) != 4:
+            continue
+        width = max(0, int(bbox[2]) - int(bbox[0]))
+        height = max(0, int(bbox[3]) - int(bbox[1]))
+
+        if min_width and width < min_width:
+            continue
+        if min_height and height < min_height:
+            continue
+        if max_width and width > max_width:
+            continue
+        if max_height and height > max_height:
+            continue
+
+        filtered.append(det)
+
+    return filtered
 
 
 def _get_executor_for_config(config: dict) -> ProcessPoolExecutor:
@@ -252,11 +311,14 @@ def _run_inference_task(
             config.get("plate_config", {})
         )
         _run_inference_task._local_cache[key] = (pipeline, detector)
-    
+
     pipeline, detector = _run_inference_task._local_cache[key]
-    
+
     # Выполняем детекцию и распознавание
     detections = detector.track(roi_frame)
+    detections = _filter_detections_by_size(
+        detections, config.get("min_plate_size"), config.get("max_plate_size")
+    )
     detections = _offset_detections_process(detections, roi_rect)
     results = pipeline.process_frame(frame, detections)
     
@@ -350,12 +412,14 @@ class ChannelWorker(QtCore.QThread):
         plate_config = dict(self.plate_config)
         if plate_config.get("config_dir"):
             plate_config["config_dir"] = os.path.abspath(str(plate_config.get("config_dir")))
-        
+
         return {
             "best_shots": self.config.best_shots,
             "cooldown_seconds": self.config.cooldown_seconds,
             "min_confidence": self.config.min_confidence,
             "plate_config": plate_config,
+            "min_plate_size": self.config.min_plate_size.to_dict(),
+            "max_plate_size": self.config.max_plate_size.to_dict(),
         }
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:
