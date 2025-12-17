@@ -20,6 +20,7 @@ from anpr.detection.motion_detector import MotionDetector, MotionDetectorConfig
 from anpr.pipeline.factory import build_components
 from anpr.infrastructure.logging_manager import get_logger
 from anpr.infrastructure.storage import AsyncEventDatabase
+from anpr.infrastructure.settings_manager import DEFAULT_PLATE_SIZE_LIMITS
 
 logger = get_logger(__name__)
 
@@ -111,6 +112,48 @@ class DebugOptions:
 
 
 @dataclass
+class PlateSizeLimits:
+    min_width: int
+    min_height: int
+    max_width: int
+    max_height: int
+
+    @classmethod
+    def from_dict(cls, config: Optional[Dict[str, Any]]) -> "PlateSizeLimits":
+        data = config or {}
+
+        def _clamp(value: Any, default: int) -> int:
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError):
+                return default
+            return max(0, parsed)
+
+        defaults = DEFAULT_PLATE_SIZE_LIMITS
+        limits = cls(
+            min_width=_clamp(data.get("min_width"), defaults["min_width"]),
+            min_height=_clamp(data.get("min_height"), defaults["min_height"]),
+            max_width=_clamp(data.get("max_width"), defaults["max_width"]),
+            max_height=_clamp(data.get("max_height"), defaults["max_height"]),
+        )
+
+        if limits.max_width and limits.min_width:
+            limits.min_width = min(limits.min_width, limits.max_width)
+        if limits.max_height and limits.min_height:
+            limits.min_height = min(limits.min_height, limits.max_height)
+
+        return limits
+
+    def to_dict(self) -> Dict[str, int]:
+        return {
+            "min_width": self.min_width,
+            "min_height": self.min_height,
+            "max_width": self.max_width,
+            "max_height": self.max_height,
+        }
+
+
+@dataclass
 class ReconnectPolicy:
     """Политика переподключения канала."""
 
@@ -151,6 +194,7 @@ class ChannelRuntimeConfig:
     motion_release_frames: int
     region: Region
     debug: DebugOptions
+    plate_size: PlateSizeLimits
 
     @classmethod
     def from_dict(cls, channel_conf: Dict[str, Any]) -> "ChannelRuntimeConfig":
@@ -168,6 +212,7 @@ class ChannelRuntimeConfig:
             motion_release_frames=int(channel_conf.get("motion_release_frames", 6)),
             region=Region.from_dict(channel_conf.get("region")),
             debug=DebugOptions.from_dict(channel_conf.get("debug")),
+            plate_size=PlateSizeLimits.from_dict(channel_conf.get("plate_size")),
         )
 
 
@@ -224,6 +269,35 @@ def _offset_detections_process(
     return adjusted
 
 
+def _filter_detections_by_size(
+    detections: list[dict],
+    min_width: int,
+    min_height: int,
+    max_width: int,
+    max_height: int,
+) -> list[dict]:
+    filtered: list[dict] = []
+    for det in detections:
+        box = det.get("bbox")
+        if not box or len(box) != 4:
+            continue
+
+        width = int(box[2] - box[0])
+        height = int(box[3] - box[1])
+
+        if min_width and width < min_width:
+            continue
+        if min_height and height < min_height:
+            continue
+        if max_width and width > max_width:
+            continue
+        if max_height and height > max_height:
+            continue
+
+        filtered.append(det)
+    return filtered
+
+
 def _run_inference_task(
     frame: cv2.Mat,
     roi_frame: cv2.Mat,
@@ -254,12 +328,20 @@ def _run_inference_task(
         _run_inference_task._local_cache[key] = (pipeline, detector)
     
     pipeline, detector = _run_inference_task._local_cache[key]
-    
+
     # Выполняем детекцию и распознавание
     detections = detector.track(roi_frame)
+    size_limits = config.get("plate_size", {})
+    detections = _filter_detections_by_size(
+        detections,
+        int(size_limits.get("min_width", 0)),
+        int(size_limits.get("min_height", 0)),
+        int(size_limits.get("max_width", 0)),
+        int(size_limits.get("max_height", 0)),
+    )
     detections = _offset_detections_process(detections, roi_rect)
     results = pipeline.process_frame(frame, detections)
-    
+
     return detections, results
 
 
@@ -350,12 +432,13 @@ class ChannelWorker(QtCore.QThread):
         plate_config = dict(self.plate_config)
         if plate_config.get("config_dir"):
             plate_config["config_dir"] = os.path.abspath(str(plate_config.get("config_dir")))
-        
+
         return {
             "best_shots": self.config.best_shots,
             "cooldown_seconds": self.config.cooldown_seconds,
             "min_confidence": self.config.min_confidence,
             "plate_config": plate_config,
+            "plate_size": self.config.plate_size.to_dict(),
         }
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:
