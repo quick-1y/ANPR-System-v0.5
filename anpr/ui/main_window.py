@@ -978,6 +978,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._channels_restart_timer.setSingleShot(True)
         self._channels_restart_timer.timeout.connect(self._restart_channels)
         self._channels_restart_in_progress = False
+        self._preview_reload_timer = QtCore.QTimer(self)
+        self._preview_reload_timer.setSingleShot(True)
+        self._preview_reload_timer.timeout.connect(self._refresh_preview_frame)
         self._drag_counter = 0
         self._skip_frame_updates = False
         self._preview_worker: Optional[PreviewLoader] = None
@@ -2694,6 +2697,7 @@ class MainWindow(QtWidgets.QMainWindow):
         has_channel = 0 <= index < len(channels)
         self._set_channel_settings_visible(has_channel)
         if has_channel:
+            self._cancel_preview_worker()
             channel = channels[index]
             self.channel_name_input.setText(channel.get("name", ""))
             self.channel_source_input.setText(channel.get("source", ""))
@@ -2729,7 +2733,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 region = {"unit": region.get("unit", "px"), "points": self._default_roi_region()["points"]}
             self.preview.set_roi(region)
             self._sync_roi_table(region)
-            self._refresh_preview_frame()
+            self._queue_preview_frame()
 
     def _add_channel(self) -> None:
         channels = self.settings.get_channels()
@@ -2884,11 +2888,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def _cancel_preview_worker(self) -> None:
         if self._preview_worker:
             self._preview_worker.requestInterruption()
-            self._preview_worker.wait(1000)
-            self._preview_worker.deleteLater()
             self._preview_worker = None
 
+    def _queue_preview_frame(self) -> None:
+        self._preview_reload_timer.start(120)
+
     def _refresh_preview_frame(self) -> None:
+        self._preview_reload_timer.stop()
+        if self._channels_restart_in_progress:
+            self._preview_reload_timer.start(120)
+            return
         index = self.channels_list.currentRow()
         channels = self.settings.get_channels()
         if not (0 <= index < len(channels)):
