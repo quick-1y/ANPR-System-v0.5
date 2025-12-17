@@ -1,6 +1,3 @@
-Вот исправленная версия README.md, где устранены несоответствия и добавлены важные уточнения.
-
-```markdown
 # ANPR System - Automatic Number Plate Recognition
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue.svg)
