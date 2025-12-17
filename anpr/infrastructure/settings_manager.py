@@ -19,24 +19,7 @@ class SettingsManager:
             "ocr": self._ocr_defaults(),
             "detector": self._detector_defaults(),
             "grid": "2x2",
-            "channels": [
-                {
-                    "id": 1,
-                    "name": "Канал 1",
-                    "source": "0",
-                    "best_shots": 3,
-                    "cooldown_seconds": 5,
-                    "ocr_min_confidence": 0.6,
-                    "region": {"unit": "px", "points": []},
-                    "detection_mode": "continuous",
-                    "detector_frame_stride": 2,
-                    "motion_threshold": 0.01,
-                    "motion_frame_stride": 1,
-                    "motion_activation_frames": 3,
-                    "motion_release_frames": 6,
-                    "debug": {"show_detection_boxes": False, "show_ocr_text": False},
-                },
-            ],
+            "channels": [],
             "reconnect": {
                 "signal_loss": {
                     "enabled": True,
