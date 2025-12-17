@@ -209,6 +209,7 @@ class ROIEditor(QtWidgets.QLabel):
     """Виджет предпросмотра канала с настраиваемой областью распознавания."""
 
     roi_changed = QtCore.pyqtSignal(dict)
+    plate_size_selected = QtCore.pyqtSignal(str, int, int)
 
     def __init__(self) -> None:
         super().__init__("Нет кадра")
@@ -221,6 +222,9 @@ class ROIEditor(QtWidgets.QLabel):
         self._roi_data: Dict[str, Any] = {"unit": "px", "points": []}
         self._points: List[QtCore.QPointF] = []
         self._drag_index: Optional[int] = None
+        self._size_capture_target: Optional[str] = None
+        self._size_capture_start: Optional[QtCore.QPointF] = None
+        self._size_capture_end: Optional[QtCore.QPointF] = None
 
     def image_size(self) -> Optional[QtCore.QSize]:
         return self._pixmap.size() if self._pixmap else None
@@ -285,6 +289,9 @@ class ROIEditor(QtWidgets.QLabel):
         if pixmap is None:
             super().setPixmap(QtGui.QPixmap())
             self.setText("Нет кадра")
+            self._size_capture_target = None
+            self._size_capture_start = None
+            self._size_capture_end = None
             return
         self._recalculate_points()
         scaled = self._scaled_pixmap(self.size())
@@ -346,6 +353,20 @@ class ROIEditor(QtWidgets.QLabel):
         _, scaled_size = geom
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
+
+        if self._size_capture_start and self._size_capture_end:
+            start = self._image_to_widget(self._size_capture_start)
+            end = self._image_to_widget(self._size_capture_end)
+            if start is not None and end is not None:
+                rect = QtCore.QRectF(start, end).normalized()
+                pen = QtGui.QPen(QtGui.QColor(59, 130, 246))
+                pen.setWidth(2)
+                pen.setStyle(QtCore.Qt.DashLine)
+                painter.setPen(pen)
+                painter.setBrush(QtGui.QColor(59, 130, 246, 40))
+                painter.drawRect(rect)
+
+        # ROI отрисовываем поверх, чтобы рамка выбора не закрывала границы полигона
 
         polygon_points = self._points
         if not polygon_points and self._pixmap:
@@ -422,6 +443,11 @@ class ROIEditor(QtWidgets.QLabel):
         if img_pos is None:
             return
 
+        if self._size_capture_target:
+            self._size_capture_start = self._size_capture_end = img_pos
+            self.update()
+            return
+
         handle_radius = 8
         closest_idx = None
         closest_dist = handle_radius + 1
@@ -440,6 +466,16 @@ class ROIEditor(QtWidgets.QLabel):
             self._drag_index = None
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if self._size_capture_target:
+            if self._size_capture_start is None:
+                return
+            img_pos = self._widget_to_image(event.pos())
+            if img_pos is None:
+                return
+            self._size_capture_end = img_pos
+            self.update()
+            return
+
         if self._drag_index is None:
             return
         img_pos = self._widget_to_image(event.pos())
@@ -451,6 +487,23 @@ class ROIEditor(QtWidgets.QLabel):
         self.update()
 
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if self._size_capture_target:
+            if (
+                event.button() == QtCore.Qt.LeftButton
+                and self._size_capture_start is not None
+                and self._size_capture_end is not None
+            ):
+                rect = QtCore.QRectF(self._size_capture_start, self._size_capture_end).normalized()
+                if rect.width() >= 1 and rect.height() >= 1:
+                    self.plate_size_selected.emit(
+                        self._size_capture_target, int(rect.width()), int(rect.height())
+                    )
+            self._size_capture_target = None
+            self._size_capture_start = None
+            self._size_capture_end = None
+            self.update()
+            return
+
         self._drag_index = None
 
     def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
@@ -484,9 +537,11 @@ class ROIEditor(QtWidgets.QLabel):
         self._emit_roi()
         self.update()
 
-    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
-        self._drag_index = None
-
+    def start_plate_size_capture(self, target: str) -> None:
+        self._size_capture_target = target
+        self._size_capture_start = None
+        self._size_capture_end = None
+        self.update()
 
 class FrameSizeSelector(QtWidgets.QLabel):
     """Виджет выбора прямоугольной области для замера размеров рамки."""
@@ -2185,6 +2240,7 @@ class MainWindow(QtWidgets.QMainWindow):
         center_panel = QtWidgets.QVBoxLayout()
         self.preview = ROIEditor()
         self.preview.roi_changed.connect(self._on_roi_drawn)
+        self.preview.plate_size_selected.connect(self._on_plate_size_selected)
         center_panel.addWidget(self.preview)
         details_layout.addLayout(center_panel, 2)
 
@@ -2342,11 +2398,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         pick_min_btn = QtWidgets.QPushButton("Указать мин. на кадре")
         self._polish_button(pick_min_btn, 180)
-        pick_min_btn.clicked.connect(lambda: self._pick_plate_size(target="min"))
+        pick_min_btn.clicked.connect(lambda: self._start_plate_size_capture(target="min"))
 
         pick_max_btn = QtWidgets.QPushButton("Указать макс. на кадре")
         self._polish_button(pick_max_btn, 180)
-        pick_max_btn.clicked.connect(lambda: self._pick_plate_size(target="max"))
+        pick_max_btn.clicked.connect(lambda: self._start_plate_size_capture(target="max"))
 
         size_layout.addWidget(QtWidgets.QLabel("Мин. ширина (px):"), 0, 0)
         size_layout.addWidget(self.min_plate_width_input, 0, 1)
@@ -2358,6 +2414,10 @@ class MainWindow(QtWidgets.QMainWindow):
         size_layout.addWidget(QtWidgets.QLabel("Макс. высота (px):"), 1, 2)
         size_layout.addWidget(self.max_plate_height_input, 1, 3)
         size_layout.addWidget(pick_max_btn, 1, 4)
+
+        self.plate_size_hint = QtWidgets.QLabel("Выбор на кадре: кликните кнопку и выделите рамку на превью слева")
+        self.plate_size_hint.setStyleSheet("color: #9ca3af; padding-top: 6px;")
+        size_layout.addWidget(self.plate_size_hint, 2, 0, 1, 5)
         size_group.setLayout(size_layout)
 
         roi_form.addRow("", size_group)
@@ -2627,6 +2687,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.min_plate_height_input.setValue(int(min_size.get("height", 0)))
             self.max_plate_width_input.setValue(int(max_size.get("width", 0)))
             self.max_plate_height_input.setValue(int(max_size.get("height", 0)))
+            self.plate_size_hint.setText(
+                f"Текущие рамки: мин {self.min_plate_width_input.value()}×{self.min_plate_height_input.value()} px, "
+                f"макс {self.max_plate_width_input.value()}×{self.max_plate_height_input.value()} px"
+            )
 
             debug_conf = channel.get("debug", {})
             self.debug_detection_checkbox.setChecked(bool(debug_conf.get("show_detection_boxes", False)))
@@ -2768,7 +2832,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._sync_roi_table(default_roi)
         self.preview.set_roi(default_roi)
 
-    def _pick_plate_size(self, target: str) -> None:
+    def _start_plate_size_capture(self, target: str) -> None:
         pixmap = self.preview.current_pixmap()
         if pixmap is None:
             QtWidgets.QMessageBox.warning(
@@ -2778,17 +2842,24 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
 
-        title = "Мин. размер рамки" if target == "min" else "Макс. размер рамки"
-        dialog = SizeSelectionDialog(pixmap, title, self)
-        if dialog.exec_() == QtWidgets.QDialog.Accepted:
-            width, height = dialog.result_size
-            if width and height:
-                if target == "min":
-                    self.min_plate_width_input.setValue(width)
-                    self.min_plate_height_input.setValue(height)
-                else:
-                    self.max_plate_width_input.setValue(width)
-                    self.max_plate_height_input.setValue(height)
+        label = "мин" if target == "min" else "макс"
+        self.plate_size_hint.setText(
+            f"Выбор {label} рамки: выделите прямоугольник на превью слева"
+        )
+        self.preview.start_plate_size_capture(target)
+
+    def _on_plate_size_selected(self, target: str, width: int, height: int) -> None:
+        if target == "min":
+            self.min_plate_width_input.setValue(width)
+            self.min_plate_height_input.setValue(height)
+            label = "мин"
+        else:
+            self.max_plate_width_input.setValue(width)
+            self.max_plate_height_input.setValue(height)
+            label = "макс"
+        self.plate_size_hint.setText(
+            f"Выбрано {label}: {width}×{height} px. Нажмите кнопку, чтобы выбрать снова"
+        )
 
     def _cancel_preview_worker(self) -> None:
         if self._preview_worker:
