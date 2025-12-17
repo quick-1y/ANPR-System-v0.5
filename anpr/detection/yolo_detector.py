@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 import numpy as np
 from ultralytics import YOLO
 
-from anpr.config import ModelConfig
+from anpr.config import Config
 from anpr.infrastructure.logging_manager import get_logger
 
 logger = get_logger(__name__)
@@ -29,7 +29,7 @@ class YOLODetector:
         results: List[Dict[str, Any]] = []
         for det in detections[0].boxes.data:
             x1, y1, x2, y2, conf, _ = det.cpu().numpy()
-            if conf >= ModelConfig.DETECTION_CONFIDENCE_THRESHOLD:
+            if conf >= Config().detection_confidence_threshold:
                 results.append({"bbox": [int(x1), int(y1), int(x2), int(y2)], "confidence": float(conf)})
         return results
 
@@ -44,7 +44,7 @@ class YOLODetector:
         confs = detections[0].boxes.conf.cpu().numpy()
 
         for box, track_id, conf in zip(boxes, track_ids, confs):
-            if conf >= ModelConfig.DETECTION_CONFIDENCE_THRESHOLD:
+            if conf >= Config().detection_confidence_threshold:
                 results.append(
                     {
                         "bbox": [int(box[0]), int(box[1]), int(box[2]), int(box[3])],

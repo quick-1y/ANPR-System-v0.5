@@ -15,6 +15,9 @@ class SettingsManager:
 
     def _default(self) -> Dict[str, Any]:
         return {
+            "models": self._model_defaults(),
+            "ocr": self._ocr_defaults(),
+            "detector": self._detector_defaults(),
             "grid": "2x2",
             "channels": [
                 {
@@ -82,11 +85,23 @@ class SettingsManager:
         storage_defaults = self._storage_defaults()
         plate_defaults = self._plate_defaults()
         time_defaults = self._time_defaults()
+        model_defaults = self._model_defaults()
+        ocr_defaults = self._ocr_defaults()
+        detector_defaults = self._detector_defaults()
         for channel in data.get("channels", []):
             if self._fill_channel_defaults(channel, tracking_defaults):
                 changed = True
 
         if self._fill_reconnect_defaults(data, reconnect_defaults):
+            changed = True
+
+        if self._fill_model_defaults(data, model_defaults):
+            changed = True
+
+        if self._fill_ocr_defaults(data, ocr_defaults):
+            changed = True
+
+        if self._fill_detector_defaults(data, detector_defaults):
             changed = True
 
         if self._fill_storage_defaults(data, storage_defaults):
@@ -164,6 +179,27 @@ class SettingsManager:
             "config_dir": "config/countries",
             "enabled_countries": ["RU", "UA", "BY", "KZ"],
         }
+
+    @staticmethod
+    def _model_defaults() -> Dict[str, Any]:
+        return {
+            "yolo_model_path": "models/yolo/best.pt",
+            "ocr_model_path": "models/ocr_crnn/crnn_ocr_model_int8_fx.pth",
+            "device": "cpu",
+        }
+
+    @staticmethod
+    def _ocr_defaults() -> Dict[str, Any]:
+        return {
+            "img_height": 32,
+            "img_width": 128,
+            "alphabet": "0123456789ABCEHKMOPTXY",
+            "confidence_threshold": 0.6,
+        }
+
+    @staticmethod
+    def _detector_defaults() -> Dict[str, Any]:
+        return {"confidence_threshold": 0.5}
 
     @staticmethod
     def _time_defaults() -> Dict[str, Any]:
@@ -245,6 +281,48 @@ class SettingsManager:
                 plates[key] = val
                 changed = True
         data["plates"] = plates
+        return changed
+
+    def _fill_model_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
+        if "models" not in data:
+            data["models"] = defaults
+            return True
+
+        changed = False
+        models = data.get("models", {})
+        for key, val in defaults.items():
+            if key not in models:
+                models[key] = val
+                changed = True
+        data["models"] = models
+        return changed
+
+    def _fill_ocr_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
+        if "ocr" not in data:
+            data["ocr"] = defaults
+            return True
+
+        changed = False
+        ocr = data.get("ocr", {})
+        for key, val in defaults.items():
+            if key not in ocr:
+                ocr[key] = val
+                changed = True
+        data["ocr"] = ocr
+        return changed
+
+    def _fill_detector_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
+        if "detector" not in data:
+            data["detector"] = defaults
+            return True
+
+        changed = False
+        detector = data.get("detector", {})
+        for key, val in defaults.items():
+            if key not in detector:
+                detector[key] = val
+                changed = True
+        data["detector"] = detector
         return changed
 
     def _fill_time_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
@@ -387,6 +465,21 @@ class SettingsManager:
 
     def get_logging_config(self) -> Dict[str, Any]:
         return self.settings.get("logging", {})
+
+    def get_model_settings(self) -> Dict[str, Any]:
+        if self._fill_model_defaults(self.settings, self._model_defaults()):
+            self._save(self.settings)
+        return self.settings.get("models", {})
+
+    def get_ocr_settings(self) -> Dict[str, Any]:
+        if self._fill_ocr_defaults(self.settings, self._ocr_defaults()):
+            self._save(self.settings)
+        return self.settings.get("ocr", {})
+
+    def get_detector_settings(self) -> Dict[str, Any]:
+        if self._fill_detector_defaults(self.settings, self._detector_defaults()):
+            self._save(self.settings)
+        return self.settings.get("detector", {})
 
     def refresh(self) -> None:
         self.settings = self._load()

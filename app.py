@@ -5,8 +5,8 @@ import warnings
 
 from PyQt5 import QtWidgets
 
+from anpr.config import Config
 from anpr.infrastructure.logging_manager import LoggingManager, get_logger
-from anpr.infrastructure.settings_manager import SettingsManager
 from anpr.ui.main_window import MainWindow
 
 # Silence noisy quantization warnings emitted by torch on repeated startups.
@@ -27,12 +27,12 @@ logger = get_logger(__name__)
 def main() -> None:
     """Entrypoint that wires settings, logging and the main window."""
 
-    settings = SettingsManager()
-    LoggingManager(settings.get_logging_config())
+    config = Config()
+    LoggingManager(config.get_logging_config())
     logger.info("Запуск ANPR Desktop")
 
     app = QtWidgets.QApplication(sys.argv)
-    window = MainWindow(settings)
+    window = MainWindow(config)
     window.show()
     sys.exit(app.exec_())
 

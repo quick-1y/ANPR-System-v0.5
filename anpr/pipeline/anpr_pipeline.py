@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 
-from anpr.config import ModelConfig
+from anpr.config import Config
 from anpr.postprocessing.validator import PlatePostProcessor
 from anpr.recognition.crnn_recognizer import CRNNRecognizer
 
@@ -53,7 +53,7 @@ class ANPRPipeline:
         recognizer: CRNNRecognizer,
         best_shots: int,
         cooldown_seconds: int = 0,
-        min_confidence: float = ModelConfig.OCR_CONFIDENCE_THRESHOLD,
+        min_confidence: float = Config().ocr_confidence_threshold,
         postprocessor: Optional[PlatePostProcessor] = None,
     ) -> None:
         self.recognizer = recognizer
