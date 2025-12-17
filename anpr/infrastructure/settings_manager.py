@@ -109,6 +109,7 @@ class SettingsManager:
 
     @staticmethod
     def _channel_defaults(tracking_defaults: Dict[str, Any]) -> Dict[str, Any]:
+        size_defaults = SettingsManager._plate_size_defaults()
         return {
             "best_shots": int(tracking_defaults.get("best_shots", 3)),
             "cooldown_seconds": int(tracking_defaults.get("cooldown_seconds", 5)),
@@ -121,6 +122,8 @@ class SettingsManager:
             "motion_activation_frames": 3,
             "motion_release_frames": 6,
             "debug": {"show_detection_boxes": False, "show_ocr_text": False},
+            "min_plate_size": size_defaults["min_plate_size"].copy(),
+            "max_plate_size": size_defaults["max_plate_size"].copy(),
         }
 
     @staticmethod
@@ -177,6 +180,13 @@ class SettingsManager:
             "yolo_model_path": "models/yolo/best.pt",
             "ocr_model_path": "models/ocr_crnn/crnn_ocr_model_int8_fx.pth",
             "device": "cpu",
+        }
+
+    @staticmethod
+    def _plate_size_defaults() -> Dict[str, Dict[str, int]]:
+        return {
+            "min_plate_size": {"width": 80, "height": 20},
+            "max_plate_size": {"width": 600, "height": 240},
         }
 
     @staticmethod
@@ -471,6 +481,10 @@ class SettingsManager:
         if self._fill_detector_defaults(self.settings, self._detector_defaults()):
             self._save(self.settings)
         return self.settings.get("detector", {})
+
+    def get_plate_size_defaults(self) -> Dict[str, Dict[str, int]]:
+        defaults = self._plate_size_defaults()
+        return {key: value.copy() for key, value in defaults.items()}
 
     def refresh(self) -> None:
         self.settings = self._load()
