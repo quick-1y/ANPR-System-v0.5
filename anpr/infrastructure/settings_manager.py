@@ -108,6 +108,8 @@ class SettingsManager:
             "best_shots": int(tracking_defaults.get("best_shots", 3)),
             "cooldown_seconds": int(tracking_defaults.get("cooldown_seconds", 5)),
             "ocr_min_confidence": float(tracking_defaults.get("ocr_min_confidence", 0.6)),
+            "min_plate_size": {"width": 0, "height": 0},
+            "max_plate_size": {"width": 0, "height": 0},
             "region": {"unit": "px", "points": []},
             "detection_mode": "continuous",
             "detector_frame_stride": 2,
