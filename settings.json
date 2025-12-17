@@ -1,6 +1,27 @@
 {
   "grid": "2x2",
-  "channels": [],
+  "channels": [
+    {
+      "id": 1,
+      "name": "Канал 1",
+      "source": "0",
+      "best_shots": 10,
+      "cooldown_seconds": 10,
+      "ocr_min_confidence": 0.9,
+      "region": {
+        "x": 0,
+        "y": 0,
+        "width": 100,
+        "height": 100
+      },
+      "detection_mode": "motion",
+      "detector_frame_stride": 5,
+      "motion_threshold": 0.01,
+      "motion_frame_stride": 2,
+      "motion_activation_frames": 3,
+      "motion_release_frames": 6
+    }
+  ],
   "reconnect": {
     "signal_loss": {
       "enabled": true,
