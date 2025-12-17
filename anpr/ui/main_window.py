@@ -1031,7 +1031,8 @@ class MainWindow(QtWidgets.QMainWindow):
     # ------------------ Наблюдение ------------------
     def _build_observation_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout(widget)
+        layout = QtWidgets.QHBoxLayout()
+        widget.setLayout(layout)
         layout.setSpacing(10)
 
         left_column = QtWidgets.QVBoxLayout()
@@ -2120,7 +2121,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_channel_settings_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout(widget)
+        layout = QtWidgets.QHBoxLayout()
+        widget.setLayout(layout)
         widget.setStyleSheet(self.GROUP_BOX_STYLE)
 
         left_panel = QtWidgets.QVBoxLayout()
