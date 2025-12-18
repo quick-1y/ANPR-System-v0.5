@@ -831,7 +831,7 @@ class EventDetailView(QtWidgets.QWidget):
         self.plate_label.setText(plate)
         conf = event.get("confidence")
         self.conf_label.setText(f"{float(conf):.2f}" if conf is not None else "—")
-        self.direction_label.setText(event.get("direction", "—"))
+        self.direction_label.setText(self._format_direction(event.get("direction")))
 
         self._set_image(self.frame_preview, frame_image, keep_aspect=True)
         self._set_image(self.plate_preview, plate_image, keep_aspect=True)
@@ -1617,7 +1617,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not direction:
             return "—"
         normalized = str(direction).upper()
-        mapping = {"APPROACHING": "К камере", "RECEDING": "От камеры"}
+        mapping = {"APPROACHING": "↓", "RECEDING": "↑"}
         return mapping.get(normalized, "—")
 
     def _prune_image_cache(self) -> None:

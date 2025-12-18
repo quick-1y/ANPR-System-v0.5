@@ -101,6 +101,7 @@ class Region:
 class DebugOptions:
     show_detection_boxes: bool = False
     show_ocr_text: bool = False
+    show_direction_tracks: bool = False
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]) -> "DebugOptions":
@@ -108,6 +109,7 @@ class DebugOptions:
         return cls(
             show_detection_boxes=bool(debug_conf.get("show_detection_boxes", False)),
             show_ocr_text=bool(debug_conf.get("show_ocr_text", False)),
+            show_direction_tracks=bool(debug_conf.get("show_direction_tracks", False)),
         )
 
 
@@ -564,11 +566,18 @@ class ChannelWorker(QtCore.QThread):
         cv2.putText(frame, text, (x + 4, y - 2), font, scale, (0, 255, 0), thickness)
 
     def _draw_debug_info(self, frame: cv2.Mat) -> None:
-        if not (self.config.debug.show_detection_boxes or self.config.debug.show_ocr_text):
+        if not (
+            self.config.debug.show_detection_boxes
+            or self.config.debug.show_ocr_text
+            or self.config.debug.show_direction_tracks
+        ):
             return
 
         detections = self._last_debug.get("detections", [])
         results = self._last_debug.get("results", [])
+
+        if self.config.debug.show_direction_tracks:
+            self._draw_direction_tracks(frame, detections)
 
         if self.config.debug.show_detection_boxes:
             for det in detections:
@@ -587,6 +596,33 @@ class ChannelWorker(QtCore.QThread):
                 if not text or not bbox or len(bbox) != 4:
                     continue
                 self._draw_label(frame, str(text), (bbox[0], bbox[1] - 6))
+
+    def _draw_direction_tracks(self, frame: cv2.Mat, detections: list[dict]) -> None:
+        for det in detections:
+            bbox = det.get("bbox")
+            direction = str(det.get("direction") or "").upper()
+            if not bbox or len(bbox) != 4:
+                continue
+
+            x1, y1, x2, y2 = map(int, bbox)
+            center_x = (x1 + x2) // 2
+            center_y = (y1 + y2) // 2
+
+            if direction == "APPROACHING":
+                end_point = (center_x, center_y + 28)
+                color = (0, 215, 255)
+                label = "↓"
+            elif direction == "RECEDING":
+                end_point = (center_x, center_y - 28)
+                color = (255, 160, 0)
+                label = "↑"
+            else:
+                continue
+
+            cv2.arrowedLine(frame, (center_x, center_y), end_point, color, 2, tipLength=0.32)
+            track_id = det.get("track_id")
+            display_label = f"{label} {track_id}" if track_id is not None else label
+            self._draw_label(frame, display_label, (x1, y1 - 22))
 
     def _save_bgr_image(self, path: str, image: Optional[cv2.Mat]) -> Optional[str]:
         """Сохраняет BGR изображение на диск."""

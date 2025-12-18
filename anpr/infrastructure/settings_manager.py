@@ -136,7 +136,7 @@ class SettingsManager:
             "motion_frame_stride": 1,
             "motion_activation_frames": 3,
             "motion_release_frames": 6,
-            "debug": {"show_detection_boxes": False, "show_ocr_text": False},
+            "debug": {"show_detection_boxes": False, "show_ocr_text": False, "show_direction_tracks": False},
             "min_plate_size": size_defaults["min_plate_size"].copy(),
             "max_plate_size": size_defaults["max_plate_size"].copy(),
         }
@@ -249,6 +249,7 @@ class SettingsManager:
                 channel[key] = value
                 changed = True
 
+        debug_defaults = defaults.get("debug", {})
         direction_defaults = defaults.get("direction", self._direction_defaults())
         channel_direction = channel.get("direction")
         if channel_direction is None:
@@ -258,6 +259,16 @@ class SettingsManager:
             for key, value in direction_defaults.items():
                 if key not in channel_direction:
                     channel_direction[key] = value
+                    changed = True
+
+        channel_debug = channel.get("debug")
+        if channel_debug is None:
+            channel["debug"] = dict(debug_defaults)
+            changed = True
+        else:
+            for key, value in debug_defaults.items():
+                if key not in channel_debug:
+                    channel_debug[key] = value
                     changed = True
 
         upgraded_region = self._upgrade_region(channel.get("region"))
