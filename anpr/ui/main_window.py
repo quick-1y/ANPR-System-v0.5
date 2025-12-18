@@ -764,11 +764,13 @@ class EventDetailView(QtWidgets.QWidget):
         self.country_label = QtWidgets.QLabel("—")
         self.plate_label = QtWidgets.QLabel("—")
         self.conf_label = QtWidgets.QLabel("—")
+        self.direction_label = QtWidgets.QLabel("—")
         meta_layout.addRow("Дата/Время:", self.time_label)
         meta_layout.addRow("Канал:", self.channel_label)
         meta_layout.addRow("Страна:", self.country_label)
         meta_layout.addRow("Гос. номер:", self.plate_label)
         meta_layout.addRow("Уверенность:", self.conf_label)
+        meta_layout.addRow("Направление:", self.direction_label)
         bottom_row.addWidget(meta_group, 1)
 
         layout.addLayout(bottom_row, stretch=1)
@@ -805,6 +807,7 @@ class EventDetailView(QtWidgets.QWidget):
         self.country_label.setText("—")
         self.plate_label.setText("—")
         self.conf_label.setText("—")
+        self.direction_label.setText("—")
         self._frame_image = None
         self._plate_image = None
         for group in (self.frame_preview, self.plate_preview):
@@ -828,6 +831,7 @@ class EventDetailView(QtWidgets.QWidget):
         self.plate_label.setText(plate)
         conf = event.get("confidence")
         self.conf_label.setText(f"{float(conf):.2f}" if conf is not None else "—")
+        self.direction_label.setText(self._format_direction(event.get("direction")))
 
         self._set_image(self.frame_preview, frame_image, keep_aspect=True)
         self._set_image(self.plate_preview, plate_image, keep_aspect=True)
@@ -1172,8 +1176,8 @@ class MainWindow(QtWidgets.QMainWindow):
         events_group = QtWidgets.QGroupBox("События")
         events_group.setStyleSheet(self.GROUP_BOX_STYLE)
         events_layout = QtWidgets.QVBoxLayout(events_group)
-        self.events_table = QtWidgets.QTableWidget(0, 4)
-        self.events_table.setHorizontalHeaderLabels(["Дата/Время", "Гос. номер", "Страна", "Канал"])
+        self.events_table = QtWidgets.QTableWidget(0, 5)
+        self.events_table.setHorizontalHeaderLabels(["Дата/Время", "Гос. номер", "Страна", "Канал", "Направление"])
         self.events_table.setStyleSheet(self.TABLE_STYLE)
         header = self.events_table.horizontalHeader()
         header.setMinimumSectionSize(90)
@@ -1608,6 +1612,14 @@ class MainWindow(QtWidgets.QMainWindow):
         code = str(country).upper()
         return self.country_display_names.get(code, code)
 
+    @staticmethod
+    def _format_direction(direction: Optional[str]) -> str:
+        if not direction:
+            return "—"
+        normalized = str(direction).upper()
+        mapping = {"APPROACHING": "↓", "RECEDING": "↑"}
+        return mapping.get(normalized, "—")
+
     def _prune_image_cache(self) -> None:
         """Ограничивает размер кеша изображений, удаляя самые старые записи."""
 
@@ -1634,6 +1646,7 @@ class MainWindow(QtWidgets.QMainWindow):
         channel = event.get("channel", "—")
         event_id = int(event.get("id") or 0)
         country_code = (event.get("country") or "").upper()
+        direction = self._format_direction(event.get("direction"))
 
         id_item = QtWidgets.QTableWidgetItem(timestamp)
         id_item.setData(QtCore.Qt.UserRole, event_id)
@@ -1650,6 +1663,7 @@ class MainWindow(QtWidgets.QMainWindow):
             country_item.setToolTip(country_name)
         self.events_table.setItem(row_index, 2, country_item)
         self.events_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(channel))
+        self.events_table.setItem(row_index, 4, QtWidgets.QTableWidgetItem(direction))
 
     def _trim_events_table(self, max_rows: int = 200) -> None:
         while self.events_table.rowCount() > max_rows:
@@ -1700,6 +1714,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 display_event.get("timestamp", ""), target_zone, offset_minutes
             )
             display_event["country"] = self._get_country_name(display_event.get("country"))
+            display_event["direction"] = self._format_direction(display_event.get("direction"))
         self.event_detail.set_event(display_event, frame_image, plate_image)
 
     def _refresh_events_table(self, select_id: Optional[int] = None) -> None:
@@ -1777,15 +1792,24 @@ class MainWindow(QtWidgets.QMainWindow):
         button_row.addStretch()
         layout.addLayout(button_row)
 
-        self.search_table = QtWidgets.QTableWidget(0, 6)
+        self.search_table = QtWidgets.QTableWidget(0, 7)
         self.search_table.setHorizontalHeaderLabels(
-            ["Дата/Время", "Канал", "Страна", "Гос. номер", "Уверенность", "Источник"]
+            [
+                "Дата/Время",
+                "Канал",
+                "Страна",
+                "Направление",
+                "Гос. номер",
+                "Уверенность",
+                "Источник",
+            ]
         )
         header = self.search_table.horizontalHeader()
         header.setSectionResizeMode(QtWidgets.QHeaderView.Interactive)
         header.setStretchLastSection(True)
         header.setMinimumSectionSize(90)
         self.search_table.setColumnWidth(0, 220)
+        self.search_table.setColumnWidth(3, 140)
         self.search_table.setStyleSheet(self.TABLE_STYLE)
         self.search_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.search_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
@@ -1850,11 +1874,16 @@ class MainWindow(QtWidgets.QMainWindow):
             country_item.setTextAlignment(QtCore.Qt.AlignCenter)
             self.search_table.setItem(row_index, 2, country_item)
 
-            self.search_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(row_data["plate"]))
+            direction = self._format_direction(row_data.get("direction"))
+            direction_item = QtWidgets.QTableWidgetItem(direction)
+            direction_item.setTextAlignment(QtCore.Qt.AlignCenter)
+            self.search_table.setItem(row_index, 3, direction_item)
+
+            self.search_table.setItem(row_index, 4, QtWidgets.QTableWidgetItem(row_data["plate"]))
             self.search_table.setItem(
-                row_index, 4, QtWidgets.QTableWidgetItem(f"{row_data['confidence'] or 0:.2f}")
+                row_index, 5, QtWidgets.QTableWidgetItem(f"{row_data['confidence'] or 0:.2f}")
             )
-            self.search_table.setItem(row_index, 5, QtWidgets.QTableWidgetItem(row_data["source"]))
+            self.search_table.setItem(row_index, 6, QtWidgets.QTableWidgetItem(row_data["source"]))
 
     def _on_journal_event_activated(self, item: QtWidgets.QTableWidgetItem) -> None:
         row = item.row()
@@ -1881,6 +1910,7 @@ class MainWindow(QtWidgets.QMainWindow):
             display_event.get("timestamp", ""), target_zone, offset_minutes
         )
         display_event["country"] = self._get_country_name(display_event.get("country"))
+        display_event["direction"] = self._format_direction(display_event.get("direction"))
 
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle("Информация о событии")
