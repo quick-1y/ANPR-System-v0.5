@@ -4,6 +4,7 @@ import math
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from time import monotonic
 
 import cv2
 import psutil
@@ -26,22 +27,129 @@ logger = get_logger(__name__)
 class PixmapPool:
     """Простой пул QPixmap для повторного использования буферов по размеру."""
 
-    def __init__(self, max_per_size: int = 5) -> None:
+    def __init__(
+        self, max_per_size: int = 5, max_total_pixels: Optional[int] = None
+    ) -> None:
         self._pool: Dict[Tuple[int, int], List[QtGui.QPixmap]] = {}
         self._max_per_size = max_per_size
+        self._max_total_pixels = max_total_pixels
+        self._current_pixels = 0
+        self._discard_log_interval = 5.0
+        self._last_discard_log_ts: Optional[float] = None
+        self._suppressed_discards = 0
 
-    def acquire(self, size: QtCore.QSize) -> QtGui.QPixmap:
+    @property
+    def total_pixels(self) -> int:
+        return self._current_pixels
+
+    def acquire(self, size: QtCore.QSize) -> Optional[QtGui.QPixmap]:
         key = (size.width(), size.height())
         pixmaps = self._pool.get(key)
         if pixmaps:
-            return pixmaps.pop()
-        return QtGui.QPixmap(size)
+            pixmap = pixmaps.pop()
+            if not pixmaps:
+                self._pool.pop(key, None)
+            return pixmap
+
+        if not self._ensure_capacity(key[0] * key[1]):
+            logger.warning(
+                "Отказ выдачи QPixmap %sx%s: превышен лимит %s пикселей",
+                key[0],
+                key[1],
+                self._max_total_pixels,
+            )
+            return None
+
+        pixmap = QtGui.QPixmap(size)
+        self._current_pixels += key[0] * key[1]
+        return pixmap
 
     def release(self, pixmap: QtGui.QPixmap) -> None:
         key = (pixmap.width(), pixmap.height())
+        size_pixels = key[0] * key[1]
+
+        if self._max_total_pixels is not None and self._current_pixels > self._max_total_pixels:
+            self._discard_pixmap(size_pixels, key, "в пул при превышении лимита")
+            return
+
         pixmaps = self._pool.setdefault(key, [])
         if len(pixmaps) < self._max_per_size:
             pixmaps.append(pixmap)
+            return
+
+        self._discard_pixmap(size_pixels, key, "из-за переполнения размера в пуле")
+
+    def _ensure_capacity(self, required_pixels: int) -> bool:
+        if self._max_total_pixels is None:
+            return True
+
+        if required_pixels > self._max_total_pixels:
+            return False
+
+        available = self._max_total_pixels - self._current_pixels
+        if available >= required_pixels:
+            return True
+
+        self._shrink_pool(required_pixels - available)
+        return (self._max_total_pixels - self._current_pixels) >= required_pixels
+
+    def _shrink_pool(self, pixels_to_free: int) -> None:
+        freed = 0
+        for key in sorted(self._pool.keys(), key=lambda item: item[0] * item[1], reverse=True):
+            pixmaps = self._pool.get(key)
+            if not pixmaps:
+                continue
+
+            while pixmaps and freed < pixels_to_free:
+                pixmaps.pop()
+                freed += key[0] * key[1]
+                self._current_pixels -= key[0] * key[1]
+
+            if not pixmaps:
+                self._pool.pop(key, None)
+
+            if freed >= pixels_to_free:
+                logger.warning(
+                    "Освобождено %s пикселей из пула для соблюдения лимита", freed
+                )
+                return
+
+        if freed:
+            logger.warning(
+                "Освобождено %s пикселей из пула, но лимит всё ещё может быть достигнут",
+                freed,
+            )
+
+    def _discard_pixmap(self, size_pixels: int, key: Tuple[int, int], reason: str) -> None:
+        self._current_pixels = max(0, self._current_pixels - size_pixels)
+        self._log_discard(key, size_pixels, reason)
+
+    def _log_discard(
+        self, key: Tuple[int, int], size_pixels: int, reason: str
+    ) -> None:
+        now = monotonic()
+        if self._last_discard_log_ts is None or (
+            now - self._last_discard_log_ts >= self._discard_log_interval
+        ):
+            if self._suppressed_discards:
+                logger.warning(
+                    "Сброс QPixmap: подавлено ещё %s повторных событий за %.1f c",
+                    self._suppressed_discards,
+                    self._discard_log_interval,
+                )
+                self._suppressed_discards = 0
+
+            logger.warning(
+                "Сброс QPixmap %sx%s (%s пикселей) %s",
+                key[0],
+                key[1],
+                size_pixels,
+                reason,
+            )
+            self._last_discard_log_ts = now
+            return
+
+        self._suppressed_discards += 1
 
 
 class ChannelView(QtWidgets.QWidget):
