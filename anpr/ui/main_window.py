@@ -1792,15 +1792,24 @@ class MainWindow(QtWidgets.QMainWindow):
         button_row.addStretch()
         layout.addLayout(button_row)
 
-        self.search_table = QtWidgets.QTableWidget(0, 6)
+        self.search_table = QtWidgets.QTableWidget(0, 7)
         self.search_table.setHorizontalHeaderLabels(
-            ["Дата/Время", "Канал", "Страна", "Гос. номер", "Уверенность", "Источник"]
+            [
+                "Дата/Время",
+                "Канал",
+                "Страна",
+                "Направление",
+                "Гос. номер",
+                "Уверенность",
+                "Источник",
+            ]
         )
         header = self.search_table.horizontalHeader()
         header.setSectionResizeMode(QtWidgets.QHeaderView.Interactive)
         header.setStretchLastSection(True)
         header.setMinimumSectionSize(90)
         self.search_table.setColumnWidth(0, 220)
+        self.search_table.setColumnWidth(3, 140)
         self.search_table.setStyleSheet(self.TABLE_STYLE)
         self.search_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.search_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
@@ -1865,11 +1874,16 @@ class MainWindow(QtWidgets.QMainWindow):
             country_item.setTextAlignment(QtCore.Qt.AlignCenter)
             self.search_table.setItem(row_index, 2, country_item)
 
-            self.search_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(row_data["plate"]))
+            direction = self._format_direction(row_data.get("direction"))
+            direction_item = QtWidgets.QTableWidgetItem(direction)
+            direction_item.setTextAlignment(QtCore.Qt.AlignCenter)
+            self.search_table.setItem(row_index, 3, direction_item)
+
+            self.search_table.setItem(row_index, 4, QtWidgets.QTableWidgetItem(row_data["plate"]))
             self.search_table.setItem(
-                row_index, 4, QtWidgets.QTableWidgetItem(f"{row_data['confidence'] or 0:.2f}")
+                row_index, 5, QtWidgets.QTableWidgetItem(f"{row_data['confidence'] or 0:.2f}")
             )
-            self.search_table.setItem(row_index, 5, QtWidgets.QTableWidgetItem(row_data["source"]))
+            self.search_table.setItem(row_index, 6, QtWidgets.QTableWidgetItem(row_data["source"]))
 
     def _on_journal_event_activated(self, item: QtWidgets.QTableWidgetItem) -> None:
         row = item.row()
@@ -1896,6 +1910,7 @@ class MainWindow(QtWidgets.QMainWindow):
             display_event.get("timestamp", ""), target_zone, offset_minutes
         )
         display_event["country"] = self._get_country_name(display_event.get("country"))
+        display_event["direction"] = self._format_direction(display_event.get("direction"))
 
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle("Информация о событии")
