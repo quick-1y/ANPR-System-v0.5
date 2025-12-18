@@ -2342,8 +2342,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.debug_ocr_checkbox.setToolTip(
             "Выводить распознанные символы поверх рамок"
         )
+        self.debug_direction_checkbox = QtWidgets.QCheckBox("Трек движения")
+        self.debug_direction_checkbox.setToolTip(
+            "Показывать траектории движения и направление каждого трека"
+        )
         debug_row.addWidget(self.debug_detection_checkbox)
         debug_row.addWidget(self.debug_ocr_checkbox)
+        debug_row.addWidget(self.debug_direction_checkbox)
         debug_row.addStretch(1)
         recognition_form.addRow("Отладка:", debug_row)
 
@@ -2539,6 +2544,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.motion_release_frames_input.setValue(6)
         self.debug_detection_checkbox.setChecked(False)
         self.debug_ocr_checkbox.setChecked(False)
+        self.debug_direction_checkbox.setChecked(False)
         size_defaults = self.settings.get_plate_size_defaults()
         min_size = size_defaults.get("min_plate_size", {})
         max_size = size_defaults.get("max_plate_size", {})
@@ -2729,6 +2735,7 @@ class MainWindow(QtWidgets.QMainWindow):
             debug_conf = channel.get("debug", {})
             self.debug_detection_checkbox.setChecked(bool(debug_conf.get("show_detection_boxes", False)))
             self.debug_ocr_checkbox.setChecked(bool(debug_conf.get("show_ocr_text", False)))
+            self.debug_direction_checkbox.setChecked(bool(debug_conf.get("show_direction_tracks", False)))
 
             region = channel.get("region") or self._default_roi_region()
             if not region.get("points"):
@@ -2757,7 +2764,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 "motion_release_frames": 6,
                 "min_plate_size": self.settings.get_plate_size_defaults().get("min_plate_size"),
                 "max_plate_size": self.settings.get_plate_size_defaults().get("max_plate_size"),
-                "debug": {"show_detection_boxes": False, "show_ocr_text": False},
+                "debug": {
+                    "show_detection_boxes": False,
+                    "show_ocr_text": False,
+                    "show_direction_tracks": False,
+                },
             }
         )
         self.settings.save_channels(channels)
@@ -2802,6 +2813,7 @@ class MainWindow(QtWidgets.QMainWindow):
             channels[index]["debug"] = {
                 "show_detection_boxes": self.debug_detection_checkbox.isChecked(),
                 "show_ocr_text": self.debug_ocr_checkbox.isChecked(),
+                "show_direction_tracks": self.debug_direction_checkbox.isChecked(),
             }
             self.settings.save_channels(channels)
             self._reload_channels_list(index)

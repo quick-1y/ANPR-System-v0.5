@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import time
+from collections import deque
 import uuid
 from concurrent.futures import ProcessPoolExecutor
 import threading
@@ -17,6 +18,7 @@ import numpy as np
 from PyQt5 import QtCore, QtGui
 
 from anpr.detection.motion_detector import MotionDetector, MotionDetectorConfig
+from anpr.pipeline.anpr_pipeline import TrackDirectionEstimator
 from anpr.pipeline.factory import build_components
 from anpr.infrastructure.logging_manager import get_logger
 from anpr.infrastructure.settings_manager import SettingsManager
@@ -101,6 +103,7 @@ class Region:
 class DebugOptions:
     show_detection_boxes: bool = False
     show_ocr_text: bool = False
+    show_direction_tracks: bool = False
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]) -> "DebugOptions":
@@ -108,6 +111,7 @@ class DebugOptions:
         return cls(
             show_detection_boxes=bool(debug_conf.get("show_detection_boxes", False)),
             show_ocr_text=bool(debug_conf.get("show_ocr_text", False)),
+            show_direction_tracks=bool(debug_conf.get("show_direction_tracks", False)),
         )
 
 
@@ -421,6 +425,11 @@ class ChannelWorker(QtCore.QThread):
         self._inference_limiter = InferenceLimiter(self.config.detector_frame_stride)
         self._inference_task: Optional[asyncio.Task] = None
         self._last_debug: Dict[str, list] = {"detections": [], "results": []}
+        self._track_history: dict[int, deque[tuple[int, int]]] = {}
+        self._track_last_seen: dict[int, float] = {}
+        self._track_directions: dict[int, str] = {}
+        self._track_history_size = 32
+        self._track_stale_seconds = 3.0
 
     def _open_capture(self, source: str) -> Optional[cv2.VideoCapture]:
         """Открывает видеопоток с учетом типа источника."""
@@ -563,8 +572,36 @@ class ChannelWorker(QtCore.QThread):
         )
         cv2.putText(frame, text, (x + 4, y - 2), font, scale, (0, 255, 0), thickness)
 
+    def _update_track_history(self, detections: list[dict]) -> None:
+        if not self.config.debug.show_direction_tracks:
+            return
+
+        now = time.monotonic()
+        for det in detections:
+            track_id = det.get("track_id")
+            bbox = det.get("bbox")
+
+            if track_id is None or not bbox or len(bbox) != 4:
+                continue
+
+            cx = int((bbox[0] + bbox[2]) / 2)
+            cy = int((bbox[1] + bbox[3]) / 2)
+            history = self._track_history.setdefault(
+                int(track_id), deque(maxlen=self._track_history_size)
+            )
+            history.append((cx, cy))
+            self._track_last_seen[int(track_id)] = now
+
+            direction = det.get("direction")
+            if direction:
+                self._track_directions[int(track_id)] = str(direction)
+
     def _draw_debug_info(self, frame: cv2.Mat) -> None:
-        if not (self.config.debug.show_detection_boxes or self.config.debug.show_ocr_text):
+        if not (
+            self.config.debug.show_detection_boxes
+            or self.config.debug.show_ocr_text
+            or self.config.debug.show_direction_tracks
+        ):
             return
 
         detections = self._last_debug.get("detections", [])
@@ -587,6 +624,44 @@ class ChannelWorker(QtCore.QThread):
                 if not text or not bbox or len(bbox) != 4:
                     continue
                 self._draw_label(frame, str(text), (bbox[0], bbox[1] - 6))
+
+        if self.config.debug.show_direction_tracks:
+            self._draw_direction_tracks(frame)
+
+    def _draw_direction_tracks(self, frame: cv2.Mat) -> None:
+        now = time.monotonic()
+        stale_tracks = [
+            track_id
+            for track_id, last_seen in self._track_last_seen.items()
+            if now - last_seen > self._track_stale_seconds
+        ]
+
+        for track_id in stale_tracks:
+            self._track_history.pop(track_id, None)
+            self._track_last_seen.pop(track_id, None)
+            self._track_directions.pop(track_id, None)
+
+        direction_colors = {
+            "APPROACHING": (0, 200, 0),
+            "RECEDING": (220, 0, 0),
+            "UNKNOWN": (200, 200, 0),
+        }
+
+        for track_id, history in self._track_history.items():
+            if not history:
+                continue
+
+            points = np.array(history, dtype=np.int32)
+            direction = self._track_directions.get(track_id, TrackDirectionEstimator.UNKNOWN)
+            color = direction_colors.get(direction, (180, 180, 180))
+
+            if len(points) > 1:
+                cv2.polylines(frame, [points.reshape(-1, 1, 2)], False, color, 2)
+
+            tail_x, tail_y = points[-1]
+            cv2.circle(frame, (int(tail_x), int(tail_y)), 4, color, -1)
+            label = f"#{track_id} {direction}"
+            self._draw_label(frame, label, (int(tail_x) + 6, int(tail_y) - 6))
 
     def _save_bgr_image(self, path: str, image: Optional[cv2.Mat]) -> Optional[str]:
         """Сохраняет BGR изображение на диск."""
@@ -685,6 +760,7 @@ class ChannelWorker(QtCore.QThread):
         try:
             detections, results = await self._run_inference(frame, roi_frame, roi_rect)
             self._last_debug = {"detections": detections, "results": results}
+            self._update_track_history(detections)
             await self._process_events(storage, source, results, channel_name, frame, rgb_frame)
         except Exception as e:
             logger.exception("Ошибка инференса для канала %s: %s", channel_name, e)
