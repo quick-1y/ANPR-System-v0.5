@@ -68,8 +68,6 @@ class TrackDirectionEstimator:
         self.jitter_pixels = max(0.0, jitter_pixels)
         self.min_area_change_ratio = max(0.0, min_area_change_ratio)
         self._history: Dict[int, deque[tuple[float, float]]] = {}
-        self._bbox_history: Dict[int, deque[tuple[float, float, float, float]]] = {}
-        self._last_direction: Dict[int, str] = {}
 
     @classmethod
     def from_config(cls, config: Dict[str, float | int]) -> "TrackDirectionEstimator":
@@ -113,13 +111,9 @@ class TrackDirectionEstimator:
         density = min(1.0, vote_count / max(1, self.min_track_length))
         return float(normalized * density)
 
-    def _remember_direction(self, track_id: int, direction: str) -> Dict[str, str]:
-        self._last_direction[track_id] = direction
-        return {"direction": direction}
-
     def update(self, track_id: int, bbox: list[int]) -> Dict[str, str]:
         if not bbox or len(bbox) != 4:
-            return self._remember_direction(track_id, self.UNKNOWN)
+            return {"direction": self.UNKNOWN}
 
         width = max(1.0, float(bbox[2] - bbox[0]))
         height = max(1.0, float(bbox[3] - bbox[1]))
@@ -129,11 +123,8 @@ class TrackDirectionEstimator:
         history = self._history.setdefault(track_id, deque(maxlen=self.history_size))
         history.append((center_y, area))
 
-        bbox_history = self._bbox_history.setdefault(track_id, deque(maxlen=self.history_size))
-        bbox_history.append((float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])))
-
         if len(history) < self.min_track_length:
-            return self._remember_direction(track_id, self.UNKNOWN)
+            return {"direction": self.UNKNOWN}
 
         centers = np.array([item[0] for item in history], dtype=float)
         areas = np.array([item[1] for item in history], dtype=float)
@@ -145,68 +136,16 @@ class TrackDirectionEstimator:
 
         votes = self._votes(vertical_deltas, area_deltas, areas[-1])
         if not votes:
-            return self._remember_direction(track_id, self.UNKNOWN)
+            return {"direction": self.UNKNOWN}
 
         score = float(np.mean(votes)) * 0.7 + (np.sign(trend_area) if trend_area != 0 else 0.0) * 0.3
         confidence = self._confidence(score, len(votes))
 
         if confidence < self.confidence_threshold:
-            return self._remember_direction(track_id, self.UNKNOWN)
+            return {"direction": self.UNKNOWN}
 
         direction = self.APPROACHING if score >= 0 else self.RECEDING
-        return self._remember_direction(track_id, direction)
-
-    def _color_for_direction(self, direction: str) -> tuple[int, int, int]:
-        if direction == self.APPROACHING:
-            return 0, 180, 0
-        if direction == self.RECEDING:
-            return 0, 0, 200
-        return 0, 200, 200
-
-    def render_debug(self, frame: np.ndarray, thickness: int = 2) -> np.ndarray:
-        """Наносит историю движения треков на кадр для отладки направления."""
-
-        if frame is None:
-            return frame
-
-        overlay = frame.copy()
-
-        for track_id, boxes in self._bbox_history.items():
-            if len(boxes) < 2:
-                continue
-
-            centers = [((bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0) for bbox in boxes]
-            points = np.array(centers, dtype=int)
-            direction = self._last_direction.get(track_id, self.UNKNOWN)
-            color = self._color_for_direction(direction)
-
-            cv2.polylines(overlay, [points], isClosed=False, color=color, thickness=thickness)
-            cv2.circle(overlay, tuple(points[-1]), radius=max(2, thickness + 1), color=color, thickness=-1)
-
-            if len(points) >= 2:
-                cv2.arrowedLine(
-                    overlay,
-                    tuple(points[-2]),
-                    tuple(points[-1]),
-                    color=color,
-                    thickness=max(1, thickness - 1),
-                    tipLength=0.4,
-                )
-
-            label = f"{track_id}: {direction}"
-            text_origin = (points[-1][0] + 6, points[-1][1] + 6)
-            cv2.putText(
-                overlay,
-                label,
-                text_origin,
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                color,
-                max(1, thickness - 1),
-                cv2.LINE_AA,
-            )
-
-        return overlay
+        return {"direction": direction}
 
 
 class ANPRPipeline:
@@ -340,12 +279,4 @@ class ANPRPipeline:
                 else:
                     self._touch_plate(detection["text"])
         return detections
-
-    def render_direction_debug(self, frame: np.ndarray) -> np.ndarray:
-        """Отрисовывает историю направления треков на кадре (для отладки)."""
-
-        if not self.direction_estimator:
-            return frame
-
-        return self.direction_estimator.render_debug(frame)
 
