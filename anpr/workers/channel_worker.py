@@ -130,6 +130,49 @@ class PlateSize:
 
 
 @dataclass
+class DirectionSettings:
+    """Параметры оценки направления движения."""
+
+    history_size: int = 12
+    min_track_length: int = 3
+    smoothing_window: int = 5
+    confidence_threshold: float = 0.55
+    jitter_pixels: float = 1.0
+    min_area_change_ratio: float = 0.02
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: Optional[Dict[str, Any]],
+        defaults: Optional[Dict[str, Any]] = None,
+    ) -> "DirectionSettings":
+        defaults = defaults or {}
+        data = data or {}
+        return cls(
+            history_size=int(data.get("history_size", defaults.get("history_size", cls.history_size))),
+            min_track_length=int(data.get("min_track_length", defaults.get("min_track_length", cls.min_track_length))),
+            smoothing_window=int(data.get("smoothing_window", defaults.get("smoothing_window", cls.smoothing_window))),
+            confidence_threshold=float(
+                data.get("confidence_threshold", defaults.get("confidence_threshold", cls.confidence_threshold))
+            ),
+            jitter_pixels=float(data.get("jitter_pixels", defaults.get("jitter_pixels", cls.jitter_pixels))),
+            min_area_change_ratio=float(
+                data.get("min_area_change_ratio", defaults.get("min_area_change_ratio", cls.min_area_change_ratio))
+            ),
+        )
+
+    def to_dict(self) -> Dict[str, float | int]:
+        return {
+            "history_size": int(self.history_size),
+            "min_track_length": int(self.min_track_length),
+            "smoothing_window": int(self.smoothing_window),
+            "confidence_threshold": float(self.confidence_threshold),
+            "jitter_pixels": float(self.jitter_pixels),
+            "min_area_change_ratio": float(self.min_area_change_ratio),
+        }
+
+
+@dataclass
 class ReconnectPolicy:
     """Политика переподключения канала."""
 
@@ -172,10 +215,13 @@ class ChannelRuntimeConfig:
     debug: DebugOptions
     min_plate_size: PlateSize
     max_plate_size: PlateSize
+    direction: DirectionSettings
 
     @classmethod
     def from_dict(cls, channel_conf: Dict[str, Any]) -> "ChannelRuntimeConfig":
-        size_defaults = SettingsManager().get_plate_size_defaults()
+        settings = SettingsManager()
+        size_defaults = settings.get_plate_size_defaults()
+        direction_defaults = settings.get_direction_defaults()
         return cls(
             name=channel_conf.get("name", "Канал"),
             source=str(channel_conf.get("source", "0")),
@@ -192,6 +238,7 @@ class ChannelRuntimeConfig:
             debug=DebugOptions.from_dict(channel_conf.get("debug")),
             min_plate_size=PlateSize.from_dict(channel_conf.get("min_plate_size"), size_defaults.get("min_plate_size")),
             max_plate_size=PlateSize.from_dict(channel_conf.get("max_plate_size"), size_defaults.get("max_plate_size")),
+            direction=DirectionSettings.from_dict(channel_conf.get("direction"), direction_defaults),
         )
 
 
@@ -308,7 +355,8 @@ def _run_inference_task(
             config["best_shots"],
             config["cooldown_seconds"],
             config["min_confidence"],
-            config.get("plate_config", {})
+            config.get("plate_config", {}),
+            config.get("direction", {}),
         )
         _run_inference_task._local_cache[key] = (pipeline, detector)
 
@@ -420,6 +468,7 @@ class ChannelWorker(QtCore.QThread):
             "plate_config": plate_config,
             "min_plate_size": self.config.min_plate_size.to_dict(),
             "max_plate_size": self.config.max_plate_size.to_dict(),
+            "direction": self.config.direction.to_dict(),
         }
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:
@@ -582,6 +631,7 @@ class ChannelWorker(QtCore.QThread):
                 "country": res.get("country"),
                 "confidence": res.get("confidence", 0.0),
                 "source": source,
+                "direction": res.get("direction"),
             }
             
             # Извлекаем область номера для скриншота
@@ -607,15 +657,17 @@ class ChannelWorker(QtCore.QThread):
                 timestamp=event["timestamp"],
                 frame_path=event.get("frame_path"),
                 plate_path=event.get("plate_path"),
+                direction=event.get("direction"),
             )
             
             # Отправляем событие в UI
             self.event_ready.emit(event)
             logger.info(
-                "Канал %s: зафиксирован номер %s (conf=%.2f, track=%s)",
+                "Канал %s: номер %s (conf=%.2f, dir=%s, track=%s)",
                 event["channel"],
                 event["plate"],
                 event["confidence"],
+                event.get("direction") or "-",
                 res.get("track_id", "-"),
             )
 

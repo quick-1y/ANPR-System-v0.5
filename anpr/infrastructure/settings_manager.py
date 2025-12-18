@@ -44,6 +44,7 @@ class SettingsManager:
                 "best_shots": 3,
                 "cooldown_seconds": 5,
                 "ocr_min_confidence": 0.6,
+                "direction": self._direction_defaults(),
             },
             "plates": {
                 "config_dir": "config/countries",
@@ -78,6 +79,19 @@ class SettingsManager:
         model_defaults = self._model_defaults()
         ocr_defaults = self._ocr_defaults()
         detector_defaults = self._detector_defaults()
+
+        direction_defaults = self._direction_defaults()
+        direction_settings = tracking_defaults.get("direction")
+        if direction_settings is None:
+            tracking_defaults["direction"] = direction_defaults
+            data["tracking"] = tracking_defaults
+            changed = True
+        else:
+            for key, value in direction_defaults.items():
+                if key not in direction_settings:
+                    direction_settings[key] = value
+                    changed = True
+
         for channel in data.get("channels", []):
             if self._fill_channel_defaults(channel, tracking_defaults):
                 changed = True
@@ -114,6 +128,7 @@ class SettingsManager:
             "best_shots": int(tracking_defaults.get("best_shots", 3)),
             "cooldown_seconds": int(tracking_defaults.get("cooldown_seconds", 5)),
             "ocr_min_confidence": float(tracking_defaults.get("ocr_min_confidence", 0.6)),
+            "direction": dict(tracking_defaults.get("direction", SettingsManager._direction_defaults())),
             "region": {"unit": "px", "points": [point.copy() for point in DEFAULT_ROI_POINTS]},
             "detection_mode": "motion",
             "detector_frame_stride": 2,
@@ -190,6 +205,17 @@ class SettingsManager:
         }
 
     @staticmethod
+    def _direction_defaults() -> Dict[str, float | int]:
+        return {
+            "history_size": 12,
+            "min_track_length": 3,
+            "smoothing_window": 5,
+            "confidence_threshold": 0.55,
+            "jitter_pixels": 1.0,
+            "min_area_change_ratio": 0.02,
+        }
+
+    @staticmethod
     def _ocr_defaults() -> Dict[str, Any]:
         return {
             "img_height": 32,
@@ -222,6 +248,17 @@ class SettingsManager:
                 # Сохраняем только отсутствующие ключи, не перезаписывая пользовательские значения.
                 channel[key] = value
                 changed = True
+
+        direction_defaults = defaults.get("direction", self._direction_defaults())
+        channel_direction = channel.get("direction")
+        if channel_direction is None:
+            channel["direction"] = dict(direction_defaults)
+            changed = True
+        else:
+            for key, value in direction_defaults.items():
+                if key not in channel_direction:
+                    channel_direction[key] = value
+                    changed = True
 
         upgraded_region = self._upgrade_region(channel.get("region"))
         if channel.get("region") != upgraded_region:
@@ -485,6 +522,10 @@ class SettingsManager:
     def get_plate_size_defaults(self) -> Dict[str, Dict[str, int]]:
         defaults = self._plate_size_defaults()
         return {key: value.copy() for key, value in defaults.items()}
+
+    def get_direction_defaults(self) -> Dict[str, float | int]:
+        defaults = self._direction_defaults()
+        return dict(defaults)
 
     def refresh(self) -> None:
         self.settings = self._load()
