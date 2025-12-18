@@ -69,6 +69,7 @@ class ChannelView(QtWidgets.QWidget):
         self.name = name
         self._pixmap_pool = pixmap_pool
         self._current_pixmap: Optional[QtGui.QPixmap] = None
+        self._current_size: Optional[QtCore.QSize] = None
         self._channel_name: Optional[str] = None
         self._grid_position: int = -1
         self._drag_start_pos: Optional[QtCore.QPoint] = None
@@ -193,10 +194,35 @@ class ChannelView(QtWidgets.QWidget):
         super().mouseDoubleClickEvent(event)
 
     def set_pixmap(self, pixmap: QtGui.QPixmap) -> None:
-        if self._pixmap_pool and self._current_pixmap is not None:
-            self._pixmap_pool.release(self._current_pixmap)
-        self._current_pixmap = pixmap
-        self.video_label.setPixmap(pixmap)
+        if pixmap.isNull():
+            return
+
+        if self._current_size != pixmap.size():
+            if self._pixmap_pool and self._current_pixmap is not None:
+                self._pixmap_pool.release(self._current_pixmap)
+            self._current_size = pixmap.size()
+            self.video_label.setFixedSize(pixmap.size())
+            self._current_pixmap = (
+                self._pixmap_pool.acquire(pixmap.size())
+                if self._pixmap_pool
+                else QtGui.QPixmap(pixmap.size())
+            )
+            self._current_pixmap.fill(QtGui.QColor("black"))
+            self.video_label.setPixmap(self._current_pixmap)
+        elif self._current_pixmap is None:
+            self._current_pixmap = QtGui.QPixmap(pixmap.size())
+            self._current_pixmap.fill(QtGui.QColor("black"))
+            self.video_label.setPixmap(self._current_pixmap)
+
+        if self._current_pixmap is None:
+            return
+
+        painter = QtGui.QPainter(self._current_pixmap)
+        painter.drawPixmap(0, 0, pixmap)
+        painter.end()
+        if self.video_label.pixmap() is not self._current_pixmap:
+            self.video_label.setPixmap(self._current_pixmap)
+        self.video_label.update()
 
     def set_motion_active(self, active: bool) -> None:
         self.motion_indicator.setVisible(active)
@@ -1009,7 +1035,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._image_cache_bytes = 0
         self.event_cache: Dict[int, Dict] = {}
         self.search_results: Dict[int, Dict] = {}
-        self.flag_cache: Dict[str, Optional[QtGui.QIcon]] = {}
+        self.flag_cache: "OrderedDict[str, Optional[QtGui.QIcon]]" = OrderedDict()
+        self._default_flag_icon: Optional[QtGui.QIcon] = None
         self.flag_dir = Path(__file__).resolve().parents[2] / "images" / "flags"
         self.country_display_names = self._load_country_names()
         self._pending_channels: Optional[List[Dict[str, Any]]] = None
@@ -1545,10 +1572,21 @@ class MainWindow(QtWidgets.QMainWindow):
             worker.start()
 
     def _stop_workers(self) -> None:
+        self._stop_workers_safely()
+
+    def _stop_workers_safely(self) -> None:
         for worker in self.channel_workers:
+            worker.requestInterruption()
             worker.stop()
-            worker.wait(1000)
+
+        for worker in self.channel_workers:
+            if not worker.wait(2000):
+                worker.terminate()
+                worker.wait()
+
         self.channel_workers = []
+        self._channel_save_timer.stop()
+        self._cancel_preview_worker()
 
     def _update_frame(self, channel_name: str, image: QtGui.QImage) -> None:
         if self._skip_frame_updates:
@@ -1630,19 +1668,37 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._discard_event_images(stale_id)
         self._prune_image_cache()
 
+    def _get_default_flag_icon(self) -> QtGui.QIcon:
+        if self._default_flag_icon is None:
+            pixmap = QtGui.QPixmap(32, 20)
+            pixmap.fill(QtGui.QColor("#2d2f36"))
+            painter = QtGui.QPainter(pixmap)
+            painter.setPen(QtGui.QPen(QtGui.QColor("#6b7280"), 2))
+            painter.drawRect(pixmap.rect().adjusted(1, 1, -2, -2))
+            painter.setPen(QtGui.QPen(QtGui.QColor("#ef4444"), 2))
+            painter.drawLine(4, 4, pixmap.width() - 5, pixmap.height() - 5)
+            painter.drawLine(4, pixmap.height() - 5, pixmap.width() - 5, 4)
+            painter.end()
+            self._default_flag_icon = QtGui.QIcon(pixmap)
+        return self._default_flag_icon
+
     def _get_flag_icon(self, country: Optional[str]) -> Optional[QtGui.QIcon]:
         if not country:
             return None
         code = str(country).lower()
         if code in self.flag_cache:
+            self.flag_cache.move_to_end(code)
             return self.flag_cache[code]
+        if len(self.flag_cache) >= 50:
+            self.flag_cache.popitem(last=False)
         flag_path = self.flag_dir / f"{code}.png"
         if flag_path.exists():
             icon = QtGui.QIcon(str(flag_path))
             self.flag_cache[code] = icon
             return icon
-        self.flag_cache[code] = None
-        return None
+        placeholder = self._get_default_flag_icon()
+        self.flag_cache[code] = placeholder
+        return placeholder
 
     def _get_country_name(self, country: Optional[str]) -> str:
         if not country:
@@ -2980,6 +3036,5 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # ------------------ Жизненный цикл ------------------
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
-        self._cancel_preview_worker()
-        self._stop_workers()
+        self._stop_workers_safely()
         event.accept()
