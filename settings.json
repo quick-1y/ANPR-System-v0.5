@@ -34,7 +34,15 @@
   "tracking": {
     "best_shots": 10,
     "cooldown_seconds": 10,
-    "ocr_min_confidence": 0.9
+    "ocr_min_confidence": 0.9,
+    "direction": {
+      "history_size": 12,
+      "min_track_length": 3,
+      "smoothing_window": 5,
+      "confidence_threshold": 0.55,
+      "jitter_pixels": 1.0,
+      "min_area_change_ratio": 0.02
+    }
   },
   "plates": {
     "config_dir": "config/countries",
