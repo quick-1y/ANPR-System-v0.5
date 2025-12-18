@@ -4,6 +4,7 @@ import math
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from time import monotonic
 
 import cv2
 import psutil
@@ -33,6 +34,9 @@ class PixmapPool:
         self._max_per_size = max_per_size
         self._max_total_pixels = max_total_pixels
         self._current_pixels = 0
+        self._discard_log_interval = 5.0
+        self._last_discard_log_ts: Optional[float] = None
+        self._suppressed_discards = 0
 
     @property
     def total_pixels(self) -> int:
@@ -118,94 +122,34 @@ class PixmapPool:
 
     def _discard_pixmap(self, size_pixels: int, key: Tuple[int, int], reason: str) -> None:
         self._current_pixels = max(0, self._current_pixels - size_pixels)
-        logger.warning(
-            "Сброс QPixmap %sx%s (%s пикселей) %s", key[0], key[1], size_pixels, reason
-        )
+        self._log_discard(key, size_pixels, reason)
 
-
-class PixmapCache:
-    """Кэш масштабированных QPixmap с контролем объёма и LRU-вытеснением."""
-
-    def __init__(
-        self,
-        name: str,
-        max_items: int = 64,
-        max_pixels: Optional[int] = None,
+    def _log_discard(
+        self, key: Tuple[int, int], size_pixels: int, reason: str
     ) -> None:
-        self._name = name
-        self._cache: "OrderedDict[Tuple[int, int, int], QtGui.QPixmap]" = OrderedDict()
-        self._max_items = max_items
-        self._max_pixels = max_pixels
-        self._current_pixels = 0
-        self._hits = 0
-        self._misses = 0
-
-    @staticmethod
-    def _key(source_key: int, size: QtCore.QSize) -> Tuple[int, int, int]:
-        return (source_key, size.width(), size.height())
-
-    def get(self, source_key: Optional[int], size: QtCore.QSize) -> Optional[QtGui.QPixmap]:
-        if source_key is None:
-            return None
-        key = self._key(source_key, size)
-        pixmap = self._cache.get(key)
-        if pixmap is None:
-            self._misses += 1
-            logger.debug("Кэш %s промах для ключа %s", self._name, key)
-            return None
-        self._hits += 1
-        self._cache.move_to_end(key)
-        logger.debug("Кэш %s попадание для ключа %s", self._name, key)
-        return pixmap
-
-    def put(self, source_key: Optional[int], size: QtCore.QSize, pixmap: QtGui.QPixmap) -> None:
-        if source_key is None:
-            return
-        key = self._key(source_key, size)
-        size_pixels = pixmap.width() * pixmap.height()
-        existing = self._cache.pop(key, None)
-        if existing is not None:
-            self._current_pixels -= existing.width() * existing.height()
-        self._cache[key] = pixmap
-        self._cache.move_to_end(key)
-        self._current_pixels += size_pixels
-        self._evict_if_needed()
-
-    def invalidate_source(self, source_key: Optional[int]) -> None:
-        if source_key is None:
-            return
-        removed = 0
-        for key in list(self._cache.keys()):
-            if key[0] == source_key:
-                pixmap = self._cache.pop(key)
-                self._current_pixels -= pixmap.width() * pixmap.height()
-                removed += 1
-        if removed:
-            logger.info(
-                "Сброшено %s элементов кэша %s для источника %s", removed, self._name, source_key
-            )
-
-    def _evict_if_needed(self) -> None:
-        while self._cache and (
-            len(self._cache) > self._max_items
-            or (
-                self._max_pixels is not None
-                and self._current_pixels > self._max_pixels
-            )
+        now = monotonic()
+        if self._last_discard_log_ts is None or (
+            now - self._last_discard_log_ts >= self._discard_log_interval
         ):
-            key, pixmap = self._cache.popitem(last=False)
-            self._current_pixels -= pixmap.width() * pixmap.height()
-            logger.info(
-                "Вытеснен элемент кэша %s с ключом %s (текущий размер: %s элементов, %s пикселей)",
-                self._name,
-                key,
-                len(self._cache),
-                self._current_pixels,
-            )
+            if self._suppressed_discards:
+                logger.warning(
+                    "Сброс QPixmap: подавлено ещё %s повторных событий за %.1f c",
+                    self._suppressed_discards,
+                    self._discard_log_interval,
+                )
+                self._suppressed_discards = 0
 
-    @property
-    def stats(self) -> Tuple[int, int]:
-        return self._hits, self._misses
+            logger.warning(
+                "Сброс QPixmap %sx%s (%s пикселей) %s",
+                key[0],
+                key[1],
+                size_pixels,
+                reason,
+            )
+            self._last_discard_log_ts = now
+            return
+
+        self._suppressed_discards += 1
 
 
 class ChannelView(QtWidgets.QWidget):

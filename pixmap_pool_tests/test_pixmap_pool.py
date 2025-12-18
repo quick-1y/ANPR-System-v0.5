@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -44,6 +45,17 @@ class PixmapPoolTests(unittest.TestCase):
         self.assertLessEqual(pool.total_pixels, 4_000)
 
         self.assertNotIn((50, 50), pool._pool)
+
+    def test_discard_logging_is_throttled(self) -> None:
+        pool = PixmapPool(max_total_pixels=2_000)
+
+        with mock.patch("anpr.ui.main_window.logger") as mock_logger, mock.patch(
+            "anpr.ui.main_window.monotonic", side_effect=[0, 1]
+        ):
+            pool._discard_pixmap(100, (10, 10), "тестовый сброс")
+            pool._discard_pixmap(100, (10, 10), "тестовый сброс")
+
+        mock_logger.warning.assert_called_once()
 
 
 if __name__ == "__main__":
