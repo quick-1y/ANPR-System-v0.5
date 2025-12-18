@@ -2868,10 +2868,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _cancel_preview_worker(self) -> None:
         if self._preview_worker:
-            self._preview_worker.requestInterruption()
-            self._preview_worker.wait(1000)
-            self._preview_worker.deleteLater()
+            worker = self._preview_worker
             self._preview_worker = None
+            worker.requestInterruption()
+
+            finished = worker.wait(300)
+            if not finished:
+                worker.terminate()
+                worker.wait(700)
+
+            if worker.isFinished():
+                worker.deleteLater()
 
     def _refresh_preview_frame(self) -> None:
         index = self.channels_list.currentRow()
