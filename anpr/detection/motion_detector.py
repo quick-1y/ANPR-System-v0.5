@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import cv2
+import numpy as np
 
 
 @dataclass
@@ -51,7 +52,13 @@ class MotionDetector:
         frame_delta = cv2.absdiff(self._previous_frame, gray)
         self._previous_frame = gray
 
-        _, thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)
+        mean_val = float(np.mean(gray))
+        threshold = max(25, int(mean_val * 0.1))
+        _, thresh = cv2.threshold(frame_delta, threshold, 255, cv2.THRESH_BINARY)
+
+        kernel = np.ones((3, 3), np.uint8)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+
         motion_ratio = cv2.countNonZero(thresh) / float(gray.size)
 
         if motion_ratio > self.config.threshold:
