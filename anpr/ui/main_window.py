@@ -1617,7 +1617,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not direction:
             return "—"
         normalized = str(direction).upper()
-        mapping = {"APPROACHING": "↓", "RECEDING": "↑"}
+        mapping = {"APPROACHING": "К камере", "RECEDING": "От камеры"}
         return mapping.get(normalized, "—")
 
     def _prune_image_cache(self) -> None:
