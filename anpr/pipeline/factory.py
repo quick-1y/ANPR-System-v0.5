@@ -48,7 +48,11 @@ def _build_postprocessor(config: Dict[str, object]) -> PlatePostProcessor:
 
 
 def build_components(
-    best_shots: int, cooldown_seconds: int, min_confidence: float, plate_config: Dict[str, object] | None = None
+    best_shots: int,
+    cooldown_seconds: int,
+    min_confidence: float,
+    plate_config: Dict[str, object] | None = None,
+    direction_config: Dict[str, object] | None = None,
 ) -> Tuple[ANPRPipeline, YOLODetector]:
     """Создаёт независимые компоненты пайплайна (детектор, OCR и агрегация)."""
 
@@ -62,5 +66,6 @@ def build_components(
         cooldown_seconds,
         min_confidence=min_confidence,
         postprocessor=postprocessor,
+        direction_config=direction_config,
     )
     return pipeline, detector
