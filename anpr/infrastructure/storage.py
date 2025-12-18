@@ -39,6 +39,20 @@ class EventDatabase:
         if not _column_exists("direction"):
             conn.execute("ALTER TABLE events ADD COLUMN direction TEXT")
 
+    @staticmethod
+    def _ensure_indexes(conn: sqlite3.Connection) -> None:
+        """Гарантирует наличие индексов для ускорения выборок."""
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_plate ON events(plate)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_channel ON events(channel)"
+        )
+
     def _init_db(self) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -58,6 +72,7 @@ class EventDatabase:
                 """
             )
             self._ensure_columns(conn)
+            self._ensure_indexes(conn)
             conn.commit()
 
     def insert_event(
@@ -210,6 +225,7 @@ class AsyncEventDatabase:
                 """
             )
             await self._ensure_columns(conn)
+            await self._ensure_indexes(conn)
             await conn.commit()
         self._initialized = True
 
@@ -227,6 +243,18 @@ class AsyncEventDatabase:
             await conn.execute("ALTER TABLE events ADD COLUMN country TEXT")
         if not await _column_exists("direction"):
             await conn.execute("ALTER TABLE events ADD COLUMN direction TEXT")
+
+    @staticmethod
+    async def _ensure_indexes(conn: aiosqlite.Connection) -> None:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp DESC)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_plate ON events(plate)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_channel ON events(channel)"
+        )
 
     async def insert_event_async(
         self,

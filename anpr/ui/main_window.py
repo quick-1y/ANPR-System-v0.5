@@ -4,6 +4,7 @@ import math
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import cv2
 import psutil
@@ -709,14 +710,44 @@ class PreviewLoader(QtCore.QThread):
         super().__init__()
         self.source = source
 
+    def _is_valid_stream_source(self) -> bool:
+        if self.source.isnumeric():
+            return True
+
+        if os.path.exists(self.source):
+            return True
+
+        parsed = urlparse(self.source)
+        if parsed.scheme.lower() not in {"rtsp", "rtmp", "http", "https"}:
+            return False
+        return bool(parsed.netloc)
+
+    def _open_capture(self) -> Optional[cv2.VideoCapture]:
+        if not self._is_valid_stream_source():
+            return None
+
+        capture = cv2.VideoCapture(
+            int(self.source) if self.source.isnumeric() else self.source
+        )
+        capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+        open_timeout = getattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC", None)
+        read_timeout = getattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC", None)
+        if open_timeout is not None:
+            capture.set(open_timeout, 3000)
+        if read_timeout is not None:
+            capture.set(read_timeout, 3000)
+
+        return capture
+
     def run(self) -> None:  # noqa: N802
         capture: Optional[cv2.VideoCapture] = None
         try:
-            capture = cv2.VideoCapture(
-                int(self.source) if self.source.isnumeric() else self.source
-            )
-            capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            ret, frame = capture.read()
+            capture = self._open_capture()
+            if capture is None:
+                ret, frame = False, None
+            else:
+                ret, frame = capture.read()
         except Exception:
             ret, frame = False, None
         finally:

@@ -2,6 +2,8 @@
 #/anpr/infrastructure/settings_manager.py
 import json
 import os
+import tempfile
+import threading
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -15,6 +17,8 @@ DEFAULT_ROI_POINTS = [
 
 class SettingsManager:
     """Управляет конфигурацией приложения и каналами."""
+
+    _file_lock = threading.RLock()
 
     def __init__(self, path: str = "settings.json") -> None:
         self.path = path
@@ -60,12 +64,14 @@ class SettingsManager:
         }
 
     def _load(self) -> Dict[str, Any]:
-        if not os.path.exists(self.path):
-            defaults = self._default()
-            self._save(defaults)
-            return defaults
-        with open(self.path, "r", encoding="utf-8") as f:
-            return self._upgrade(json.load(f))
+        with self._file_lock:
+            if not os.path.exists(self.path):
+                defaults = self._default()
+                self._write_to_disk(defaults)
+                return defaults
+            with open(self.path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        return self._upgrade(data)
 
     def _upgrade(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Обновляет существующие настройки, добавляя недостающие поля."""
@@ -382,8 +388,23 @@ class SettingsManager:
         return changed
 
     def _save(self, data: Dict[str, Any]) -> None:
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        self._write_to_disk(data)
+
+    def _write_to_disk(self, data: Dict[str, Any]) -> None:
+        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
+        with self._file_lock:
+            fd, tmp_path = tempfile.mkstemp(
+                dir=os.path.dirname(self.path) or ".", prefix=".settings_", suffix=".tmp"
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, self.path)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
 
     def get_channels(self) -> List[Dict[str, Any]]:
         channels = self.settings.get("channels", [])
