@@ -722,16 +722,7 @@ class PreviewLoader(QtCore.QThread):
             self.failed.emit()
             return
 
-        if frame is None or frame.size == 0:
-            self.failed.emit()
-            return
-
-        try:
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        except Exception:
-            logger.exception("Не удалось преобразовать кадр превью для источника %s", self.source)
-            self.failed.emit()
-            return
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         height, width, _ = rgb_frame.shape
         bytes_per_line = 3 * width
         q_image = QtGui.QImage(
@@ -2868,17 +2859,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _cancel_preview_worker(self) -> None:
         if self._preview_worker:
-            worker = self._preview_worker
+            self._preview_worker.requestInterruption()
+            self._preview_worker.wait(1000)
+            self._preview_worker.deleteLater()
             self._preview_worker = None
-            worker.requestInterruption()
-
-            finished = worker.wait(300)
-            if not finished:
-                worker.terminate()
-                worker.wait(700)
-
-            if worker.isFinished():
-                worker.deleteLater()
 
     def _refresh_preview_frame(self) -> None:
         index = self.channels_list.currentRow()
