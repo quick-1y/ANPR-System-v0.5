@@ -323,6 +323,7 @@ class ROIEditor(QtWidgets.QLabel):
             "background-color: #111; color: #888; border: 1px solid #444; padding: 6px;"
         )
         self._pixmap: Optional[QtGui.QPixmap] = None
+        self._pixmap_cache_key: Optional[int] = None
         self._roi_data: Dict[str, Any] = {"unit": "px", "points": []}
         self._points: List[QtCore.QPointF] = []
         self._drag_index: Optional[int] = None
@@ -334,6 +335,9 @@ class ROIEditor(QtWidgets.QLabel):
         self._size_capture_target: Optional[str] = None
         self._size_capture_start: Optional[QtCore.QPointF] = None
         self._size_capture_end: Optional[QtCore.QPointF] = None
+        self._scaled_cache = PixmapCache(
+            "roi_editor", max_items=64, max_pixels=256 * 1024 * 1024
+        )
 
     def image_size(self) -> Optional[QtCore.QSize]:
         return self._pixmap.size() if self._pixmap else None
@@ -416,7 +420,16 @@ class ROIEditor(QtWidgets.QLabel):
         self.update()
 
     def setPixmap(self, pixmap: Optional[QtGui.QPixmap]) -> None:  # noqa: N802
+        if pixmap is not None:
+            new_cache_key = pixmap.cacheKey()
+        else:
+            new_cache_key = None
+
+        if new_cache_key != self._pixmap_cache_key:
+            self._scaled_cache.invalidate_source(self._pixmap_cache_key)
+
         self._pixmap = pixmap
+        self._pixmap_cache_key = new_cache_key
         if pixmap is None:
             super().setPixmap(QtGui.QPixmap())
             self.setText("Нет кадра")
@@ -477,9 +490,15 @@ class ROIEditor(QtWidgets.QLabel):
 
     def _scaled_pixmap(self, size: QtCore.QSize) -> QtGui.QPixmap:
         assert self._pixmap is not None
-        return self._pixmap.scaled(
+        cached = self._scaled_cache.get(self._pixmap_cache_key, size)
+        if cached is not None:
+            return cached
+
+        pixmap = self._pixmap.scaled(
             size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
         )
+        self._scaled_cache.put(self._pixmap_cache_key, size, pixmap)
+        return pixmap
 
     def _image_geometry(self) -> Optional[Tuple[QtCore.QPoint, QtCore.QSize]]:
         if self._pixmap is None:
@@ -860,6 +879,10 @@ class EventDetailView(QtWidgets.QWidget):
 
         self._frame_image: Optional[QtGui.QImage] = None
         self._plate_image: Optional[QtGui.QImage] = None
+        self._image_cache_keys: Dict[str, Optional[int]] = {"frame": None, "plate": None}
+        self._preview_cache = PixmapCache(
+            "event_preview", max_items=128, max_pixels=512 * 1024 * 1024
+        )
 
         self.frame_preview = self._build_preview("Кадр распознавания", min_height=320, keep_aspect=True)
         layout.addWidget(self.frame_preview, stretch=3)
@@ -917,6 +940,10 @@ class EventDetailView(QtWidgets.QWidget):
         self.country_label.setText("—")
         self.plate_label.setText("—")
         self.conf_label.setText("—")
+        self._preview_cache.invalidate_source(self._image_cache_keys.get("frame"))
+        self._preview_cache.invalidate_source(self._image_cache_keys.get("plate"))
+        self._image_cache_keys["frame"] = None
+        self._image_cache_keys["plate"] = None
         self._frame_image = None
         self._plate_image = None
         for group in (self.frame_preview, self.plate_preview):
@@ -952,8 +979,17 @@ class EventDetailView(QtWidgets.QWidget):
     ) -> None:
         if group is self.frame_preview:
             self._frame_image = image
+            source_key = "frame"
         elif group is self.plate_preview:
             self._plate_image = image
+            source_key = "plate"
+        else:
+            source_key = "unknown"
+
+        cache_key = image.cacheKey() if image is not None else None
+        if cache_key != self._image_cache_keys.get(source_key):
+            self._preview_cache.invalidate_source(self._image_cache_keys.get(source_key))
+            self._image_cache_keys[source_key] = cache_key
 
         self._apply_image_to_label(group, image, keep_aspect)
 
@@ -973,6 +1009,12 @@ class EventDetailView(QtWidgets.QWidget):
         target_size = label.contentsRect().size()
         if target_size.width() == 0 or target_size.height() == 0:
             return
+
+        image_key = image.cacheKey()
+        cached = self._preview_cache.get(image_key, target_size)
+        if cached is not None:
+            label.setPixmap(cached)
+            return
         pixmap = QtGui.QPixmap.fromImage(image)
         if keep_aspect:
             pixmap = pixmap.scaled(
@@ -980,6 +1022,7 @@ class EventDetailView(QtWidgets.QWidget):
             )
         else:
             pixmap = pixmap.scaled(target_size, QtCore.Qt.IgnoreAspectRatio, QtCore.Qt.SmoothTransformation)
+        self._preview_cache.put(image_key, target_size, pixmap)
         label.setPixmap(pixmap)
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
