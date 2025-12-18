@@ -360,7 +360,7 @@ class ChannelWorker(QtCore.QThread):
         self.db_path = db_path
         self.screenshot_dir = screenshot_dir
         os.makedirs(self.screenshot_dir, exist_ok=True)
-        self._running = True
+        self._stop_event = threading.Event()
         self.plate_config = plate_config or {}
 
         motion_config = MotionDetectorConfig(
@@ -389,7 +389,7 @@ class ChannelWorker(QtCore.QThread):
     async def _open_with_retries(self, source: str, channel_name: str) -> Optional[cv2.VideoCapture]:
         """Подключает источник с учетом настроек переподключения."""
 
-        while self._running:
+        while not self._stop_event.is_set():
             capture = await asyncio.to_thread(self._open_capture, source)
             if capture is not None:
                 self.status_ready.emit(channel_name, "")
@@ -656,7 +656,7 @@ class ChannelWorker(QtCore.QThread):
         last_frame_ts = time.monotonic()
         last_reconnect_ts = last_frame_ts
         
-        while self._running:
+        while not self._stop_event.is_set():
             now = time.monotonic()
             
             # Плановое переподключение
@@ -771,4 +771,5 @@ class ChannelWorker(QtCore.QThread):
 
     def stop(self) -> None:
         """Остановка потока."""
-        self._running = False
+        self._stop_event.set()
+        self.requestInterruption()

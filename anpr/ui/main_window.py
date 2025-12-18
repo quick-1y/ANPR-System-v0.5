@@ -34,12 +34,8 @@ class PixmapPool:
         key = (size.width(), size.height())
         pixmaps = self._pool.get(key)
         if pixmaps:
-            pixmap = pixmaps.pop()
-        else:
-            pixmap = QtGui.QPixmap(size)
-        if pixmap.size() != size:
-            pixmap = QtGui.QPixmap(size)
-        return pixmap
+            return pixmaps.pop()
+        return QtGui.QPixmap(size)
 
     def release(self, pixmap: QtGui.QPixmap) -> None:
         key = (pixmap.width(), pixmap.height())
@@ -227,6 +223,9 @@ class ROIEditor(QtWidgets.QLabel):
         self._active_size_handle: Optional[str] = None
         self._active_size_origin: Optional[QtCore.QPointF] = None
         self._active_size_rect: Optional[QtCore.QRectF] = None
+        self._size_capture_target: Optional[str] = None
+        self._size_capture_start: Optional[QtCore.QPointF] = None
+        self._size_capture_end: Optional[QtCore.QPointF] = None
 
     def image_size(self) -> Optional[QtCore.QSize]:
         return self._pixmap.size() if self._pixmap else None
@@ -705,9 +704,14 @@ class PreviewLoader(QtCore.QThread):
     def run(self) -> None:  # noqa: N802
         capture: Optional[cv2.VideoCapture] = None
         try:
-            capture = cv2.VideoCapture(
-                int(self.source) if self.source.isnumeric() else self.source
-            )
+            capture_source: object = self.source
+            if isinstance(self.source, str):
+                source_str = self.source.strip()
+                try:
+                    capture_source = int(source_str)
+                except ValueError:
+                    capture_source = source_str
+            capture = cv2.VideoCapture(capture_source)
             capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             ret, frame = capture.read()
         except Exception:
