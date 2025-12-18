@@ -81,8 +81,9 @@ class CRNNRecognizer:
 
             for t in range(time_steps):
                 timestep_log_probs = probs[t]
-                char_idx = int(torch.argmax(timestep_log_probs).item())
-                char_conf = float(torch.exp(torch.max(timestep_log_probs)).item())
+                conf_val, char_idx_tensor = torch.max(timestep_log_probs, dim=0)
+                char_idx = int(char_idx_tensor.item())
+                char_conf = float(torch.exp(conf_val).item())
 
                 if char_idx != 0 and char_idx != last_char_idx:
                     decoded_chars.append(self.int_to_char.get(char_idx, ""))
