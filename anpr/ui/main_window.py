@@ -210,16 +210,18 @@ class ChannelView(QtWidgets.QWidget):
             self._current_pixmap.fill(QtGui.QColor("black"))
             self.video_label.setPixmap(self._current_pixmap)
         elif self._current_pixmap is None:
-            self._current_pixmap = pixmap
+            self._current_pixmap = QtGui.QPixmap(pixmap.size())
+            self._current_pixmap.fill(QtGui.QColor("black"))
             self.video_label.setPixmap(self._current_pixmap)
 
-        target = self.video_label.pixmap()
-        if target is None:
+        if self._current_pixmap is None:
             return
 
-        painter = QtGui.QPainter(target)
+        painter = QtGui.QPainter(self._current_pixmap)
         painter.drawPixmap(0, 0, pixmap)
         painter.end()
+        if self.video_label.pixmap() is not self._current_pixmap:
+            self.video_label.setPixmap(self._current_pixmap)
         self.video_label.update()
 
     def set_motion_active(self, active: bool) -> None:
