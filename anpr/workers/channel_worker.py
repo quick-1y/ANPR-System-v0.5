@@ -431,6 +431,9 @@ class ChannelWorker(QtCore.QThread):
         self._track_history_size = 32
         self._track_stale_seconds = 3.0
 
+    def _should_continue(self) -> bool:
+        return self._running and not self.isInterruptionRequested()
+
     def _open_capture(self, source: str) -> Optional[cv2.VideoCapture]:
         """Открывает видеопоток с учетом типа источника."""
         try:
@@ -446,7 +449,7 @@ class ChannelWorker(QtCore.QThread):
     async def _open_with_retries(self, source: str, channel_name: str) -> Optional[cv2.VideoCapture]:
         """Подключает источник с учетом настроек переподключения."""
 
-        while self._running:
+        while self._should_continue():
             capture = await asyncio.to_thread(self._open_capture, source)
             if capture is not None:
                 self.status_ready.emit(channel_name, "")
@@ -461,7 +464,7 @@ class ChannelWorker(QtCore.QThread):
                 f"Нет сигнала, повтор через {int(self.reconnect_policy.retry_interval_seconds)}с",
             )
             await asyncio.sleep(max(0.1, self.reconnect_policy.retry_interval_seconds))
-        
+
         return None
 
     def _inference_config(self) -> dict:
@@ -784,7 +787,7 @@ class ChannelWorker(QtCore.QThread):
         last_frame_ts = time.monotonic()
         last_reconnect_ts = last_frame_ts
         
-        while self._running:
+        while self._should_continue():
             now = time.monotonic()
             
             # Плановое переподключение
@@ -891,6 +894,8 @@ class ChannelWorker(QtCore.QThread):
 
     def run(self) -> None:
         """Запуск потока."""
+        if not self._should_continue():
+            return
         try:
             asyncio.run(self._loop())
         except Exception as exc:
@@ -900,3 +905,6 @@ class ChannelWorker(QtCore.QThread):
     def stop(self) -> None:
         """Остановка потока."""
         self._running = False
+        self.requestInterruption()
+        if self._inference_task is not None:
+            self._inference_task.cancel()

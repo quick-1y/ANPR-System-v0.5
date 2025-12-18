@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, Tuple
 import threading
+from typing import Dict, Tuple
 
 from anpr.config import Config
 from anpr.detection.yolo_detector import YOLODetector
@@ -14,8 +14,32 @@ from anpr.postprocessing.validator import PlatePostProcessor
 from anpr.recognition.crnn_recognizer import CRNNRecognizer
 
 
-_RECOGNIZER_LOCK = threading.Lock()
+_RECOGNIZER_LOCK = threading.RLock()
+_RECOGNIZER_INITIALIZING = False
+_RECOGNIZER_READY = threading.Event()
 _RECOGNIZER_SINGLETON: CRNNRecognizer | None = None
+
+
+class _FallbackRecognizer:
+    """Неблокирующий заглушка, пока OCR ещё не инициализирован."""
+
+    def recognize(self, _plate_image):
+        return "", 0.0
+
+    def recognize_batch(self, _plate_images):
+        return []
+
+
+_NOOP_RECOGNIZER = _FallbackRecognizer()
+
+
+def _initialize_recognizer_threadsafe() -> CRNNRecognizer:
+    config = Config()
+    return CRNNRecognizer(config.ocr_model_path, config.device)
+
+
+def _get_fallback_recognizer() -> CRNNRecognizer:
+    return _RECOGNIZER_SINGLETON or _NOOP_RECOGNIZER
 
 
 def _get_shared_recognizer() -> CRNNRecognizer:
@@ -27,16 +51,29 @@ def _get_shared_recognizer() -> CRNNRecognizer:
     avoid the race while keeping inference stateless and reusable.
     """
 
-    global _RECOGNIZER_SINGLETON
+    global _RECOGNIZER_INITIALIZING, _RECOGNIZER_SINGLETON
 
-    if _RECOGNIZER_SINGLETON is None:
+    if _RECOGNIZER_SINGLETON is None and not _RECOGNIZER_INITIALIZING:
         with _RECOGNIZER_LOCK:
-            if _RECOGNIZER_SINGLETON is None:
-                config = Config()
-                _RECOGNIZER_SINGLETON = CRNNRecognizer(
-                    config.ocr_model_path, config.device
-                )
-    return _RECOGNIZER_SINGLETON
+            if _RECOGNIZER_SINGLETON is None and not _RECOGNIZER_INITIALIZING:
+                _RECOGNIZER_INITIALIZING = True
+                _RECOGNIZER_READY.clear()
+
+                def _init() -> None:
+                    global _RECOGNIZER_INITIALIZING, _RECOGNIZER_SINGLETON
+
+                    try:
+                        _RECOGNIZER_SINGLETON = _initialize_recognizer_threadsafe()
+                    finally:
+                        _RECOGNIZER_INITIALIZING = False
+                        _RECOGNIZER_READY.set()
+
+                threading.Thread(target=_init, daemon=True).start()
+
+    if not _RECOGNIZER_READY.wait(timeout=0.1):
+        _RECOGNIZER_READY.wait()
+
+    return _RECOGNIZER_SINGLETON or _get_fallback_recognizer()
 
 
 def _build_postprocessor(config: Dict[str, object]) -> PlatePostProcessor:

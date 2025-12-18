@@ -42,10 +42,17 @@ class PixmapPool:
         return pixmap
 
     def release(self, pixmap: QtGui.QPixmap) -> None:
+        if pixmap.isNull():
+            return
+
         key = (pixmap.width(), pixmap.height())
         pixmaps = self._pool.setdefault(key, [])
-        if len(pixmaps) < self._max_per_size:
-            pixmaps.append(pixmap)
+
+        if len(pixmaps) >= self._max_per_size:
+            old_pixmap = pixmaps.pop(0)
+            old_pixmap.detach()
+
+        pixmaps.append(pixmap)
 
 
 class ChannelView(QtWidgets.QWidget):
