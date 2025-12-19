@@ -20,23 +20,37 @@ class TrackAggregator:
 
     def __init__(self, best_shots: int):
         self.best_shots = max(1, best_shots)
-        self.track_texts: Dict[int, List[str]] = {}
+        self.track_texts: Dict[int, List[tuple[str, float]]] = {}
         self.last_emitted: Dict[int, str] = {}
 
-    def add_result(self, track_id: int, text: str) -> str:
+    def add_result(self, track_id: int, text: str, confidence: float) -> str:
         if not text:
             return ""
 
         bucket = self.track_texts.setdefault(track_id, [])
-        bucket.append(text)
+        bucket.append((text, max(0.0, float(confidence))))
         if len(bucket) > self.best_shots:
             bucket.pop(0)
 
-        counts = Counter(bucket)
-        consensus, freq = counts.most_common(1)[0]
+        weights: Dict[str, float] = {}
+        counts: Counter[str] = Counter()
+        total_weight = 0.0
+        for entry_text, entry_confidence in bucket:
+            weights[entry_text] = weights.get(entry_text, 0.0) + entry_confidence
+            counts[entry_text] += 1
+            total_weight += entry_confidence
+
+        if not weights or total_weight <= 0:
+            return ""
+
+        consensus = max(weights, key=lambda value: (weights[value], counts[value]))
+        consensus_weight = weights[consensus]
         quorum = max(1, (self.best_shots + 1) // 2)
-        has_quorum = len(bucket) >= self.best_shots and freq >= quorum
+        has_quorum = len(bucket) >= self.best_shots and counts[consensus] >= quorum
+        has_weighted_majority = consensus_weight >= total_weight * 0.5
         if has_quorum and self.last_emitted.get(track_id) != consensus:
+            if not has_weighted_majority:
+                return ""
             self.last_emitted[track_id] = consensus
             return consensus
         return ""
@@ -252,7 +266,7 @@ class ANPRPipeline:
                 continue
 
             if "track_id" in detection:
-                detection["text"] = self.aggregator.add_result(detection["track_id"], current_text)
+                detection["text"] = self.aggregator.add_result(detection["track_id"], current_text, confidence)
             else:
                 detection["text"] = current_text
 
@@ -279,4 +293,3 @@ class ANPRPipeline:
                 else:
                     self._touch_plate(detection["text"])
         return detections
-
