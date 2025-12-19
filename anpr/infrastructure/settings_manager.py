@@ -448,7 +448,23 @@ class SettingsManager:
             channels = self.settings.get("channels", [])
             tracking_defaults = self.settings.get("tracking", {})
         changed = False
+        max_id = 0
         for channel in channels:
+            try:
+                channel_id = int(channel.get("id", 0))
+            except (TypeError, ValueError):
+                channel_id = 0
+            max_id = max(max_id, channel_id)
+
+        for channel in channels:
+            try:
+                channel_id = int(channel.get("id", 0))
+            except (TypeError, ValueError):
+                channel_id = 0
+            if channel_id <= 0:
+                max_id += 1
+                channel["id"] = max_id
+                changed = True
             if self._fill_channel_defaults(channel, tracking_defaults):
                 changed = True
 
