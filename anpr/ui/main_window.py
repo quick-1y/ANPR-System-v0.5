@@ -116,6 +116,14 @@ class ChannelView(QtWidgets.QWidget):
         self.status_hint.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
         self.status_hint.hide()
 
+        self.metrics_hint = QtWidgets.QLabel("")
+        self.metrics_hint.setParent(self.video_label)
+        self.metrics_hint.setStyleSheet(
+            "background-color: rgba(0, 0, 0, 0.55); color: #9ae6ff; padding: 2px 4px;"
+        )
+        self.metrics_hint.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
+        self.metrics_hint.hide()
+
     def set_channel_name(self, channel_name: Optional[str]) -> None:
         self._channel_name = channel_name
 
@@ -136,6 +144,11 @@ class ChannelView(QtWidgets.QWidget):
         self.last_plate.move(rect.left() + margin, rect.top() + margin)
         status_size = self.status_hint.sizeHint()
         self.status_hint.move(rect.left() + margin, rect.bottom() - status_size.height() - margin)
+        metrics_size = self.metrics_hint.sizeHint()
+        self.metrics_hint.move(
+            rect.right() - metrics_size.width() - margin,
+            rect.bottom() - metrics_size.height() - margin,
+        )
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
         if event.button() == QtCore.Qt.LeftButton:
@@ -211,6 +224,12 @@ class ChannelView(QtWidgets.QWidget):
         self.status_hint.setText(text)
         if text:
             self.status_hint.adjustSize()
+
+    def set_metrics(self, text: str) -> None:
+        self.metrics_hint.setVisible(bool(text))
+        self.metrics_hint.setText(text)
+        if text:
+            self.metrics_hint.adjustSize()
 
 
 class ROIEditor(QtWidgets.QLabel):
@@ -1541,6 +1560,7 @@ class MainWindow(QtWidgets.QMainWindow):
             worker.frame_ready.connect(self._update_frame)
             worker.event_ready.connect(self._handle_event)
             worker.status_ready.connect(self._handle_status)
+            worker.metrics_ready.connect(self._handle_metrics)
             self.channel_workers.append(worker)
             worker.start()
 
@@ -1723,6 +1743,19 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 label.set_status(status)
             label.set_motion_active("обнаружено" in normalized)
+
+    def _handle_metrics(self, channel: str, metrics: Dict[str, Any]) -> None:
+        label = self.channel_labels.get(channel)
+        if not label:
+            return
+        fps = metrics.get("fps")
+        latency_ms = metrics.get("latency_ms")
+        accuracy = metrics.get("accuracy")
+
+        fps_text = f"{fps:.1f}" if isinstance(fps, (int, float)) else "—"
+        latency_text = f"{latency_ms:.0f} ms" if isinstance(latency_ms, (int, float)) else "—"
+        accuracy_text = f"{accuracy:.0f}%" if isinstance(accuracy, (int, float)) else "—"
+        label.set_metrics(f"FPS: {fps_text} | Lat: {latency_text} | Acc: {accuracy_text}")
 
     def _on_event_selected(self) -> None:
         row = self.events_table.currentRow()
