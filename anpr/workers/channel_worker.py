@@ -451,6 +451,7 @@ class ChannelWorker(QtCore.QThread):
         parent=None,
     ) -> None:
         super().__init__(parent)
+        self.channel_id = int(channel_conf.get("id", 0))
         self.config = ChannelRuntimeConfig.from_dict(channel_conf)
         self.reconnect_policy = ReconnectPolicy.from_dict(reconnect_conf)
         self.db_path = db_path
