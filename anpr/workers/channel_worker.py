@@ -9,6 +9,7 @@ import uuid
 from concurrent.futures import ProcessPoolExecutor
 import threading
 import atexit
+from multiprocessing import shared_memory
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -246,9 +247,9 @@ class ChannelRuntimeConfig:
         )
 
 
-# Хранилище для ProcessPoolExecutor по типу конфигурации
-_EXECUTORS: dict[str, ProcessPoolExecutor] = {}
-_EXECUTOR_LOCK = threading.Lock()
+# Общий ProcessPoolExecutor (master-worker) для всех каналов
+_INFERENCE_EXECUTOR: ProcessPoolExecutor | None = None
+_INFERENCE_EXECUTOR_LOCK = threading.Lock()
 
 
 def _config_fingerprint(config: dict) -> str:
@@ -291,23 +292,25 @@ def _filter_detections_by_size(
     return filtered
 
 
-def _get_executor_for_config(config: dict) -> ProcessPoolExecutor:
-    """Возвращает ProcessPoolExecutor для конкретной конфигурации."""
-    key = _config_fingerprint(config)
-    with _EXECUTOR_LOCK:
-        executor = _EXECUTORS.get(key)
-        if executor is None:
-            executor = ProcessPoolExecutor(max_workers=1)
-            _EXECUTORS[key] = executor
-    return executor
+def _get_inference_executor() -> ProcessPoolExecutor:
+    """Возвращает общий ProcessPoolExecutor для инференса."""
+    global _INFERENCE_EXECUTOR
+    with _INFERENCE_EXECUTOR_LOCK:
+        if _INFERENCE_EXECUTOR is None:
+            settings = SettingsManager()
+            inference_conf = settings.get_inference_settings()
+            max_workers = int(inference_conf.get("workers", max(1, os.cpu_count() or 1)))
+            _INFERENCE_EXECUTOR = ProcessPoolExecutor(max_workers=max_workers)
+    return _INFERENCE_EXECUTOR
 
 
 def _shutdown_executors() -> None:
     """Завершает все экзекьюторы при выходе из программы."""
-    with _EXECUTOR_LOCK:
-        for executor in _EXECUTORS.values():
-            executor.shutdown(cancel_futures=True)
-        _EXECUTORS.clear()
+    global _INFERENCE_EXECUTOR
+    with _INFERENCE_EXECUTOR_LOCK:
+        if _INFERENCE_EXECUTOR is not None:
+            _INFERENCE_EXECUTOR.shutdown(cancel_futures=True)
+            _INFERENCE_EXECUTOR = None
 
 
 atexit.register(_shutdown_executors)
@@ -377,6 +380,46 @@ def _run_inference_task(
     return detections, results
 
 
+@dataclass(frozen=True)
+class SharedFrameInfo:
+    name: str
+    shape: Tuple[int, int, int]
+    dtype: str
+
+
+def _create_shared_frame(frame: cv2.Mat) -> tuple[SharedFrameInfo, shared_memory.SharedMemory]:
+    """Копирует кадр в shared memory и возвращает метаданные."""
+    contiguous = np.ascontiguousarray(frame)
+    shm = shared_memory.SharedMemory(create=True, size=contiguous.nbytes)
+    shm_array = np.ndarray(contiguous.shape, dtype=contiguous.dtype, buffer=shm.buf)
+    shm_array[:] = contiguous
+    info = SharedFrameInfo(name=shm.name, shape=contiguous.shape, dtype=str(contiguous.dtype))
+    return info, shm
+
+
+def _load_shared_frame(info: SharedFrameInfo) -> tuple[np.ndarray, shared_memory.SharedMemory]:
+    """Открывает shared memory и возвращает ndarray."""
+    shm = shared_memory.SharedMemory(name=info.name)
+    array = np.ndarray(info.shape, dtype=np.dtype(info.dtype), buffer=shm.buf)
+    return array, shm
+
+
+def _run_inference_task_shared(
+    frame_info: SharedFrameInfo,
+    roi_info: SharedFrameInfo,
+    roi_rect: Tuple[int, int, int, int],
+    config: dict,
+) -> Tuple[list[dict], list[dict]]:
+    """Выполняет инференс, используя shared memory для кадров."""
+    frame, frame_shm = _load_shared_frame(frame_info)
+    roi_frame, roi_shm = _load_shared_frame(roi_info)
+    try:
+        return _run_inference_task(frame, roi_frame, roi_rect, config)
+    finally:
+        frame_shm.close()
+        roi_shm.close()
+
+
 class InferenceLimiter:
     """Пропускает лишние кадры для инференса детектора."""
 
@@ -396,6 +439,7 @@ class ChannelWorker(QtCore.QThread):
     frame_ready = QtCore.pyqtSignal(str, QtGui.QImage)
     event_ready = QtCore.pyqtSignal(dict)
     status_ready = QtCore.pyqtSignal(str, str)
+    metrics_ready = QtCore.pyqtSignal(str, dict)
 
     def __init__(
         self,
@@ -430,6 +474,13 @@ class ChannelWorker(QtCore.QThread):
         self._track_directions: dict[int, str] = {}
         self._track_history_size = 32
         self._track_stale_seconds = 3.0
+        self._frame_times: deque[float] = deque(maxlen=120)
+        self._latency_ms: deque[float] = deque(maxlen=40)
+        self._confidence_scores: deque[float] = deque(maxlen=60)
+        self._last_metrics_emit = 0.0
+        self._metrics_interval = 1.0
+        inference_conf = SettingsManager().get_inference_settings()
+        self._use_shared_memory = bool(inference_conf.get("shared_memory", True))
 
     def _should_continue(self) -> bool:
         return self._running and not self.isInterruptionRequested()
@@ -510,15 +561,50 @@ class ChannelWorker(QtCore.QThread):
         """Запускает инференс в отдельном процессе."""
         loop = asyncio.get_running_loop()
         config = self._inference_config()
-        
-        return await loop.run_in_executor(
-            _get_executor_for_config(config),
-            _run_inference_task,
-            frame,
-            roi_frame,
-            roi_rect,
-            config,
-        )
+        if not self._use_shared_memory:
+            return await loop.run_in_executor(
+                _get_inference_executor(),
+                _run_inference_task,
+                frame,
+                roi_frame,
+                roi_rect,
+                config,
+            )
+
+        frame_info = roi_info = None
+        frame_shm = roi_shm = None
+        try:
+            frame_info, frame_shm = _create_shared_frame(frame)
+            roi_info, roi_shm = _create_shared_frame(roi_frame)
+            return await loop.run_in_executor(
+                _get_inference_executor(),
+                _run_inference_task_shared,
+                frame_info,
+                roi_info,
+                roi_rect,
+                config,
+            )
+        except Exception as exc:
+            logger.warning("Shared memory отключена для канала %s: %s", self.config.name, exc)
+            return await loop.run_in_executor(
+                _get_inference_executor(),
+                _run_inference_task,
+                frame,
+                roi_frame,
+                roi_rect,
+                config,
+            )
+        finally:
+            for shm in (frame_shm, roi_shm):
+                if shm is None:
+                    continue
+                try:
+                    shm.close()
+                    shm.unlink()
+                except FileNotFoundError:
+                    continue
+                except Exception as exc:
+                    logger.debug("Ошибка освобождения shared memory: %s", exc)
 
     @staticmethod
     def _to_qimage(frame: Optional[cv2.Mat], *, is_rgb: bool = False) -> Optional[QtGui.QImage]:
@@ -666,6 +752,38 @@ class ChannelWorker(QtCore.QThread):
             label = f"#{track_id} {direction}"
             self._draw_label(frame, label, (int(tail_x) + 6, int(tail_y) - 6))
 
+    def _update_metrics(self, now: float) -> None:
+        self._frame_times.append(now)
+        window_seconds = 2.0
+        while self._frame_times and now - self._frame_times[0] > window_seconds:
+            self._frame_times.popleft()
+
+        if now - self._last_metrics_emit < self._metrics_interval:
+            return
+
+        fps = 0.0
+        if len(self._frame_times) >= 2:
+            duration = self._frame_times[-1] - self._frame_times[0]
+            if duration > 0:
+                fps = (len(self._frame_times) - 1) / duration
+
+        latency_ms = float(np.mean(self._latency_ms)) if self._latency_ms else None
+        accuracy = (
+            float(np.mean(self._confidence_scores)) * 100.0
+            if self._confidence_scores
+            else None
+        )
+
+        self.metrics_ready.emit(
+            self.config.name,
+            {
+                "fps": fps,
+                "latency_ms": latency_ms,
+                "accuracy": accuracy,
+            },
+        )
+        self._last_metrics_emit = now
+
     def _save_bgr_image(self, path: str, image: Optional[cv2.Mat]) -> Optional[str]:
         """Сохраняет BGR изображение на диск."""
         if image is None or image.size == 0:
@@ -761,9 +879,19 @@ class ChannelWorker(QtCore.QThread):
     ) -> None:
         """Выполняет инференс и обработку результатов."""
         try:
+            start_ts = time.monotonic()
             detections, results = await self._run_inference(frame, roi_frame, roi_rect)
+            latency_ms = (time.monotonic() - start_ts) * 1000.0
+            self._latency_ms.append(latency_ms)
             self._last_debug = {"detections": detections, "results": results}
             self._update_track_history(detections)
+            confidences = [
+                float(res.get("confidence", 0.0))
+                for res in results
+                if res.get("text") and not res.get("unreadable")
+            ]
+            if confidences:
+                self._confidence_scores.extend(confidences)
             await self._process_events(storage, source, results, channel_name, frame, rgb_frame)
         except Exception as e:
             logger.exception("Ошибка инференса для канала %s: %s", channel_name, e)
@@ -833,6 +961,7 @@ class ChannelWorker(QtCore.QThread):
                 continue
 
             last_frame_ts = time.monotonic()
+            self._update_metrics(last_frame_ts)
 
             # Обработка кадра
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

@@ -29,6 +29,7 @@ class SettingsManager:
             "models": self._model_defaults(),
             "ocr": self._ocr_defaults(),
             "detector": self._detector_defaults(),
+            "inference": self._inference_defaults(),
             "grid": "2x2",
             "channels": [],
             "reconnect": {
@@ -85,6 +86,7 @@ class SettingsManager:
         model_defaults = self._model_defaults()
         ocr_defaults = self._ocr_defaults()
         detector_defaults = self._detector_defaults()
+        inference_defaults = self._inference_defaults()
 
         direction_defaults = self._direction_defaults()
         direction_settings = tracking_defaults.get("direction")
@@ -112,6 +114,9 @@ class SettingsManager:
             changed = True
 
         if self._fill_detector_defaults(data, detector_defaults):
+            changed = True
+
+        if self._fill_inference_defaults(data, inference_defaults):
             changed = True
 
         if self._fill_storage_defaults(data, storage_defaults):
@@ -205,6 +210,14 @@ class SettingsManager:
             "yolo_model_path": "models/yolo/best.pt",
             "ocr_model_path": "models/ocr_crnn/crnn_ocr_model_int8_fx.pth",
             "device": "cpu",
+        }
+
+    @staticmethod
+    def _inference_defaults() -> Dict[str, Any]:
+        cpu_count = os.cpu_count() or 1
+        return {
+            "workers": max(1, cpu_count - 1),
+            "shared_memory": True,
         }
 
     @staticmethod
@@ -371,6 +384,20 @@ class SettingsManager:
                 detector[key] = val
                 changed = True
         data["detector"] = detector
+        return changed
+
+    def _fill_inference_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
+        if "inference" not in data:
+            data["inference"] = defaults
+            return True
+
+        changed = False
+        inference = data.get("inference", {})
+        for key, val in defaults.items():
+            if key not in inference:
+                inference[key] = val
+                changed = True
+        data["inference"] = inference
         return changed
 
     def _fill_time_defaults(self, data: Dict[str, Any], defaults: Dict[str, Any]) -> bool:
@@ -543,6 +570,11 @@ class SettingsManager:
         if self._fill_detector_defaults(self.settings, self._detector_defaults()):
             self._save(self.settings)
         return self.settings.get("detector", {})
+
+    def get_inference_settings(self) -> Dict[str, Any]:
+        if self._fill_inference_defaults(self.settings, self._inference_defaults()):
+            self._save(self.settings)
+        return self.settings.get("inference", {})
 
     def get_plate_size_defaults(self) -> Dict[str, Dict[str, int]]:
         defaults = self._plate_size_defaults()

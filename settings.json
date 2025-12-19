@@ -13,6 +13,10 @@
   "detector": {
     "confidence_threshold": 0.5
   },
+  "inference": {
+    "workers": 2,
+    "shared_memory": true
+  },
   "grid": "2x2",
   "channels": [],
   "reconnect": {
