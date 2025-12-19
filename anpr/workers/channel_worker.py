@@ -481,6 +481,8 @@ class ChannelWorker(QtCore.QThread):
         self._metrics_interval = 1.0
         inference_conf = SettingsManager().get_inference_settings()
         self._use_shared_memory = bool(inference_conf.get("shared_memory", True))
+        self._roi_mask_cache: Optional[np.ndarray] = None
+        self._roi_mask_key: Optional[tuple] = None
 
     def _should_continue(self) -> bool:
         return self._running and not self.isInterruptionRequested()
@@ -542,8 +544,14 @@ class ChannelWorker(QtCore.QThread):
 
         if not self.config.region.is_full_frame() and roi_frame.size:
             local_polygon = np.array([[(x - x1), (y - y1)] for x, y in polygon], dtype=np.int32)
-            mask = np.zeros((roi_frame.shape[0], roi_frame.shape[1]), dtype=np.uint8)
-            cv2.fillPoly(mask, [local_polygon], 255)
+            cache_key = (frame.shape, tuple(polygon))
+            if self._roi_mask_key != cache_key or self._roi_mask_cache is None:
+                mask = np.zeros((roi_frame.shape[0], roi_frame.shape[1]), dtype=np.uint8)
+                cv2.fillPoly(mask, [local_polygon], 255)
+                self._roi_mask_cache = mask
+                self._roi_mask_key = cache_key
+            else:
+                mask = self._roi_mask_cache
             roi_frame = cv2.bitwise_and(roi_frame, roi_frame, mask=mask)
 
         return roi_frame, (x1, y1, x2, y2)
