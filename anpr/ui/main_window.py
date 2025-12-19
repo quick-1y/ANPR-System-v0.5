@@ -1550,24 +1550,76 @@ class MainWindow(QtWidgets.QMainWindow):
                 if label:
                     label.set_status("Нет источника")
                 continue
-            worker = ChannelWorker(
-                channel_conf,
-                self.settings.get_db_path(),
-                self.settings.get_screenshot_dir(),
-                reconnect_conf,
-                plate_settings,
-            )
-            worker.frame_ready.connect(self._update_frame)
-            worker.event_ready.connect(self._handle_event)
-            worker.status_ready.connect(self._handle_status)
-            worker.metrics_ready.connect(self._handle_metrics)
+            worker = self._create_channel_worker(channel_conf, reconnect_conf, plate_settings)
             self.channel_workers.append(worker)
             worker.start()
+
+    def _create_channel_worker(
+        self,
+        channel_conf: Dict[str, Any],
+        reconnect_conf: Dict[str, Any],
+        plate_settings: Dict[str, Any],
+    ) -> ChannelWorker:
+        worker = ChannelWorker(
+            channel_conf,
+            self.settings.get_db_path(),
+            self.settings.get_screenshot_dir(),
+            reconnect_conf,
+            plate_settings,
+        )
+        worker.frame_ready.connect(self._update_frame)
+        worker.event_ready.connect(self._handle_event)
+        worker.status_ready.connect(self._handle_status)
+        worker.metrics_ready.connect(self._handle_metrics)
+        return worker
+
+    def _find_channel_worker(self, channel_id: int) -> Optional[ChannelWorker]:
+        for worker in self.channel_workers:
+            if worker.channel_id == channel_id:
+                return worker
+        return None
+
+    def _restart_channel_worker(self, channel_conf: Dict[str, Any]) -> None:
+        channel_id = int(channel_conf.get("id", 0))
+        existing = self._find_channel_worker(channel_id)
+        if existing:
+            existing.stop()
+            existing.wait(2000)
+            try:
+                existing.frame_ready.disconnect()
+                existing.event_ready.disconnect()
+                existing.status_ready.disconnect()
+                existing.metrics_ready.disconnect()
+            except Exception:
+                pass
+            if existing in self.channel_workers:
+                self.channel_workers.remove(existing)
+
+        source = str(channel_conf.get("source", "")).strip()
+        channel_name = channel_conf.get("name", "Канал")
+        if not source:
+            label = self.channel_labels.get(channel_name)
+            if label:
+                label.set_status("Нет источника")
+            return
+
+        reconnect_conf = self.settings.get_reconnect()
+        plate_settings = self.settings.get_plate_settings()
+        worker = self._create_channel_worker(channel_conf, reconnect_conf, plate_settings)
+        self.channel_workers.append(worker)
+        worker.start()
 
     def _stop_workers(self) -> None:
         for worker in self.channel_workers:
             worker.stop()
-            worker.wait(1000)
+            worker.wait(2000)
+            try:
+                worker.frame_ready.disconnect()
+                worker.event_ready.disconnect()
+                worker.status_ready.disconnect()
+                worker.metrics_ready.disconnect()
+            except Exception:
+                pass
         self.channel_workers = []
 
     def _update_frame(self, channel_name: str, image: QtGui.QImage) -> None:
@@ -2862,6 +2914,8 @@ class MainWindow(QtWidgets.QMainWindow):
         channels = self.settings.get_channels()
         if 0 <= index < len(channels):
             try:
+                channel_id = channels[index].get("id")
+                logger.info("Сохранение настроек канала: id=%s", channel_id)
                 channels[index]["name"] = self.channel_name_input.text()
                 channels[index]["source"] = self.channel_source_input.text()
                 channels[index]["best_shots"] = int(self.best_shots_input.value())
@@ -2888,9 +2942,14 @@ class MainWindow(QtWidgets.QMainWindow):
                     "show_direction_tracks": self.debug_direction_checkbox.isChecked(),
                 }
                 self.settings.save_channels(channels)
+                logger.info(
+                    "Настройки канала сохранены: id=%s name=%s",
+                    channel_id,
+                    channels[index].get("name", "Канал"),
+                )
                 self._reload_channels_list(index)
                 self._draw_grid()
-                self._start_channels()
+                self._restart_channel_worker(channels[index])
             except Exception as exc:  # noqa: BLE001
                 logger.exception("Не удалось сохранить настройки канала")
                 QtWidgets.QMessageBox.critical(
