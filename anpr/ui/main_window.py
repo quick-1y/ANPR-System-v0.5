@@ -2914,6 +2914,8 @@ class MainWindow(QtWidgets.QMainWindow):
         channels = self.settings.get_channels()
         if 0 <= index < len(channels):
             try:
+                channel_id = channels[index].get("id")
+                logger.info("Сохранение настроек канала: id=%s", channel_id)
                 channels[index]["name"] = self.channel_name_input.text()
                 channels[index]["source"] = self.channel_source_input.text()
                 channels[index]["best_shots"] = int(self.best_shots_input.value())
@@ -2940,6 +2942,11 @@ class MainWindow(QtWidgets.QMainWindow):
                     "show_direction_tracks": self.debug_direction_checkbox.isChecked(),
                 }
                 self.settings.save_channels(channels)
+                logger.info(
+                    "Настройки канала сохранены: id=%s name=%s",
+                    channel_id,
+                    channels[index].get("name", "Канал"),
+                )
                 self._reload_channels_list(index)
                 self._draw_grid()
                 self._restart_channel_worker(channels[index])

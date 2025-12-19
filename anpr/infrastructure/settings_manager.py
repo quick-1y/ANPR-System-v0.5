@@ -454,11 +454,11 @@ class SettingsManager:
 
         if changed:
             self.save_channels(channels)
-        return channels
+        return copy.deepcopy(channels)
 
     def save_channels(self, channels: List[Dict[str, Any]]) -> None:
         with self._file_lock:
-            self.settings["channels"] = channels
+            self.settings["channels"] = copy.deepcopy(channels)
             settings_snapshot = copy.deepcopy(self.settings)
         self._save(settings_snapshot)
 
@@ -477,7 +477,7 @@ class SettingsManager:
             if self._fill_reconnect_defaults(self.settings, self._reconnect_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
-            return self.settings.get("reconnect", {})
+            return copy.deepcopy(self.settings.get("reconnect", {}))
 
     def save_reconnect(self, reconnect_conf: Dict[str, Any]) -> None:
         with self._file_lock:
@@ -526,7 +526,7 @@ class SettingsManager:
             if self._fill_time_defaults(self.settings, self._time_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
-            return self.settings.get("time", {})
+            return copy.deepcopy(self.settings.get("time", {}))
 
     def save_time_settings(self, time_settings: Dict[str, Any]) -> None:
         with self._file_lock:
@@ -589,7 +589,7 @@ class SettingsManager:
             if self._fill_plate_defaults(self.settings, self._plate_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
-            return self.settings.get("plates", {})
+            return copy.deepcopy(self.settings.get("plates", {}))
 
     def save_plate_settings(self, plate_settings: Dict[str, Any]) -> None:
         with self._file_lock:
@@ -599,35 +599,35 @@ class SettingsManager:
 
     def get_logging_config(self) -> Dict[str, Any]:
         with self._file_lock:
-            return self.settings.get("logging", {})
+            return copy.deepcopy(self.settings.get("logging", {}))
 
     def get_model_settings(self) -> Dict[str, Any]:
         with self._file_lock:
             if self._fill_model_defaults(self.settings, self._model_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
-            return self.settings.get("models", {})
+            return copy.deepcopy(self.settings.get("models", {}))
 
     def get_ocr_settings(self) -> Dict[str, Any]:
         with self._file_lock:
             if self._fill_ocr_defaults(self.settings, self._ocr_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
-            return self.settings.get("ocr", {})
+            return copy.deepcopy(self.settings.get("ocr", {}))
 
     def get_detector_settings(self) -> Dict[str, Any]:
         with self._file_lock:
             if self._fill_detector_defaults(self.settings, self._detector_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
-            return self.settings.get("detector", {})
+            return copy.deepcopy(self.settings.get("detector", {}))
 
     def get_inference_settings(self) -> Dict[str, Any]:
         with self._file_lock:
             if self._fill_inference_defaults(self.settings, self._inference_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
-            return self.settings.get("inference", {})
+            return copy.deepcopy(self.settings.get("inference", {}))
 
     def get_plate_size_defaults(self) -> Dict[str, Dict[str, int]]:
         defaults = self._plate_size_defaults()
