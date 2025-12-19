@@ -2828,35 +2828,43 @@ class MainWindow(QtWidgets.QMainWindow):
         index = self.channels_list.currentRow()
         channels = self.settings.get_channels()
         if 0 <= index < len(channels):
-            channels[index]["name"] = self.channel_name_input.text()
-            channels[index]["source"] = self.channel_source_input.text()
-            channels[index]["best_shots"] = int(self.best_shots_input.value())
-            channels[index]["cooldown_seconds"] = int(self.cooldown_input.value())
-            channels[index]["ocr_min_confidence"] = float(self.min_conf_input.value())
-            channels[index]["detection_mode"] = self.detection_mode_input.currentData()
-            channels[index]["detector_frame_stride"] = int(self.detector_stride_input.value())
-            channels[index]["motion_threshold"] = float(self.motion_threshold_input.value())
-            channels[index]["motion_frame_stride"] = int(self.motion_stride_input.value())
-            channels[index]["motion_activation_frames"] = int(self.motion_activation_frames_input.value())
-            channels[index]["motion_release_frames"] = int(self.motion_release_frames_input.value())
-            channels[index]["min_plate_size"] = {
-                "width": int(self.min_plate_width_input.value()),
-                "height": int(self.min_plate_height_input.value()),
-            }
-            channels[index]["max_plate_size"] = {
-                "width": int(self.max_plate_width_input.value()),
-                "height": int(self.max_plate_height_input.value()),
-            }
-            channels[index]["region"] = {"unit": "px", "points": self._collect_roi_points_from_table()}
-            channels[index]["debug"] = {
-                "show_detection_boxes": self.debug_detection_checkbox.isChecked(),
-                "show_ocr_text": self.debug_ocr_checkbox.isChecked(),
-                "show_direction_tracks": self.debug_direction_checkbox.isChecked(),
-            }
-            self.settings.save_channels(channels)
-            self._reload_channels_list(index)
-            self._draw_grid()
-            self._start_channels()
+            try:
+                channels[index]["name"] = self.channel_name_input.text()
+                channels[index]["source"] = self.channel_source_input.text()
+                channels[index]["best_shots"] = int(self.best_shots_input.value())
+                channels[index]["cooldown_seconds"] = int(self.cooldown_input.value())
+                channels[index]["ocr_min_confidence"] = float(self.min_conf_input.value())
+                channels[index]["detection_mode"] = self.detection_mode_input.currentData()
+                channels[index]["detector_frame_stride"] = int(self.detector_stride_input.value())
+                channels[index]["motion_threshold"] = float(self.motion_threshold_input.value())
+                channels[index]["motion_frame_stride"] = int(self.motion_stride_input.value())
+                channels[index]["motion_activation_frames"] = int(self.motion_activation_frames_input.value())
+                channels[index]["motion_release_frames"] = int(self.motion_release_frames_input.value())
+                channels[index]["min_plate_size"] = {
+                    "width": int(self.min_plate_width_input.value()),
+                    "height": int(self.min_plate_height_input.value()),
+                }
+                channels[index]["max_plate_size"] = {
+                    "width": int(self.max_plate_width_input.value()),
+                    "height": int(self.max_plate_height_input.value()),
+                }
+                channels[index]["region"] = {"unit": "px", "points": self._collect_roi_points_from_table()}
+                channels[index]["debug"] = {
+                    "show_detection_boxes": self.debug_detection_checkbox.isChecked(),
+                    "show_ocr_text": self.debug_ocr_checkbox.isChecked(),
+                    "show_direction_tracks": self.debug_direction_checkbox.isChecked(),
+                }
+                self.settings.save_channels(channels)
+                self._reload_channels_list(index)
+                self._draw_grid()
+                self._start_channels()
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Не удалось сохранить настройки канала")
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Ошибка",
+                    f"Не удалось сохранить настройки канала: {exc}",
+                )
 
     def _sync_roi_table(self, roi: Dict[str, Any]) -> None:
         points = roi.get("points") or []
