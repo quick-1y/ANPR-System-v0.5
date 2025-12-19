@@ -415,6 +415,7 @@ class SettingsManager:
         return changed
 
     def _save(self, data: Dict[str, Any]) -> None:
+        logger.debug(f"Сохранение настроек из потока: {threading.current_thread().name}")
         self._write_to_disk(data)
 
     def _write_to_disk(self, data: Dict[str, Any]) -> None:
