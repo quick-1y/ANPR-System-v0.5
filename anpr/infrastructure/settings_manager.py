@@ -8,12 +8,17 @@ import threading
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+from anpr.infrastructure.logging_manager import get_logger
+
 DEFAULT_ROI_POINTS = [
     {"x": 500, "y": 300},
     {"x": 1200, "y": 300},
     {"x": 1200, "y": 900},
     {"x": 500, "y": 900},
 ]
+
+
+logger = get_logger(__name__)
 
 
 class SettingsManager:
