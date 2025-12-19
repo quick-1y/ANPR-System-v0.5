@@ -1584,7 +1584,14 @@ class MainWindow(QtWidgets.QMainWindow):
         existing = self._find_channel_worker(channel_id)
         if existing:
             existing.stop()
-            existing.wait(1000)
+            existing.wait(2000)
+            try:
+                existing.frame_ready.disconnect()
+                existing.event_ready.disconnect()
+                existing.status_ready.disconnect()
+                existing.metrics_ready.disconnect()
+            except Exception:
+                pass
             if existing in self.channel_workers:
                 self.channel_workers.remove(existing)
 
@@ -1605,7 +1612,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def _stop_workers(self) -> None:
         for worker in self.channel_workers:
             worker.stop()
-            worker.wait(1000)
+            worker.wait(2000)
+            try:
+                worker.frame_ready.disconnect()
+                worker.event_ready.disconnect()
+                worker.status_ready.disconnect()
+                worker.metrics_ready.disconnect()
+            except Exception:
+                pass
         self.channel_workers = []
 
     def _update_frame(self, channel_name: str, image: QtGui.QImage) -> None:

@@ -423,7 +423,7 @@ class SettingsManager:
 
     def _save(self, data: Dict[str, Any]) -> None:
         logger.debug(f"Сохранение настроек из потока: {threading.current_thread().name}")
-        with self._settings_lock:
+        with self._file_lock:
             snapshot = copy.deepcopy(data)
         self._write_to_disk(snapshot)
 
@@ -444,7 +444,7 @@ class SettingsManager:
                     os.remove(tmp_path)
 
     def get_channels(self) -> List[Dict[str, Any]]:
-        with self._settings_lock:
+        with self._file_lock:
             channels = self.settings.get("channels", [])
             tracking_defaults = self.settings.get("tracking", {})
         changed = False
@@ -457,41 +457,41 @@ class SettingsManager:
         return channels
 
     def save_channels(self, channels: List[Dict[str, Any]]) -> None:
-        with self._settings_lock:
+        with self._file_lock:
             self.settings["channels"] = channels
             settings_snapshot = copy.deepcopy(self.settings)
         self._save(settings_snapshot)
 
     def get_grid(self) -> str:
-        with self._settings_lock:
+        with self._file_lock:
             return self.settings.get("grid", "2x2")
 
     def save_grid(self, grid: str) -> None:
-        with self._settings_lock:
+        with self._file_lock:
             self.settings["grid"] = grid
             settings_snapshot = copy.deepcopy(self.settings)
         self._save(settings_snapshot)
 
     def get_reconnect(self) -> Dict[str, Any]:
-        with self._settings_lock:
+        with self._file_lock:
             if self._fill_reconnect_defaults(self.settings, self._reconnect_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
             return self.settings.get("reconnect", {})
 
     def save_reconnect(self, reconnect_conf: Dict[str, Any]) -> None:
-        with self._settings_lock:
+        with self._file_lock:
             self.settings["reconnect"] = reconnect_conf
             settings_snapshot = copy.deepcopy(self.settings)
         self._save(settings_snapshot)
 
     def get_db_dir(self) -> str:
-        with self._settings_lock:
+        with self._file_lock:
             storage = self.settings.get("storage", {})
             return storage.get("db_dir", "data/db")
 
     def get_database_file(self) -> str:
-        with self._settings_lock:
+        with self._file_lock:
             storage = self.settings.get("storage", {})
             return storage.get("database_file", "anpr.db")
 
@@ -501,7 +501,7 @@ class SettingsManager:
         return os.path.join(directory, filename)
 
     def save_db_dir(self, path: str) -> None:
-        with self._settings_lock:
+        with self._file_lock:
             storage = self.settings.get("storage", {})
             storage["db_dir"] = path
             self.settings["storage"] = storage
@@ -509,7 +509,7 @@ class SettingsManager:
         self._save(settings_snapshot)
 
     def save_screenshot_dir(self, path: str) -> None:
-        with self._settings_lock:
+        with self._file_lock:
             storage = self.settings.get("storage", {})
             storage["screenshots_dir"] = path
             self.settings["storage"] = storage
@@ -517,19 +517,19 @@ class SettingsManager:
         self._save(settings_snapshot)
 
     def get_screenshot_dir(self) -> str:
-        with self._settings_lock:
+        with self._file_lock:
             storage = self.settings.get("storage", {})
             return storage.get("screenshots_dir", "data/screenshots")
 
     def get_time_settings(self) -> Dict[str, Any]:
-        with self._settings_lock:
+        with self._file_lock:
             if self._fill_time_defaults(self.settings, self._time_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
             return self.settings.get("time", {})
 
     def save_time_settings(self, time_settings: Dict[str, Any]) -> None:
-        with self._settings_lock:
+        with self._file_lock:
             self.settings["time"] = time_settings
             settings_snapshot = copy.deepcopy(self.settings)
         self._save(settings_snapshot)
@@ -546,12 +546,12 @@ class SettingsManager:
             return 0
 
     def get_best_shots(self) -> int:
-        with self._settings_lock:
+        with self._file_lock:
             tracking = self.settings.get("tracking", {})
             return int(tracking.get("best_shots", 3))
 
     def save_best_shots(self, best_shots: int) -> None:
-        with self._settings_lock:
+        with self._file_lock:
             tracking = self.settings.get("tracking", {})
             tracking["best_shots"] = int(best_shots)
             self.settings["tracking"] = tracking
@@ -559,12 +559,12 @@ class SettingsManager:
         self._save(settings_snapshot)
 
     def get_cooldown_seconds(self) -> int:
-        with self._settings_lock:
+        with self._file_lock:
             tracking = self.settings.get("tracking", {})
             return int(tracking.get("cooldown_seconds", 5))
 
     def save_cooldown_seconds(self, cooldown: int) -> None:
-        with self._settings_lock:
+        with self._file_lock:
             tracking = self.settings.get("tracking", {})
             tracking["cooldown_seconds"] = int(cooldown)
             self.settings["tracking"] = tracking
@@ -572,12 +572,12 @@ class SettingsManager:
         self._save(settings_snapshot)
 
     def get_min_confidence(self) -> float:
-        with self._settings_lock:
+        with self._file_lock:
             tracking = self.settings.get("tracking", {})
             return float(tracking.get("ocr_min_confidence", 0.6))
 
     def save_min_confidence(self, min_conf: float) -> None:
-        with self._settings_lock:
+        with self._file_lock:
             tracking = self.settings.get("tracking", {})
             tracking["ocr_min_confidence"] = float(min_conf)
             self.settings["tracking"] = tracking
@@ -585,45 +585,45 @@ class SettingsManager:
         self._save(settings_snapshot)
 
     def get_plate_settings(self) -> Dict[str, Any]:
-        with self._settings_lock:
+        with self._file_lock:
             if self._fill_plate_defaults(self.settings, self._plate_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
             return self.settings.get("plates", {})
 
     def save_plate_settings(self, plate_settings: Dict[str, Any]) -> None:
-        with self._settings_lock:
+        with self._file_lock:
             self.settings["plates"] = plate_settings
             settings_snapshot = copy.deepcopy(self.settings)
         self._save(settings_snapshot)
 
     def get_logging_config(self) -> Dict[str, Any]:
-        with self._settings_lock:
+        with self._file_lock:
             return self.settings.get("logging", {})
 
     def get_model_settings(self) -> Dict[str, Any]:
-        with self._settings_lock:
+        with self._file_lock:
             if self._fill_model_defaults(self.settings, self._model_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
             return self.settings.get("models", {})
 
     def get_ocr_settings(self) -> Dict[str, Any]:
-        with self._settings_lock:
+        with self._file_lock:
             if self._fill_ocr_defaults(self.settings, self._ocr_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
             return self.settings.get("ocr", {})
 
     def get_detector_settings(self) -> Dict[str, Any]:
-        with self._settings_lock:
+        with self._file_lock:
             if self._fill_detector_defaults(self.settings, self._detector_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
             return self.settings.get("detector", {})
 
     def get_inference_settings(self) -> Dict[str, Any]:
-        with self._settings_lock:
+        with self._file_lock:
             if self._fill_inference_defaults(self.settings, self._inference_defaults()):
                 settings_snapshot = copy.deepcopy(self.settings)
                 self._save(settings_snapshot)
@@ -638,7 +638,7 @@ class SettingsManager:
         return dict(defaults)
 
     def refresh(self) -> None:
-        with self._settings_lock:
+        with self._file_lock:
             self.settings = self._load()
 
     def update_channel(self, channel_id: int, data: Dict[str, Any]) -> None:
