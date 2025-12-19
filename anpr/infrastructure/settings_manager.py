@@ -28,6 +28,7 @@ class SettingsManager:
 
     def __init__(self, path: str = "settings.json") -> None:
         self.path = path
+        self._settings_lock = threading.RLock()
         self.settings = self._load()
 
     def _default(self) -> Dict[str, Any]:
