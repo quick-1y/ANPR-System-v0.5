@@ -7,12 +7,12 @@ import time
 from collections import Counter, deque
 from typing import Any, Dict, List, Optional
 
-import cv2
 import numpy as np
 
 from anpr.config import Config
 from anpr.postprocessing.validator import PlatePostProcessor
 from anpr.recognition.crnn_recognizer import CRNNRecognizer
+from anpr.pipeline.plate_skew_correction import PlateSkewCorrector
 
 
 class TrackAggregator:
@@ -181,6 +181,7 @@ class ANPRPipeline:
         self._last_seen: Dict[str, float] = {}
         self.postprocessor = postprocessor
         self.direction_estimator = TrackDirectionEstimator.from_config(direction_config or {})
+        self.plate_corrector = PlateSkewCorrector()
 
     def _on_cooldown(self, plate: str) -> bool:
         last_seen = self._last_seen.get(plate)
@@ -191,47 +192,8 @@ class ANPRPipeline:
     def _touch_plate(self, plate: str) -> None:
         self._last_seen[plate] = time.monotonic()
 
-    def _order_points(self, pts: np.ndarray) -> np.ndarray:
-        rect = np.zeros((4, 2), dtype="float32")
-        s = pts.sum(axis=1)
-        rect[0] = pts[np.argmin(s)]
-        rect[2] = pts[np.argmax(s)]
-        diff = np.diff(pts, axis=1)
-        rect[1] = pts[np.argmin(diff)]
-        rect[3] = pts[np.argmax(diff)]
-        return rect
-
-    def _four_point_transform(self, image: np.ndarray, pts: np.ndarray) -> np.ndarray:
-        rect = self._order_points(pts)
-        (tl, tr, br, bl) = rect
-        widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
-        widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
-        maxWidth = max(int(widthA), int(widthB))
-        heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
-        heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
-        maxHeight = max(int(heightA), int(heightB))
-        if maxWidth <= 0 or maxHeight <= 0:
-            return image
-        dst = np.array(
-            [[0, 0], [maxWidth - 1, 0], [maxWidth - 1, maxHeight - 1], [0, maxHeight - 1]], dtype="float32"
-        )
-        M = cv2.getPerspectiveTransform(rect, dst)
-        return cv2.warpPerspective(image, M, (maxWidth, maxHeight))
-
     def _preprocess_plate(self, plate_image: np.ndarray) -> np.ndarray:
-        gray = cv2.cvtColor(plate_image, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours:
-            return plate_image
-        contours = sorted(contours, key=cv2.contourArea, reverse=True)
-        for contour in contours:
-            peri = cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
-            if len(approx) == 4:
-                return self._four_point_transform(plate_image, approx.reshape(4, 2))
-        return plate_image
+        return self.plate_corrector.correct(plate_image)
 
     def process_frame(self, frame: np.ndarray, detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         plate_inputs: List[np.ndarray] = []
