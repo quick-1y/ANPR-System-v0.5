@@ -24,14 +24,16 @@ class BestShotCandidate:
     frame: np.ndarray
     detection_confidence: float
     direction: str
+    timestamp: float
 
 
 class BestShotCollector:
     """Собирает лучшие кадры по треку на основе качества."""
 
-    def __init__(self, max_shots: int, stale_seconds: float) -> None:
+    def __init__(self, max_shots: int, stale_seconds: float, min_score: float) -> None:
         self.max_shots = max(1, max_shots)
         self.stale_seconds = max(0.1, stale_seconds)
+        self.min_score = max(0.0, min_score)
         self._candidates: Dict[int, List[BestShotCandidate]] = {}
         self._last_seen: Dict[int, float] = {}
 
@@ -39,6 +41,8 @@ class BestShotCollector:
         self._last_seen[track_id] = now
 
     def should_store(self, track_id: int, score: float) -> bool:
+        if score < self.min_score:
+            return False
         bucket = self._candidates.get(track_id, [])
         if len(bucket) < self.max_shots:
             return True
@@ -47,7 +51,7 @@ class BestShotCollector:
     def add_candidate(self, track_id: int, candidate: BestShotCandidate) -> None:
         bucket = self._candidates.setdefault(track_id, [])
         bucket.append(candidate)
-        bucket.sort(key=lambda item: item.score, reverse=True)
+        bucket.sort(key=lambda item: (item.score, item.timestamp), reverse=True)
         if len(bucket) > self.max_shots:
             bucket.pop()
 
@@ -190,7 +194,11 @@ class ANPRPipeline:
     ) -> None:
         self.recognizer = recognizer
         self.best_shots = max(1, best_shots)
-        self._bestshot_collector = BestShotCollector(self.best_shots, track_stale_seconds)
+        self._bestshot_collector = BestShotCollector(
+            self.best_shots,
+            track_stale_seconds,
+            min_score=0.35,
+        )
         self._completed_tracks: Dict[int, str] = {}
         self.cooldown_seconds = max(0, cooldown_seconds)
         self.min_confidence = max(0.0, min(1.0, min_confidence))
@@ -249,21 +257,28 @@ class ANPRPipeline:
                 return self._four_point_transform(plate_image, approx.reshape(4, 2))
         return plate_image
 
-    def _score_quality(self, roi: np.ndarray, detection_confidence: float, frame_shape: tuple[int, int, int]) -> float:
-        if roi.size == 0:
+    def _score_quality(
+        self,
+        plate_image: np.ndarray,
+        bbox: list[int],
+        detection_confidence: float,
+        frame_shape: tuple[int, int, int],
+    ) -> float:
+        if plate_image.size == 0:
             return 0.0
 
-        height, width = roi.shape[:2]
+        height, width = plate_image.shape[:2]
         frame_area = float(frame_shape[0] * frame_shape[1]) if frame_shape else 1.0
-        area_ratio = (width * height) / max(frame_area, 1.0)
-        size_target = 0.04
+        bbox_area = max(1.0, float((bbox[2] - bbox[0]) * (bbox[3] - bbox[1])))
+        area_ratio = bbox_area / max(frame_area, 1.0)
+        size_target = 0.03
         size_score = min(1.0, area_ratio / size_target) if size_target > 0 else 0.0
 
         aspect_ratio = width / max(height, 1)
         expected_ratio = 4.0
         aspect_score = max(0.0, 1.0 - abs(aspect_ratio - expected_ratio) / expected_ratio)
 
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(plate_image, cv2.COLOR_BGR2GRAY)
         focus_measure = float(cv2.Laplacian(gray, cv2.CV_64F).var())
         sharpness_score = min(1.0, focus_measure / 150.0)
 
@@ -274,25 +289,30 @@ class ANPRPipeline:
         detection_score = max(0.0, min(1.0, detection_confidence))
 
         return (
-            0.35 * detection_score
+            0.3 * detection_score
             + 0.25 * sharpness_score
             + 0.2 * size_score
-            + 0.1 * aspect_score
+            + 0.15 * aspect_score
             + 0.1 * brightness_score
         )
 
-    def _aggregate_text(self, results: list[tuple[str, float]]) -> tuple[str, float]:
-        filtered = [(text, max(0.0, conf)) for text, conf in results if text]
+    def _aggregate_text(self, results: list[tuple[str, float, float]]) -> tuple[str, float]:
+        filtered = [
+            (text, max(0.0, conf), max(0.0, quality))
+            for text, conf, quality in results
+            if text
+        ]
         if not filtered:
             return "", 0.0
 
         weights: Dict[str, float] = {}
         counts: Counter[str] = Counter()
         total_weight = 0.0
-        for entry_text, entry_confidence in filtered:
-            weights[entry_text] = weights.get(entry_text, 0.0) + entry_confidence
+        for entry_text, entry_confidence, entry_quality in filtered:
+            weight = entry_confidence * entry_quality
+            weights[entry_text] = weights.get(entry_text, 0.0) + weight
             counts[entry_text] += 1
-            total_weight += entry_confidence
+            total_weight += weight
 
         if not weights or total_weight <= 0:
             return "", 0.0
@@ -305,7 +325,7 @@ class ANPRPipeline:
             return "", 0.0
 
         average_confidence = sum(
-            conf for text, conf in filtered if text == consensus
+            conf for text, conf, _quality in filtered if text == consensus
         ) / max(1, counts[consensus])
         return consensus, average_confidence
 
@@ -340,12 +360,17 @@ class ANPRPipeline:
             if track_id_int in self._completed_tracks:
                 continue
 
-            quality_score = self._score_quality(roi, detection_confidence, frame.shape)
-            if not self._bestshot_collector.should_store(track_id_int, quality_score):
-                continue
-
             processed_plate = self._preprocess_plate(roi)
             if processed_plate.size == 0:
+                continue
+
+            quality_score = self._score_quality(
+                processed_plate,
+                [int(x1), int(y1), int(x2), int(y2)],
+                detection_confidence,
+                frame.shape,
+            )
+            if not self._bestshot_collector.should_store(track_id_int, quality_score):
                 continue
 
             candidate = BestShotCandidate(
@@ -355,6 +380,7 @@ class ANPRPipeline:
                 frame=frame.copy(),
                 detection_confidence=detection_confidence,
                 direction=str(detection.get("direction") or TrackDirectionEstimator.UNKNOWN),
+                timestamp=now,
             )
             self._bestshot_collector.add_candidate(track_id_int, candidate)
 
@@ -408,10 +434,22 @@ class ANPRPipeline:
                 track_results.setdefault(track_id, []).append((text, confidence, candidate))
 
             for track_id, items in track_results.items():
-                consensus, avg_conf = self._aggregate_text(
-                    [(text, confidence) for text, confidence, _ in items if confidence >= self.min_confidence]
+                scored_items = [
+                    (text, confidence, candidate.score)
+                    for text, confidence, candidate in items
+                    if confidence >= self.min_confidence
+                ]
+                consensus, avg_conf = self._aggregate_text(scored_items)
+                candidates_by_text = [
+                    candidate
+                    for text, confidence, candidate in items
+                    if text == consensus and confidence >= self.min_confidence
+                ]
+                best_candidate = (
+                    max(candidates_by_text, key=lambda candidate: candidate.score)
+                    if candidates_by_text
+                    else max(items, key=lambda item: item[2].score)[2]
                 )
-                best_candidate = max(items, key=lambda item: item[2].score)[2]
 
                 if not consensus:
                     continue
