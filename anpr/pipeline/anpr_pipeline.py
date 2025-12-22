@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import time
 from collections import Counter, deque
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -23,9 +24,9 @@ class TrackAggregator:
         self.track_texts: Dict[int, List[tuple[str, float]]] = {}
         self.last_emitted: Dict[int, str] = {}
 
-    def add_result(self, track_id: int, text: str, confidence: float) -> str:
+    def add_result(self, track_id: int, text: str, confidence: float) -> Tuple[str, float]:
         if not text:
-            return ""
+            return "", 0.0
 
         bucket = self.track_texts.setdefault(track_id, [])
         bucket.append((text, max(0.0, float(confidence))))
@@ -41,7 +42,7 @@ class TrackAggregator:
             total_weight += entry_confidence
 
         if not weights or total_weight <= 0:
-            return ""
+            return "", 0.0
 
         consensus = max(weights, key=lambda value: (weights[value], counts[value]))
         consensus_weight = weights[consensus]
@@ -50,10 +51,11 @@ class TrackAggregator:
         has_weighted_majority = consensus_weight >= total_weight * 0.5
         if has_quorum and self.last_emitted.get(track_id) != consensus:
             if not has_weighted_majority:
-                return ""
+                return "", 0.0
             self.last_emitted[track_id] = consensus
-            return consensus
-        return ""
+            average_confidence = weights[consensus] / max(1, counts[consensus])
+            return consensus, average_confidence
+        return "", 0.0
 
     def clear_last(self, track_id: int) -> None:
         self.last_emitted.pop(track_id, None)
@@ -162,6 +164,108 @@ class TrackDirectionEstimator:
         return {"direction": direction}
 
 
+@dataclass
+class BestShotCandidate:
+    candidate_id: int
+    score: float
+    image: np.ndarray
+
+
+class TrackBestShotSelector:
+    """Отбирает лучшие кадры по качеству для OCR."""
+
+    def __init__(
+        self,
+        best_shots: int,
+        min_detection_confidence: float = 0.8,
+        min_quality_score: float = 0.4,
+        max_pool_multiplier: int = 3,
+        stale_frames: int = 45,
+    ) -> None:
+        self.best_shots = max(1, best_shots)
+        self.min_detection_confidence = max(0.0, min(1.0, min_detection_confidence))
+        self.min_quality_score = max(0.0, min(1.0, min_quality_score))
+        self.max_pool_size = max(self.best_shots, self.best_shots * max(1, max_pool_multiplier))
+        self.stale_frames = max(1, stale_frames)
+        self._candidates: Dict[int, List[BestShotCandidate]] = {}
+        self._last_sent: Dict[int, Tuple[int, ...]] = {}
+        self._last_seen_frame: Dict[int, int] = {}
+        self._candidate_counter = 0
+
+    def _sharpness_score(self, gray: np.ndarray) -> float:
+        variance = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        return min(variance / 800.0, 1.0)
+
+    def _exposure_score(self, gray: np.ndarray) -> float:
+        mean = float(gray.mean())
+        return max(0.0, 1.0 - abs(mean - 127.5) / 127.5)
+
+    def _area_score(self, bbox: list[int], frame_shape: Tuple[int, int, int]) -> float:
+        frame_area = float(frame_shape[0] * frame_shape[1])
+        bbox_area = float(max(1, bbox[2] - bbox[0]) * max(1, bbox[3] - bbox[1]))
+        ratio = bbox_area / max(frame_area, 1.0)
+        return min(ratio / 0.05, 1.0)
+
+    def _aspect_score(self, bbox: list[int]) -> float:
+        width = float(max(1, bbox[2] - bbox[0]))
+        height = float(max(1, bbox[3] - bbox[1]))
+        ratio = width / height
+        ideal = 4.0
+        deviation = abs(ratio - ideal) / ideal
+        return max(0.0, 1.0 - min(deviation, 1.0))
+
+    def score(self, roi: np.ndarray, bbox: list[int], frame_shape: Tuple[int, int, int], detection_conf: float) -> float:
+        if detection_conf < self.min_detection_confidence or roi.size == 0:
+            return 0.0
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        sharpness = self._sharpness_score(gray)
+        exposure = self._exposure_score(gray)
+        area = self._area_score(bbox, frame_shape)
+        aspect = self._aspect_score(bbox)
+        quality = (
+            detection_conf * 0.4
+            + sharpness * 0.25
+            + exposure * 0.2
+            + area * 0.1
+            + aspect * 0.05
+        )
+        return quality if quality >= self.min_quality_score else 0.0
+
+    def add_candidate(self, track_id: int, image: np.ndarray, score: float, frame_index: int) -> None:
+        if score <= 0.0 or image.size == 0:
+            return
+        self._candidate_counter += 1
+        candidate = BestShotCandidate(self._candidate_counter, float(score), image)
+        bucket = self._candidates.setdefault(track_id, [])
+        bucket.append(candidate)
+        bucket.sort(key=lambda item: item.score, reverse=True)
+        if len(bucket) > self.max_pool_size:
+            del bucket[self.max_pool_size :]
+        self._last_seen_frame[track_id] = frame_index
+
+    def ready_shots(self, track_id: int) -> List[BestShotCandidate]:
+        bucket = self._candidates.get(track_id, [])
+        if len(bucket) < self.best_shots:
+            return []
+        selected = bucket[: self.best_shots]
+        selected_ids = tuple(item.candidate_id for item in selected)
+        if self._last_sent.get(track_id) == selected_ids:
+            return []
+        self._last_sent[track_id] = selected_ids
+        return selected
+
+    def cleanup(self, frame_index: int) -> None:
+        stale_ids = [
+            track_id
+            for track_id, last_seen in self._last_seen_frame.items()
+            if frame_index - last_seen > self.stale_frames
+        ]
+        for track_id in stale_ids:
+            self._candidates.pop(track_id, None)
+            self._last_sent.pop(track_id, None)
+            self._last_seen_frame.pop(track_id, None)
+
+
 class ANPRPipeline:
     """Основной класс распознавания."""
 
@@ -176,11 +280,13 @@ class ANPRPipeline:
     ) -> None:
         self.recognizer = recognizer
         self.aggregator = TrackAggregator(best_shots)
+        self.best_shot_selector = TrackBestShotSelector(best_shots)
         self.cooldown_seconds = max(0, cooldown_seconds)
         self.min_confidence = max(0.0, min(1.0, min_confidence))
         self._last_seen: Dict[str, float] = {}
         self.postprocessor = postprocessor
         self.direction_estimator = TrackDirectionEstimator.from_config(direction_config or {})
+        self._frame_index = 0
 
     def _on_cooldown(self, plate: str) -> bool:
         last_seen = self._last_seen.get(plate)
@@ -233,9 +339,34 @@ class ANPRPipeline:
                 return self._four_point_transform(plate_image, approx.reshape(4, 2))
         return plate_image
 
+    def _finalize_detection(self, detection: Dict[str, Any]) -> None:
+        if self.postprocessor and detection.get("text"):
+            processed = self.postprocessor.process(detection["text"])
+            detection["original_text"] = detection.get("text")
+            if processed.is_valid:
+                detection["text"] = processed.plate
+            elif processed.plate:
+                detection["text"] = processed.plate or detection.get("text")
+            else:
+                detection["text"] = ""
+            detection["country"] = processed.country
+            detection["format"] = processed.format_name
+            detection["validated"] = processed.is_valid
+            if not detection["text"] and "track_id" in detection:
+                self.aggregator.clear_last(detection["track_id"])
+
+        if self.cooldown_seconds > 0 and detection.get("text"):
+            if self._on_cooldown(detection["text"]):
+                detection["text"] = ""
+            else:
+                self._touch_plate(detection["text"])
+
     def process_frame(self, frame: np.ndarray, detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        self._frame_index += 1
         plate_inputs: List[np.ndarray] = []
-        detection_indices: List[int] = []
+        ocr_targets: List[Dict[str, int]] = []
+        track_detection_index: Dict[int, int] = {}
+        track_ids_seen: set[int] = set()
 
         for idx, detection in enumerate(detections):
             if self.direction_estimator and detection.get("track_id") is not None:
@@ -249,47 +380,63 @@ class ANPRPipeline:
 
             if roi.size > 0:
                 processed_plate = self._preprocess_plate(roi)
+                if processed_plate.size <= 0:
+                    continue
 
-                if processed_plate.size > 0:
+                track_id = detection.get("track_id")
+                if track_id is None:
                     plate_inputs.append(processed_plate)
-                    detection_indices.append(idx)
+                    ocr_targets.append({"type": "single", "index": idx})
+                else:
+                    detection_confidence = float(detection.get("confidence", 0.0))
+                    score = self.best_shot_selector.score(roi, detection["bbox"], frame.shape, detection_confidence)
+                    if score > 0.0:
+                        self.best_shot_selector.add_candidate(track_id, processed_plate, score, self._frame_index)
+                    track_detection_index[track_id] = idx
+                    track_ids_seen.add(track_id)
+
+        for track_id in track_ids_seen:
+            for shot in self.best_shot_selector.ready_shots(track_id):
+                plate_inputs.append(shot.image)
+                ocr_targets.append({"type": "track", "track_id": track_id})
+
+        if not plate_inputs:
+            self.best_shot_selector.cleanup(self._frame_index)
+            return detections
 
         batch_results = self.recognizer.recognize_batch(plate_inputs)
+        track_results: Dict[int, List[Tuple[str, float]]] = {}
 
-        for detection_idx, (current_text, confidence) in zip(detection_indices, batch_results):
-            detection = detections[detection_idx]
-
-            if confidence < self.min_confidence:
-                detection["text"] = "Нечитаемо"
-                detection["unreadable"] = True
-                detection["confidence"] = confidence
-                continue
-
-            if "track_id" in detection:
-                detection["text"] = self.aggregator.add_result(detection["track_id"], current_text, confidence)
-            else:
+        for target, (current_text, confidence) in zip(ocr_targets, batch_results):
+            if target["type"] == "single":
+                detection = detections[target["index"]]
+                if confidence < self.min_confidence:
+                    detection["text"] = "Нечитаемо"
+                    detection["unreadable"] = True
+                    detection["confidence"] = confidence
+                    continue
                 detection["text"] = current_text
+                detection["confidence"] = confidence
+                self._finalize_detection(detection)
+            else:
+                track_id = target["track_id"]
+                if confidence < self.min_confidence or not current_text:
+                    continue
+                track_results.setdefault(track_id, []).append((current_text, confidence))
 
-            detection["confidence"] = confidence
-
-            if self.postprocessor and detection.get("text"):
-                processed = self.postprocessor.process(detection["text"])
-                detection["original_text"] = detection.get("text")
-                if processed.is_valid:
-                    detection["text"] = processed.plate
-                elif processed.plate:
-                    detection["text"] = processed.plate or detection.get("text")
-                else:
-                    detection["text"] = ""
-                detection["country"] = processed.country
-                detection["format"] = processed.format_name
-                detection["validated"] = processed.is_valid
-                if not detection["text"] and "track_id" in detection:
-                    self.aggregator.clear_last(detection["track_id"])
-
-            if self.cooldown_seconds > 0 and detection.get("text"):
-                if self._on_cooldown(detection["text"]):
-                    detection["text"] = ""
-                else:
-                    self._touch_plate(detection["text"])
+        for track_id, results in track_results.items():
+            consensus_text = ""
+            consensus_confidence = 0.0
+            for text, confidence in results:
+                consensus_text, consensus_confidence = self.aggregator.add_result(track_id, text, confidence)
+            if not consensus_text:
+                continue
+            detection_idx = track_detection_index.get(track_id)
+            if detection_idx is None:
+                continue
+            detection = detections[detection_idx]
+            detection["text"] = consensus_text
+            detection["confidence"] = consensus_confidence
+            self._finalize_detection(detection)
+        self.best_shot_selector.cleanup(self._frame_index)
         return detections
