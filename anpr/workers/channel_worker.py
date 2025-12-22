@@ -609,8 +609,9 @@ class ChannelWorker(QtCore.QThread):
                     continue
                 try:
                     shm.close()
-                    shm.unlink()
-                except FileNotFoundError:
+                    if os.name != "nt":
+                        shm.unlink()
+                except (FileNotFoundError, PermissionError):
                     continue
                 except Exception as exc:
                     logger.debug("Ошибка освобождения shared memory: %s", exc)
