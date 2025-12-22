@@ -474,9 +474,16 @@ class SettingsManager:
 
     def save_channels(self, channels: List[Dict[str, Any]]) -> None:
         with self._file_lock:
-            self.settings["channels"] = copy.deepcopy(channels)
-            settings_snapshot = copy.deepcopy(self.settings)
-        self._save(settings_snapshot)
+            self.settings["channels"] = channels.copy()
+            settings_snapshot = {
+                key: (value.copy() if isinstance(value, (dict, list)) else value)
+                for key, value in self.settings.items()
+            }
+        threading.Thread(
+            target=self._write_to_disk,
+            args=(settings_snapshot,),
+            daemon=True,
+        ).start()
 
     def get_grid(self) -> str:
         with self._file_lock:
