@@ -182,6 +182,7 @@ class ANPRPipeline:
         self.postprocessor = postprocessor
         self.direction_estimator = TrackDirectionEstimator.from_config(direction_config or {})
         self.plate_corrector = PlateSkewCorrector()
+        self._track_plate_buffer: Dict[int, List[np.ndarray]] = {}
 
     def _on_cooldown(self, plate: str) -> bool:
         last_seen = self._last_seen.get(plate)
@@ -197,7 +198,9 @@ class ANPRPipeline:
 
     def process_frame(self, frame: np.ndarray, detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         plate_inputs: List[np.ndarray] = []
-        detection_indices: List[int] = []
+        batch_meta: List[Dict[str, Any]] = []
+        ready_tracks: set[int] = set()
+        best_shots = self.aggregator.best_shots
 
         for idx, detection in enumerate(detections):
             if self.direction_estimator and detection.get("track_id") is not None:
@@ -213,45 +216,91 @@ class ANPRPipeline:
                 processed_plate = self._preprocess_plate(roi)
 
                 if processed_plate.size > 0:
-                    plate_inputs.append(processed_plate)
-                    detection_indices.append(idx)
+                    track_id = detection.get("track_id")
+                    if track_id is None:
+                        plate_inputs.append(processed_plate)
+                        batch_meta.append({"detection_idx": idx, "track_id": None, "plate_image": processed_plate})
+                    else:
+                        track_id = int(track_id)
+                        buffer = self._track_plate_buffer.setdefault(track_id, [])
+                        buffer.append(processed_plate)
+                        if len(buffer) > best_shots:
+                            buffer.pop(0)
+                        if len(buffer) >= best_shots and track_id not in ready_tracks:
+                            ready_tracks.add(track_id)
+                            for image in buffer:
+                                plate_inputs.append(image)
+                                batch_meta.append(
+                                    {"detection_idx": idx, "track_id": track_id, "plate_image": image}
+                                )
 
-        batch_results = self.recognizer.recognize_batch(plate_inputs)
+        batch_results = self.recognizer.recognize_batch(plate_inputs) if plate_inputs else []
 
-        for detection_idx, (current_text, confidence) in zip(detection_indices, batch_results):
+        track_confidences: Dict[int, float] = {}
+        track_images: Dict[int, np.ndarray] = {}
+        track_texts: Dict[int, str] = {}
+
+        for meta, (current_text, confidence) in zip(batch_meta, batch_results):
+            detection_idx = meta["detection_idx"]
             detection = detections[detection_idx]
+            track_id = meta["track_id"]
+            plate_image = meta["plate_image"]
 
-            if confidence < self.min_confidence:
-                detection["text"] = "Нечитаемо"
-                detection["unreadable"] = True
+            if track_id is None:
+                if confidence < self.min_confidence:
+                    detection["text"] = "Нечитаемо"
+                    detection["unreadable"] = True
+                    detection["confidence"] = confidence
+                    continue
+
+                detection["text"] = current_text
                 detection["confidence"] = confidence
+                detection["plate_image"] = plate_image
+                self._postprocess_detection(detection)
                 continue
 
-            if "track_id" in detection:
-                detection["text"] = self.aggregator.add_result(detection["track_id"], current_text, confidence)
-            else:
-                detection["text"] = current_text
+            if confidence < self.min_confidence:
+                continue
+            result_text = self.aggregator.add_result(track_id, current_text, confidence)
+            if confidence > track_confidences.get(track_id, 0.0):
+                track_confidences[track_id] = confidence
+                track_images[track_id] = plate_image
+            if result_text:
+                track_texts[track_id] = result_text
+                detection["confidence"] = track_confidences.get(track_id, confidence)
+                detection["plate_image"] = track_images.get(track_id, plate_image)
 
-            detection["confidence"] = confidence
+        for track_id, text in track_texts.items():
+            for detection in detections:
+                if detection.get("track_id") == track_id:
+                    detection["text"] = text
+                    detection["confidence"] = track_confidences.get(track_id, detection.get("confidence", 0.0))
+                    detection["plate_image"] = track_images.get(track_id, detection.get("plate_image"))
+                    self._postprocess_detection(detection)
+                    break
 
-            if self.postprocessor and detection.get("text"):
-                processed = self.postprocessor.process(detection["text"])
-                detection["original_text"] = detection.get("text")
-                if processed.is_valid:
-                    detection["text"] = processed.plate
-                elif processed.plate:
-                    detection["text"] = processed.plate or detection.get("text")
-                else:
-                    detection["text"] = ""
-                detection["country"] = processed.country
-                detection["format"] = processed.format_name
-                detection["validated"] = processed.is_valid
-                if not detection["text"] and "track_id" in detection:
-                    self.aggregator.clear_last(detection["track_id"])
-
-            if self.cooldown_seconds > 0 and detection.get("text"):
-                if self._on_cooldown(detection["text"]):
-                    detection["text"] = ""
-                else:
-                    self._touch_plate(detection["text"])
+        for track_id in ready_tracks:
+            self._track_plate_buffer.pop(track_id, None)
         return detections
+
+    def _postprocess_detection(self, detection: Dict[str, Any]) -> None:
+        if self.postprocessor and detection.get("text"):
+            processed = self.postprocessor.process(detection["text"])
+            detection["original_text"] = detection.get("text")
+            if processed.is_valid:
+                detection["text"] = processed.plate
+            elif processed.plate:
+                detection["text"] = processed.plate or detection.get("text")
+            else:
+                detection["text"] = ""
+            detection["country"] = processed.country
+            detection["format"] = processed.format_name
+            detection["validated"] = processed.is_valid
+            if not detection["text"] and "track_id" in detection:
+                self.aggregator.clear_last(detection["track_id"])
+
+        if self.cooldown_seconds > 0 and detection.get("text"):
+            if self._on_cooldown(detection["text"]):
+                detection["text"] = ""
+            else:
+                self._touch_plate(detection["text"])

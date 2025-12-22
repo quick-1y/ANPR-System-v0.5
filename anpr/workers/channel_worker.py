@@ -842,15 +842,17 @@ class ChannelWorker(QtCore.QThread):
             # Извлекаем область номера для скриншота
             x1, y1, x2, y2 = res.get("bbox", (0, 0, 0, 0))
             plate_crop = frame[y1:y2, x1:x2] if frame is not None else None
+            processed_plate = res.get("plate_image")
+            plate_output = processed_plate if processed_plate is not None else plate_crop
             
             # Сохраняем скриншоты
             frame_path, plate_path = self._build_screenshot_paths(channel_name, event["plate"])
             event["frame_path"] = self._save_bgr_image(frame_path, frame)
-            event["plate_path"] = self._save_bgr_image(plate_path, plate_crop)
+            event["plate_path"] = self._save_bgr_image(plate_path, plate_output)
             
             # Готовим изображения для UI
             event["frame_image"] = self._to_qimage(rgb_frame, is_rgb=True)
-            event["plate_image"] = self._to_qimage(plate_crop) if plate_crop is not None else None
+            event["plate_image"] = self._to_qimage(plate_output) if plate_output is not None else None
             
             # Сохраняем в БД
             event["id"] = await storage.insert_event_async(
