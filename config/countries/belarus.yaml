@@ -25,7 +25,3 @@ stop_words:
 invalid_sequences:
   - "0000"
   - "AAAA"
-language_model:
-  rules: []
-frequency_dictionary:
-  entries: {}
