@@ -2562,20 +2562,6 @@ class MainWindow(QtWidgets.QMainWindow):
         size_group.setLayout(size_layout)
 
         roi_form.addRow("", size_group)
-        frame_group = QtWidgets.QGroupBox("Кадр для настройки")
-        frame_layout = QtWidgets.QHBoxLayout()
-        frame_hint = QtWidgets.QLabel(
-            "Нажмите, чтобы получить свежий кадр с канала для настройки зоны распознавания."
-        )
-        frame_hint.setWordWrap(True)
-        frame_hint.setStyleSheet("color: #9ca3af;")
-        refresh_btn = QtWidgets.QPushButton("Обновить кадр")
-        self._polish_button(refresh_btn, 160)
-        refresh_btn.clicked.connect(self._refresh_preview_frame)
-        frame_layout.addWidget(frame_hint, 1)
-        frame_layout.addWidget(refresh_btn, 0, alignment=QtCore.Qt.AlignRight)
-        frame_group.setLayout(frame_layout)
-        roi_form.addRow("", frame_group)
 
         self.roi_points_table = QtWidgets.QTableWidget()
         self.roi_points_table.setColumnCount(2)
@@ -2613,11 +2599,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
         right_panel.addWidget(tabs)
 
+        refresh_btn = QtWidgets.QPushButton("Обновить кадр")
+        self._polish_button(refresh_btn, 160)
+        refresh_btn.clicked.connect(self._refresh_preview_frame)
         save_btn = QtWidgets.QPushButton("Сохранить канал")
         self._polish_button(save_btn, 200)
         save_btn.clicked.connect(self._save_channel)
         save_btn.setMaximumWidth(220)
-        right_panel.addWidget(save_btn, alignment=QtCore.Qt.AlignLeft)
+        action_row = QtWidgets.QHBoxLayout()
+        action_row.addWidget(save_btn, 0, QtCore.Qt.AlignLeft)
+        action_row.addWidget(refresh_btn, 0, QtCore.Qt.AlignLeft)
+        action_row.addStretch(1)
+        right_panel.addLayout(action_row)
         right_panel.addStretch()
 
         details_layout.addLayout(right_panel, 2)
