@@ -257,41 +257,6 @@ def _config_fingerprint(config: dict) -> str:
     return json.dumps(config, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def _filter_detections_by_size(
-    detections: list[dict], min_size: Dict[str, int] | None, max_size: Dict[str, int] | None
-) -> list[dict]:
-    """Отбрасывает детекции, которые не укладываются в указанные размеры."""
-
-    if not detections:
-        return []
-
-    min_width = int((min_size or {}).get("width", 0) or 0)
-    min_height = int((min_size or {}).get("height", 0) or 0)
-    max_width = int((max_size or {}).get("width", 0) or 0)
-    max_height = int((max_size or {}).get("height", 0) or 0)
-
-    filtered: list[dict] = []
-    for det in detections:
-        bbox = det.get("bbox")
-        if not bbox or len(bbox) != 4:
-            continue
-        width = max(0, int(bbox[2]) - int(bbox[0]))
-        height = max(0, int(bbox[3]) - int(bbox[1]))
-
-        if min_width and width < min_width:
-            continue
-        if min_height and height < min_height:
-            continue
-        if max_width and width > max_width:
-            continue
-        if max_height and height > max_height:
-            continue
-
-        filtered.append(det)
-
-    return filtered
-
-
 def _get_inference_executor() -> ProcessPoolExecutor:
     """Возвращает общий ProcessPoolExecutor для инференса."""
     global _INFERENCE_EXECUTOR
@@ -364,6 +329,8 @@ def _run_inference_task(
             config["min_confidence"],
             config.get("plate_config", {}),
             config.get("direction", {}),
+            config.get("min_plate_size"),
+            config.get("max_plate_size"),
         )
         _run_inference_task._local_cache[key] = (pipeline, detector)
 
@@ -371,9 +338,6 @@ def _run_inference_task(
 
     # Выполняем детекцию и распознавание
     detections = detector.track(roi_frame)
-    detections = _filter_detections_by_size(
-        detections, config.get("min_plate_size"), config.get("max_plate_size")
-    )
     detections = _offset_detections_process(detections, roi_rect)
     results = pipeline.process_frame(frame, detections)
     

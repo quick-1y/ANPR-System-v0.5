@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from ultralytics import YOLO
@@ -17,12 +17,50 @@ logger = get_logger(__name__)
 class YOLODetector:
     """Детектор с безопасным откатом к обычной детекции при ошибках трекера."""
 
-    def __init__(self, model_path: str, device) -> None:
+    def __init__(
+        self,
+        model_path: str,
+        device,
+        min_plate_size: Optional[Dict[str, int]] = None,
+        max_plate_size: Optional[Dict[str, int]] = None,
+    ) -> None:
         self.model = YOLO(model_path)
         self.model.to(device)
         self.device = device
+        self._min_plate_size = min_plate_size or {}
+        self._max_plate_size = max_plate_size or {}
         self._tracking_supported = True
         logger.info("Детектор YOLO успешно загружен (model=%s, device=%s)", model_path, device)
+
+    def _filter_by_size(self, detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not detections:
+            return []
+
+        min_width = int(self._min_plate_size.get("width", 0) or 0)
+        min_height = int(self._min_plate_size.get("height", 0) or 0)
+        max_width = int(self._max_plate_size.get("width", 0) or 0)
+        max_height = int(self._max_plate_size.get("height", 0) or 0)
+
+        filtered: List[Dict[str, Any]] = []
+        for det in detections:
+            bbox = det.get("bbox")
+            if not bbox or len(bbox) != 4:
+                continue
+            width = max(0, int(bbox[2]) - int(bbox[0]))
+            height = max(0, int(bbox[3]) - int(bbox[1]))
+
+            if min_width and width < min_width:
+                continue
+            if min_height and height < min_height:
+                continue
+            if max_width and width > max_width:
+                continue
+            if max_height and height > max_height:
+                continue
+
+            filtered.append(det)
+
+        return filtered
 
     def detect(self, frame: np.ndarray) -> List[Dict[str, Any]]:
         detections = self.model.predict(frame, verbose=False, device=self.device)
@@ -31,7 +69,7 @@ class YOLODetector:
             x1, y1, x2, y2, conf, _ = det.cpu().numpy()
             if conf >= Config().detection_confidence_threshold:
                 results.append({"bbox": [int(x1), int(y1), int(x2), int(y2)], "confidence": float(conf)})
-        return results
+        return self._filter_by_size(results)
 
     def _track_internal(self, frame: np.ndarray) -> List[Dict[str, Any]]:
         detections = self.model.track(frame, persist=True, verbose=False, device=self.device)
@@ -52,7 +90,7 @@ class YOLODetector:
                         "track_id": track_id,
                     }
                 )
-        return results
+        return self._filter_by_size(results)
 
     def track(self, frame: np.ndarray) -> List[Dict[str, Any]]:
         if not self._tracking_supported:
@@ -68,4 +106,3 @@ class YOLODetector:
             self._tracking_supported = False
             logger.exception("Отключаем трекинг YOLO из-за ошибки, переключаемся на detect")
             return self.detect(frame)
-
