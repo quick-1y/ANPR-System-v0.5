@@ -422,6 +422,7 @@ class ChannelWorker(QtCore.QThread):
         self.screenshot_dir = screenshot_dir
         self._running = True
         self.plate_config = plate_config or {}
+        self._config_lock = threading.Lock()
 
         motion_config = MotionDetectorConfig(
             threshold=self.config.motion_threshold,
@@ -447,6 +448,30 @@ class ChannelWorker(QtCore.QThread):
         self._use_shared_memory = bool(inference_conf.get("shared_memory", True))
         self._roi_mask_cache: Optional[np.ndarray] = None
         self._roi_mask_key: Optional[tuple] = None
+
+    def update_runtime_config(
+        self,
+        channel_conf: Dict[str, Any],
+        reconnect_conf: Optional[Dict[str, Any]] = None,
+        plate_config: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Обновляет параметры канала без перезапуска потока."""
+        new_config = ChannelRuntimeConfig.from_dict(channel_conf)
+        new_reconnect = ReconnectPolicy.from_dict(reconnect_conf)
+        motion_config = MotionDetectorConfig(
+            threshold=new_config.motion_threshold,
+            frame_stride=new_config.motion_frame_stride,
+            activation_frames=new_config.motion_activation_frames,
+            release_frames=new_config.motion_release_frames,
+        )
+        with self._config_lock:
+            self.config = new_config
+            self.reconnect_policy = new_reconnect
+            self.motion_controller = MotionController(new_config.detection_mode, motion_config)
+            self._inference_limiter = InferenceLimiter(new_config.detector_frame_stride)
+            self.plate_config = plate_config or {}
+            self._roi_mask_cache = None
+            self._roi_mask_key = None
 
     def _should_continue(self) -> bool:
         return self._running and not self.isInterruptionRequested()
@@ -486,28 +511,32 @@ class ChannelWorker(QtCore.QThread):
 
     def _inference_config(self) -> dict:
         """Возвращает конфигурацию для inference."""
-        plate_config = dict(self.plate_config)
+        with self._config_lock:
+            plate_config = dict(self.plate_config)
+            config = self.config
         if plate_config.get("config_dir"):
             plate_config["config_dir"] = os.path.abspath(str(plate_config.get("config_dir")))
 
         return {
             "channel_id": self.channel_id,
-            "best_shots": self.config.best_shots,
-            "cooldown_seconds": self.config.cooldown_seconds,
-            "min_confidence": self.config.min_confidence,
+            "best_shots": config.best_shots,
+            "cooldown_seconds": config.cooldown_seconds,
+            "min_confidence": config.min_confidence,
             "plate_config": plate_config,
-            "min_plate_size": self.config.min_plate_size.to_dict(),
-            "max_plate_size": self.config.max_plate_size.to_dict(),
-            "direction": self.config.direction.to_dict(),
+            "min_plate_size": config.min_plate_size.to_dict(),
+            "max_plate_size": config.max_plate_size.to_dict(),
+            "direction": config.direction.to_dict(),
         }
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:
         """Извлекает ROI из кадра с учетом произвольной формы."""
-        polygon = self.config.region.polygon_points(frame.shape)
-        x1, y1, x2, y2 = self.config.region.bounding_rect(frame.shape)
+        with self._config_lock:
+            region = self.config.region
+        polygon = region.polygon_points(frame.shape)
+        x1, y1, x2, y2 = region.bounding_rect(frame.shape)
         roi_frame = frame[y1:y2, x1:x2]
 
-        if not self.config.region.is_full_frame() and roi_frame.size:
+        if not region.is_full_frame() and roi_frame.size:
             local_polygon = np.array([[(x - x1), (y - y1)] for x, y in polygon], dtype=np.int32)
             cache_key = (frame.shape, tuple(polygon))
             if self._roi_mask_key != cache_key or self._roi_mask_cache is None:
@@ -593,7 +622,9 @@ class ChannelWorker(QtCore.QThread):
         cv2.putText(frame, text, (x + 4, y - 2), font, scale, (0, 255, 0), thickness)
 
     def _update_track_history(self, detections: list[dict]) -> None:
-        if not self.config.debug.show_direction_tracks:
+        with self._config_lock:
+            debug_config = self.config.debug
+        if not debug_config.show_direction_tracks:
             return
 
         now = time.monotonic()
@@ -617,27 +648,29 @@ class ChannelWorker(QtCore.QThread):
                 self._track_directions[int(track_id)] = str(direction)
 
     def _draw_debug_info(self, frame: cv2.Mat) -> None:
+        with self._config_lock:
+            debug_config = self.config.debug
         if not (
-            self.config.debug.show_detection_boxes
-            or self.config.debug.show_ocr_text
-            or self.config.debug.show_direction_tracks
+            debug_config.show_detection_boxes
+            or debug_config.show_ocr_text
+            or debug_config.show_direction_tracks
         ):
             return
 
         detections = self._last_debug.get("detections", [])
         results = self._last_debug.get("results", [])
 
-        if self.config.debug.show_detection_boxes:
+        if debug_config.show_detection_boxes:
             for det in detections:
                 bbox = det.get("bbox")
                 if not bbox or len(bbox) != 4:
                     continue
                 cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 200, 0), 2)
-                if self.config.debug.show_ocr_text:
+                if debug_config.show_ocr_text:
                     label = det.get("text") or ""
                     self._draw_label(frame, label, (bbox[0], bbox[1] - 6))
 
-        if self.config.debug.show_ocr_text:
+        if debug_config.show_ocr_text:
             for res in results:
                 text = res.get("text")
                 bbox = res.get("bbox") or res.get("plate_bbox")
@@ -645,7 +678,7 @@ class ChannelWorker(QtCore.QThread):
                     continue
                 self._draw_label(frame, str(text), (bbox[0], bbox[1] - 6))
 
-        if self.config.debug.show_direction_tracks:
+        if debug_config.show_direction_tracks:
             self._draw_direction_tracks(frame)
 
     def _draw_direction_tracks(self, frame: cv2.Mat) -> None:
@@ -757,13 +790,14 @@ class ChannelWorker(QtCore.QThread):
         storage = AsyncEventDatabase(self.db_path)
         event_writer = EventWriter(storage, self.screenshot_dir)
 
-        source = self.config.source
-        channel_name = self.config.name
+        with self._config_lock:
+            source = self.config.source
+            channel_name = self.config.name
         
         # Подключаемся к источнику
-        capture = await self._open_with_retries(source, self.config.name)
+        capture = await self._open_with_retries(source, channel_name)
         if capture is None:
-            logger.warning("Не удалось открыть источник %s для канала %s", source, self.config)
+            logger.warning("Не удалось открыть источник %s для канала %s", source, channel_name)
             return
         
         logger.info("Канал %s запущен (источник=%s)", channel_name, source)
@@ -773,12 +807,18 @@ class ChannelWorker(QtCore.QThread):
         
         while self._should_continue():
             now = time.monotonic()
+            with self._config_lock:
+                channel_name = self.config.name
+                source = self.config.source
+                reconnect_policy = self.reconnect_policy
+                motion_controller = self.motion_controller
+                inference_limiter = self._inference_limiter
             
             # Плановое переподключение
             if (
-                self.reconnect_policy.periodic_enabled
-                and self.reconnect_policy.periodic_reconnect_seconds > 0
-                and now - last_reconnect_ts >= self.reconnect_policy.periodic_reconnect_seconds
+                reconnect_policy.periodic_enabled
+                and reconnect_policy.periodic_reconnect_seconds > 0
+                and now - last_reconnect_ts >= reconnect_policy.periodic_reconnect_seconds
             ):
                 self.status_ready.emit(channel_name, "Плановое переподключение...")
                 capture.release()
@@ -795,12 +835,12 @@ class ChannelWorker(QtCore.QThread):
             
             # Проверка потери сигнала
             if not ret or frame is None:
-                if not self.reconnect_policy.enabled:
+                if not reconnect_policy.enabled:
                     self.status_ready.emit(channel_name, "Поток остановлен")
                     logger.warning("Поток остановлен для канала %s", channel_name)
                     break
 
-                if time.monotonic() - last_frame_ts < self.reconnect_policy.frame_timeout_seconds:
+                if time.monotonic() - last_frame_ts < reconnect_policy.frame_timeout_seconds:
                     await asyncio.sleep(0.05)
                     continue
 
@@ -822,13 +862,13 @@ class ChannelWorker(QtCore.QThread):
             # Обработка кадра
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             roi_frame, roi_rect = self._extract_region(frame)
-            motion_detected, motion_status = self.motion_controller.update(roi_frame)
+            motion_detected, motion_status = motion_controller.update(roi_frame)
             if motion_status:
                 self.status_ready.emit(channel_name, motion_status)
 
             if motion_detected:
                 # Запуск инференса с учетом stride
-                if self._inference_limiter.allow():
+                if inference_limiter.allow():
                     if self._inference_task is None or self._inference_task.done():
                         self._inference_task = asyncio.create_task(
                             self._inference_and_process(
@@ -849,7 +889,9 @@ class ChannelWorker(QtCore.QThread):
 
             # Отправка кадра в UI
             display_frame = rgb_frame
-            if self.config.debug.show_detection_boxes or self.config.debug.show_ocr_text:
+            with self._config_lock:
+                debug_config = self.config.debug
+            if debug_config.show_detection_boxes or debug_config.show_ocr_text:
                 display_frame = rgb_frame.copy()
                 self._draw_debug_info(display_frame)
 
@@ -878,8 +920,10 @@ class ChannelWorker(QtCore.QThread):
         try:
             asyncio.run(self._loop())
         except Exception as exc:
-            self.status_ready.emit(self.config.name, f"Ошибка: {exc}")
-            logger.exception("Канал %s аварийно остановлен", self.config.name)
+            with self._config_lock:
+                channel_name = self.config.name
+            self.status_ready.emit(channel_name, f"Ошибка: {exc}")
+            logger.exception("Канал %s аварийно остановлен", channel_name)
 
     def stop(self) -> None:
         """Остановка потока."""
