@@ -1551,6 +1551,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pending_channel_restarts.discard(channel_id)
         self._start_channel_worker(channel_conf)
 
+    def _stop_channel_worker(self, worker: ChannelWorker) -> None:
+        worker.stop()
+        worker.finished.connect(lambda w=worker: self._finalize_channel_stop(w))
+        if worker.isFinished():
+            self._finalize_channel_stop(worker)
+
+    def _finalize_channel_stop(self, worker: ChannelWorker) -> None:
+        try:
+            worker.frame_ready.disconnect()
+            worker.event_ready.disconnect()
+            worker.status_ready.disconnect()
+            worker.metrics_ready.disconnect()
+        except Exception:
+            pass
+        if worker in self.channel_workers:
+            self.channel_workers.remove(worker)
+        worker.deleteLater()
+
     def _stop_workers(self) -> None:
         for worker in self.channel_workers:
             worker.stop()
@@ -2867,6 +2885,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if 0 <= index < len(channels):
             try:
                 channel_id = channels[index].get("id")
+                previous_name = channels[index].get("name", "Канал")
                 logger.info("Сохранение настроек канала: id=%s", channel_id)
                 channels[index]["name"] = self.channel_name_input.text()
                 channels[index]["source"] = self.channel_source_input.text()
@@ -2901,7 +2920,21 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
                 self._reload_channels_list(index)
                 self._draw_grid()
-                self._restart_channel_worker(channels[index])
+                existing = self._find_channel_worker(int(channel_id or 0))
+                new_source = str(channels[index].get("source", "")).strip()
+                if existing:
+                    if not new_source:
+                        self._stop_channel_worker(existing)
+                    else:
+                        if previous_name != channels[index].get("name"):
+                            self._latest_frames.pop(previous_name, None)
+                        existing.update_runtime_config(
+                            channels[index],
+                            self.settings.get_reconnect(),
+                            self.settings.get_plate_settings(),
+                        )
+                elif new_source:
+                    self._start_channel_worker(channels[index])
             except Exception as exc:  # noqa: BLE001
                 logger.exception("Не удалось сохранить настройки канала")
                 QtWidgets.QMessageBox.critical(
