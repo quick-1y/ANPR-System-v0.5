@@ -24,6 +24,15 @@
 
 ## 📦 Установка
 
+## ✅ Проверенные версии
+
+Проект проверен со следующими версиями окружения:
+- **CUDA**: 12.1
+- **PyTorch**: 2.8.0
+- **torchvision**: 0.23.0
+- **torchaudio**: 2.8.0
+- **ultralytics**: 8.3.20
+
 ### Предварительные требования
 - Python 3.13
 - pip (менеджер пакетов Python)
@@ -33,21 +42,18 @@
 ```bash
 # Клонирование репозитория
 git clone <repository-url>
-cd ANPR-System-v0.3
+cd ANPR-System-v0.5
 
-# Установка базовых зависимостей
-pip install -r requirements.txt
-
-# Установка PyTorch (выберите вариант под ваше железо)
+# Установка зависимостей (выберите вариант под ваше железо)
 
 # Для CPU:
-pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
 
 # Для CUDA 11.8:
-pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu118
+pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu118 --extra-index-url https://pypi.org/simple
 
 # Для CUDA 12.1:
-pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu121 --extra-index-url https://pypi.org/simple
 ```
 
 ## 🎮 Быстрый старт
