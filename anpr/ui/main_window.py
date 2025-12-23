@@ -2110,43 +2110,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.settings_nav.addItem("Каналы")
         content_layout.addWidget(self.settings_nav)
 
-        self.settings_summary_frame = QtWidgets.QFrame()
-        self.settings_summary_frame.setStyleSheet(
-            f"QFrame {{ background-color: {self.PANEL_COLOR}; border: none; border-radius: 12px; }}"
-        )
-        summary_layout = QtWidgets.QVBoxLayout(self.settings_summary_frame)
-        summary_layout.setContentsMargins(12, 12, 12, 12)
-        summary_layout.setSpacing(8)
-
-        summary_title = QtWidgets.QLabel("Ключевые параметры")
-        summary_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #e5e7eb;")
-        summary_layout.addWidget(summary_title)
-
-        summary_form = QtWidgets.QFormLayout()
-        summary_form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        summary_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        summary_form.setHorizontalSpacing(10)
-        summary_form.setVerticalSpacing(6)
-        summary_layout.addLayout(summary_form)
-
-        def make_summary_row(label: str) -> QtWidgets.QLabel:
-            title = QtWidgets.QLabel(label)
-            title.setStyleSheet("color: #9ca3af;")
-            value = QtWidgets.QLabel("-")
-            value.setWordWrap(True)
-            summary_form.addRow(title, value)
-            return value
-
-        self.settings_summary_labels = {
-            "db_path": make_summary_row("БД:"),
-            "screenshot_dir": make_summary_row("Скриншоты:"),
-            "channels": make_summary_row("Каналы:"),
-            "plates": make_summary_row("Страны:"),
-            "device": make_summary_row("Устройство:"),
-        }
-        summary_layout.addStretch(1)
-        content_layout.addWidget(self.settings_summary_frame)
-
         self.settings_stack = QtWidgets.QStackedWidget()
         self.settings_stack.addWidget(self._build_general_settings_tab())
         self.settings_stack.addWidget(self._build_channel_settings_tab())
@@ -2156,29 +2119,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.settings_nav.currentRowChanged.connect(self.settings_stack.setCurrentIndex)
         self.settings_nav.setCurrentRow(0)
-        self._refresh_settings_summary()
         return widget
-
-    def _refresh_settings_summary(self) -> None:
-        if not hasattr(self, "settings_summary_labels"):
-            return
-        db_path = self.settings.get_db_path()
-        screenshot_dir = self.settings.get_screenshot_dir()
-        channels = self.settings.get_channels()
-        plate_settings = self.settings.get_plate_settings()
-        model_settings = self.settings.get_model_settings()
-        device = str(model_settings.get("device") or "cpu").strip().lower()
-        device_label = "CPU" if device == "cpu" else "CUDA" if device == "cuda" else device.upper()
-        enabled_countries = plate_settings.get("enabled_countries", [])
-        config_dir = plate_settings.get("config_dir", "config/countries")
-
-        self.settings_summary_labels["db_path"].setText(db_path)
-        self.settings_summary_labels["screenshot_dir"].setText(screenshot_dir)
-        self.settings_summary_labels["channels"].setText(str(len(channels)))
-        self.settings_summary_labels["plates"].setText(
-            f"{len(enabled_countries)} • {config_dir}"
-        )
-        self.settings_summary_labels["device"].setText(device_label)
 
     def _build_general_settings_tab(self) -> QtWidgets.QWidget:
         scroll = QtWidgets.QScrollArea()
@@ -2195,13 +2136,6 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
         widget.setStyleSheet(self.FORM_STYLE)
-
-        setup_hint = QtWidgets.QLabel(
-            "1) Укажите БД/скриншоты 2) Выберите устройство 3) Проверьте время"
-        )
-        setup_hint.setStyleSheet("color: #9ca3af;")
-        setup_hint.setWordWrap(True)
-        layout.addWidget(setup_hint)
 
         section_style = f"QFrame {{ background-color: {self.PANEL_COLOR}; border: none; border-radius: 12px; }}"
 
@@ -2411,17 +2345,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_channel_settings_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
+        layout = QtWidgets.QHBoxLayout(widget)
         widget.setStyleSheet(self.GROUP_BOX_STYLE)
-
-        channel_hint = QtWidgets.QLabel(
-            "Добавьте канал → укажите источник → настройте ROI → сохраните"
-        )
-        channel_hint.setStyleSheet("color: #9ca3af;")
-        channel_hint.setWordWrap(True)
-        layout.addWidget(channel_hint)
-
-        content_layout = QtWidgets.QHBoxLayout()
 
         left_panel = QtWidgets.QVBoxLayout()
         left_panel.setSpacing(6)
@@ -2441,7 +2366,7 @@ class MainWindow(QtWidgets.QMainWindow):
         list_buttons.addWidget(add_btn)
         list_buttons.addWidget(remove_btn)
         left_panel.addLayout(list_buttons)
-        content_layout.addLayout(left_panel)
+        layout.addLayout(left_panel)
 
         self.channel_details_container = QtWidgets.QWidget()
         details_layout = QtWidgets.QHBoxLayout(self.channel_details_container)
@@ -2690,8 +2615,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         details_layout.addLayout(right_panel, 2)
 
-        content_layout.addWidget(self.channel_details_container, 1)
-        layout.addLayout(content_layout, 1)
+        layout.addWidget(self.channel_details_container, 1)
 
         self._load_general_settings()
         self._reload_channels_list()
@@ -2909,7 +2833,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.db = EventDatabase(self.settings.get_db_path())
         self._refresh_events_table()
         self._start_channels()
-        self._refresh_settings_summary()
 
     def _populate_device_options(self) -> None:
         self.device_combo.clear()
@@ -3080,7 +3003,6 @@ class MainWindow(QtWidgets.QMainWindow):
                         )
                 elif new_source:
                     self._start_channel_worker(channels[index])
-                self._refresh_settings_summary()
             except Exception as exc:  # noqa: BLE001
                 logger.exception("Не удалось сохранить настройки канала")
                 QtWidgets.QMessageBox.critical(
