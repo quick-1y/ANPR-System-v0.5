@@ -28,3 +28,7 @@ stop_words:
 invalid_sequences:
   - "0000"
   - "IIII"
+language_model:
+  rules: []
+frequency_dictionary:
+  entries: {}
