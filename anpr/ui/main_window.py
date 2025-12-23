@@ -897,6 +897,7 @@ class MainWindow(QtWidgets.QMainWindow):
     FIELD_MIN_WIDTH = 360
     BUTTON_HEIGHT = 36
     LABEL_MIN_WIDTH = 180
+    ACTION_BUTTON_WIDTH = 180
 
     PRIMARY_HOLLOW_BUTTON = (
         "QPushButton { background-color: transparent; color: #ffffff; border: 1px solid #ffffff; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }"
@@ -1110,7 +1111,8 @@ class MainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QHBoxLayout(widget)
         layout.setSpacing(10)
 
-        left_column = QtWidgets.QVBoxLayout()
+        left_widget = QtWidgets.QWidget()
+        left_column = QtWidgets.QVBoxLayout(left_widget)
         controls = QtWidgets.QHBoxLayout()
         controls.setSpacing(8)
 
@@ -1140,6 +1142,11 @@ class MainWindow(QtWidgets.QMainWindow):
         chooser.addWidget(self.grid_combo)
 
         controls.addLayout(chooser)
+        toggle_details_btn = QtWidgets.QPushButton("Скрыть детали")
+        self._polish_button(toggle_details_btn, self.ACTION_BUTTON_WIDTH)
+        toggle_details_btn.setCheckable(True)
+        toggle_details_btn.setChecked(False)
+        controls.addWidget(toggle_details_btn)
         controls.addStretch()
         left_column.addLayout(controls)
 
@@ -1152,9 +1159,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.grid_layout.setContentsMargins(0, 0, 0, 0)
         left_column.addWidget(self.grid_widget, stretch=4)
 
-        layout.addLayout(left_column, stretch=3)
-
-        right_column = QtWidgets.QVBoxLayout()
+        right_widget = QtWidgets.QWidget()
+        right_column = QtWidgets.QVBoxLayout(right_widget)
         details_group = QtWidgets.QGroupBox("Информация о событии")
         details_group.setStyleSheet(self.GROUP_BOX_STYLE)
         details_layout = QtWidgets.QVBoxLayout(details_group)
@@ -1179,7 +1185,27 @@ class MainWindow(QtWidgets.QMainWindow):
         events_layout.addWidget(self.events_table)
         right_column.addWidget(events_group, stretch=1)
 
-        layout.addLayout(right_column, stretch=2)
+        splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        splitter.addWidget(left_widget)
+        splitter.addWidget(right_widget)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
+        splitter.setSizes([900, 600])
+
+        def toggle_details_panel(checked: bool) -> None:
+            if checked:
+                self._last_details_sizes = splitter.sizes()
+                right_widget.hide()
+                splitter.setSizes([1, 0])
+                toggle_details_btn.setText("Показать детали")
+            else:
+                right_widget.show()
+                splitter.setSizes(getattr(self, "_last_details_sizes", [900, 600]))
+                toggle_details_btn.setText("Скрыть детали")
+
+        toggle_details_btn.toggled.connect(toggle_details_panel)
+
+        layout.addWidget(splitter, 1)
 
         self._draw_grid()
         return widget
@@ -2547,7 +2573,10 @@ class MainWindow(QtWidgets.QMainWindow):
         tabs.setTabText(3, "Зона распознавания")
 
         size_group = QtWidgets.QGroupBox("Фильтр по размеру рамки")
+        size_group.setStyleSheet(self.GROUP_BOX_STYLE)
         size_layout = QtWidgets.QGridLayout()
+        size_layout.setHorizontalSpacing(14)
+        size_layout.setVerticalSpacing(10)
 
         self.min_plate_width_input = QtWidgets.QSpinBox()
         self.min_plate_width_input.setRange(0, 5000)
@@ -2585,13 +2614,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.max_plate_height_input.valueChanged.connect(self._sync_plate_rects_from_inputs)
 
-        size_layout.addWidget(QtWidgets.QLabel("Мин. ширина (px):"), 0, 0)
+        min_width_label = QtWidgets.QLabel("Мин. ширина (px):")
+        min_height_label = QtWidgets.QLabel("Мин. высота (px):")
+        max_width_label = QtWidgets.QLabel("Макс. ширина (px):")
+        max_height_label = QtWidgets.QLabel("Макс. высота (px):")
+        for label in (min_width_label, min_height_label, max_width_label, max_height_label):
+            self._ensure_label_width(label)
+
+        size_layout.addWidget(min_width_label, 0, 0)
         size_layout.addWidget(self.min_plate_width_input, 0, 1)
-        size_layout.addWidget(QtWidgets.QLabel("Мин. высота (px):"), 0, 2)
+        size_layout.addWidget(min_height_label, 0, 2)
         size_layout.addWidget(self.min_plate_height_input, 0, 3)
-        size_layout.addWidget(QtWidgets.QLabel("Макс. ширина (px):"), 1, 0)
+        size_layout.addWidget(max_width_label, 1, 0)
         size_layout.addWidget(self.max_plate_width_input, 1, 1)
-        size_layout.addWidget(QtWidgets.QLabel("Макс. высота (px):"), 1, 2)
+        size_layout.addWidget(max_height_label, 1, 2)
         size_layout.addWidget(self.max_plate_height_input, 1, 3)
 
         self.plate_size_hint = QtWidgets.QLabel(
@@ -2602,6 +2638,12 @@ class MainWindow(QtWidgets.QMainWindow):
         size_group.setLayout(size_layout)
 
         roi_form.addRow("", size_group)
+
+        roi_group = QtWidgets.QGroupBox("Точки ROI")
+        roi_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        roi_layout = QtWidgets.QVBoxLayout(roi_group)
+        roi_layout.setContentsMargins(12, 12, 12, 12)
+        roi_layout.setSpacing(10)
 
         self.roi_points_table = QtWidgets.QTableWidget()
         self.roi_points_table.setColumnCount(2)
@@ -2634,18 +2676,18 @@ class MainWindow(QtWidgets.QMainWindow):
         roi_buttons.addWidget(remove_point_btn)
         roi_buttons.addWidget(clear_roi_btn)
 
-        roi_form.addRow("Точки ROI:", self.roi_points_table)
-        roi_form.addRow("", roi_buttons)
+        roi_layout.addWidget(self.roi_points_table)
+        roi_layout.addLayout(roi_buttons)
+        roi_form.addRow("", roi_group)
 
         right_panel.addWidget(tabs)
 
         refresh_btn = QtWidgets.QPushButton("Обновить кадр")
-        self._polish_button(refresh_btn, 160)
+        self._polish_button(refresh_btn, self.ACTION_BUTTON_WIDTH)
         refresh_btn.clicked.connect(self._refresh_preview_frame)
         save_btn = QtWidgets.QPushButton("Сохранить канал")
-        self._polish_button(save_btn, 200)
+        self._polish_button(save_btn, self.ACTION_BUTTON_WIDTH)
         save_btn.clicked.connect(self._save_channel)
-        save_btn.setMaximumWidth(220)
         action_row = QtWidgets.QHBoxLayout()
         action_row.addWidget(save_btn, 0, QtCore.Qt.AlignLeft)
         action_row.addWidget(refresh_btn, 0, QtCore.Qt.AlignLeft)
@@ -2928,8 +2970,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.max_plate_width_input.setValue(int(max_size.get("width", 0)))
             self.max_plate_height_input.setValue(int(max_size.get("height", 0)))
             self.plate_size_hint.setText(
-                f"Текущие рамки: мин {self.min_plate_width_input.value()}×{self.min_plate_height_input.value()} px, "
-                f"макс {self.max_plate_width_input.value()}×{self.max_plate_height_input.value()} px"
+                "Перетаскивайте прямоугольники мин/макс на превью слева, значения сохраняются автоматически"
             )
             self._sync_plate_rects_from_inputs()
 
