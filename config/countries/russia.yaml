@@ -29,3 +29,7 @@ invalid_sequences:
   - "0000"
   - "EEEE"
   - "XXXX"
+language_model:
+  rules: []
+frequency_dictionary:
+  entries: {}
