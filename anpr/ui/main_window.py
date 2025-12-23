@@ -894,6 +894,9 @@ class MainWindow(QtWidgets.QMainWindow):
     )
     FIELD_MAX_WIDTH = 520
     COMPACT_FIELD_WIDTH = 180
+    FIELD_MIN_WIDTH = 360
+    BUTTON_HEIGHT = 36
+    LABEL_MIN_WIDTH = 180
 
     PRIMARY_HOLLOW_BUTTON = (
         "QPushButton { background-color: transparent; color: #ffffff; border: 1px solid #ffffff; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }"
@@ -1185,7 +1188,31 @@ class MainWindow(QtWidgets.QMainWindow):
     def _polish_button(button: QtWidgets.QPushButton, min_width: int = 140) -> None:
         button.setStyleSheet(MainWindow.PRIMARY_HOLLOW_BUTTON)
         button.setMinimumWidth(min_width)
+        button.setMinimumHeight(MainWindow.BUTTON_HEIGHT)
         button.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+
+    @staticmethod
+    def _tune_form_layout(form: QtWidgets.QFormLayout) -> None:
+        form.setLabelAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(12)
+
+    @staticmethod
+    def _ensure_label_width(label: QtWidgets.QLabel) -> None:
+        label.setMinimumWidth(MainWindow.LABEL_MIN_WIDTH)
+
+    @staticmethod
+    def _configure_line_edit(line_edit: QtWidgets.QLineEdit, max_width: Optional[int] = None) -> None:
+        line_edit.setMinimumWidth(MainWindow.FIELD_MIN_WIDTH)
+        if max_width is not None:
+            line_edit.setMaximumWidth(max_width)
+
+    @staticmethod
+    def _configure_combo(combo: QtWidgets.QComboBox, max_width: Optional[int] = None) -> None:
+        combo.setMinimumWidth(MainWindow.COMPACT_FIELD_WIDTH + 80)
+        if max_width is not None:
+            combo.setMaximumWidth(max_width)
 
     @staticmethod
     def _prepare_optional_datetime(widget: QtWidgets.QDateTimeEdit) -> None:
@@ -2148,13 +2175,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
             header = QtWidgets.QLabel(title)
             header.setStyleSheet("font-size: 14px; font-weight: 800; color: #e5e7eb;")
+            self._ensure_label_width(header)
             frame_layout.addWidget(header)
 
             form = QtWidgets.QFormLayout()
-            form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-            form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-            form.setHorizontalSpacing(14)
-            form.setVerticalSpacing(10)
+            self._tune_form_layout(form)
             form.setFieldGrowthPolicy(QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
             frame_layout.addLayout(form)
 
@@ -2169,6 +2194,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.frame_timeout_input.setRange(1, 300)
         self.frame_timeout_input.setSuffix(" с")
         self.frame_timeout_input.setToolTip("Сколько секунд ждать кадр перед попыткой переподключения")
+        self.frame_timeout_input.setMinimumHeight(self.BUTTON_HEIGHT)
         reconnect_form.addRow("Таймаут ожидания кадра:", self.frame_timeout_input)
 
         self.retry_interval_input = QtWidgets.QSpinBox()
@@ -2176,6 +2202,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.retry_interval_input.setRange(1, 300)
         self.retry_interval_input.setSuffix(" с")
         self.retry_interval_input.setToolTip("Интервал между попытками переподключения при потере сигнала")
+        self.retry_interval_input.setMinimumHeight(self.BUTTON_HEIGHT)
         reconnect_form.addRow("Интервал между попытками:", self.retry_interval_input)
 
         self.periodic_reconnect_checkbox = QtWidgets.QCheckBox("Переподключение по таймеру")
@@ -2186,6 +2213,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.periodic_interval_input.setRange(1, 1440)
         self.periodic_interval_input.setSuffix(" мин")
         self.periodic_interval_input.setToolTip("Плановое переподключение каждые N минут")
+        self.periodic_interval_input.setMinimumHeight(self.BUTTON_HEIGHT)
         reconnect_form.addRow("Интервал переподключения:", self.periodic_interval_input)
 
         storage_group, storage_form = make_section("Хранилище")
@@ -2196,8 +2224,7 @@ class MainWindow(QtWidgets.QMainWindow):
         db_row.setContentsMargins(0, 0, 0, 0)
         db_row.setSpacing(8)
         self.db_dir_input = QtWidgets.QLineEdit()
-        self.db_dir_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
-        self.db_dir_input.setMinimumWidth(320)
+        self._configure_line_edit(self.db_dir_input, self.FIELD_MAX_WIDTH)
         self.db_dir_input.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         browse_db_btn = QtWidgets.QPushButton("Выбрать...")
         self._polish_button(browse_db_btn, 130)
@@ -2214,8 +2241,7 @@ class MainWindow(QtWidgets.QMainWindow):
         screenshot_row.setContentsMargins(0, 0, 0, 0)
         screenshot_row.setSpacing(8)
         self.screenshot_dir_input = QtWidgets.QLineEdit()
-        self.screenshot_dir_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
-        self.screenshot_dir_input.setMinimumWidth(320)
+        self._configure_line_edit(self.screenshot_dir_input, self.FIELD_MAX_WIDTH)
         self.screenshot_dir_input.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         browse_screenshot_btn = QtWidgets.QPushButton("Выбрать...")
         self._polish_button(browse_screenshot_btn, 130)
@@ -2232,7 +2258,7 @@ class MainWindow(QtWidgets.QMainWindow):
         model_group.setMaximumWidth(self.FIELD_MAX_WIDTH + 220)
 
         self.device_combo = QtWidgets.QComboBox()
-        self.device_combo.setMinimumWidth(self.COMPACT_FIELD_WIDTH + 80)
+        self._configure_combo(self.device_combo)
         self.device_combo.setStyleSheet(
             "QComboBox { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; }"
             "QComboBox QAbstractItemView { background-color: #0b0c10; color: #f8fafc; selection-background-color: #1f2937; }"
@@ -2250,7 +2276,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.timezone_combo = QtWidgets.QComboBox()
         self.timezone_combo.setEditable(False)
-        self.timezone_combo.setMinimumWidth(self.COMPACT_FIELD_WIDTH + 80)
+        self._configure_combo(self.timezone_combo)
         self.timezone_combo.setStyleSheet(
             "QComboBox { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; }"
             "QComboBox QAbstractItemView { background-color: #0b0c10; color: #f8fafc; selection-background-color: #1f2937; }"
@@ -2267,6 +2293,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.time_correction_input.setDisplayFormat("dd.MM.yyyy HH:mm:ss")
         self.time_correction_input.setCalendarPopup(True)
         self.time_correction_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self.time_correction_input.setMinimumWidth(self.FIELD_MIN_WIDTH)
         self.time_correction_input.setStyleSheet(
             "QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
             "QDateTimeEdit::drop-down { width: 26px; }")
@@ -2293,8 +2320,7 @@ class MainWindow(QtWidgets.QMainWindow):
         plate_dir_row.setContentsMargins(0, 0, 0, 0)
         plate_dir_row.setSpacing(8)
         self.country_config_dir_input = QtWidgets.QLineEdit()
-        self.country_config_dir_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
-        self.country_config_dir_input.setMinimumWidth(320)
+        self._configure_line_edit(self.country_config_dir_input, self.FIELD_MAX_WIDTH)
         self.country_config_dir_input.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         browse_country_btn = QtWidgets.QPushButton("Выбрать...")
         self._polish_button(browse_country_btn, 130)
@@ -2399,10 +2425,7 @@ class MainWindow(QtWidgets.QMainWindow):
         def make_form_tab() -> QtWidgets.QFormLayout:
             tab_widget = QtWidgets.QWidget()
             form = QtWidgets.QFormLayout(tab_widget)
-            form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-            form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-            form.setHorizontalSpacing(14)
-            form.setVerticalSpacing(12)
+            self._tune_form_layout(form)
             form.setContentsMargins(12, 12, 12, 12)
             tabs.addTab(tab_widget, "")
             return form
@@ -2410,9 +2433,9 @@ class MainWindow(QtWidgets.QMainWindow):
         channel_form = make_form_tab()
         tabs.setTabText(0, "Канал")
         self.channel_name_input = QtWidgets.QLineEdit()
-        self.channel_name_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self._configure_line_edit(self.channel_name_input, self.FIELD_MAX_WIDTH)
         self.channel_source_input = QtWidgets.QLineEdit()
-        self.channel_source_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self._configure_line_edit(self.channel_source_input, self.FIELD_MAX_WIDTH)
         channel_form.addRow("Название:", self.channel_name_input)
         channel_form.addRow("Источник/RTSP:", self.channel_source_input)
 
@@ -2422,6 +2445,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.best_shots_input.setRange(1, 50)
         self.best_shots_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
         self.best_shots_input.setMinimumWidth(120)
+        self.best_shots_input.setMinimumHeight(self.BUTTON_HEIGHT)
         self.best_shots_input.setToolTip("Количество бстшотов, участвующих в консенсусе трека")
         recognition_form.addRow("Бестшоты на трек:", self.best_shots_input)
 
@@ -2429,6 +2453,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cooldown_input.setRange(0, 3600)
         self.cooldown_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
         self.cooldown_input.setMinimumWidth(120)
+        self.cooldown_input.setMinimumHeight(self.BUTTON_HEIGHT)
         self.cooldown_input.setToolTip(
             "Интервал (в секундах), в течение которого не создается повторное событие для того же номера"
         )
@@ -2440,6 +2465,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.min_conf_input.setDecimals(2)
         self.min_conf_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
         self.min_conf_input.setMinimumWidth(120)
+        self.min_conf_input.setMinimumHeight(self.BUTTON_HEIGHT)
         self.min_conf_input.setToolTip(
             "Минимальная уверенность OCR (0-1) для приема результата; ниже — помечается как нечитаемое"
         )
@@ -2470,12 +2496,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.detection_mode_input.addItem("Постоянное", "continuous")
         self.detection_mode_input.addItem("Детектор движения", "motion")
         self.detection_mode_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        self.detection_mode_input.setMinimumWidth(self.FIELD_MIN_WIDTH)
         motion_form.addRow("Обнаружение ТС:", self.detection_mode_input)
 
         self.detector_stride_input = QtWidgets.QSpinBox()
         self.detector_stride_input.setRange(1, 12)
         self.detector_stride_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
         self.detector_stride_input.setMinimumWidth(120)
+        self.detector_stride_input.setMinimumHeight(self.BUTTON_HEIGHT)
         self.detector_stride_input.setToolTip(
             "Запускать YOLO на каждом N-м кадре в зоне распознавания, чтобы снизить нагрузку"
         )
@@ -2487,6 +2515,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.motion_threshold_input.setSingleStep(0.005)
         self.motion_threshold_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
         self.motion_threshold_input.setMinimumWidth(120)
+        self.motion_threshold_input.setMinimumHeight(self.BUTTON_HEIGHT)
         self.motion_threshold_input.setToolTip("Порог чувствительности по площади изменения внутри ROI")
         motion_form.addRow("Порог движения:", self.motion_threshold_input)
 
@@ -2494,6 +2523,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.motion_stride_input.setRange(1, 30)
         self.motion_stride_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
         self.motion_stride_input.setMinimumWidth(120)
+        self.motion_stride_input.setMinimumHeight(self.BUTTON_HEIGHT)
         self.motion_stride_input.setToolTip("Обрабатывать каждый N-й кадр для поиска движения")
         motion_form.addRow("Частота анализа (кадр):", self.motion_stride_input)
 
@@ -2501,6 +2531,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.motion_activation_frames_input.setRange(1, 60)
         self.motion_activation_frames_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
         self.motion_activation_frames_input.setMinimumWidth(120)
+        self.motion_activation_frames_input.setMinimumHeight(self.BUTTON_HEIGHT)
         self.motion_activation_frames_input.setToolTip("Сколько кадров подряд должно быть движение, чтобы включить распознавание")
         motion_form.addRow("Мин. кадров с движением:", self.motion_activation_frames_input)
 
@@ -2508,6 +2539,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.motion_release_frames_input.setRange(1, 120)
         self.motion_release_frames_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
         self.motion_release_frames_input.setMinimumWidth(120)
+        self.motion_release_frames_input.setMinimumHeight(self.BUTTON_HEIGHT)
         self.motion_release_frames_input.setToolTip("Сколько кадров без движения нужно, чтобы остановить распознавание")
         motion_form.addRow("Мин. кадров без движения:", self.motion_release_frames_input)
 
@@ -2520,6 +2552,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.min_plate_width_input = QtWidgets.QSpinBox()
         self.min_plate_width_input.setRange(0, 5000)
         self.min_plate_width_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.min_plate_width_input.setMinimumWidth(120)
+        self.min_plate_width_input.setMinimumHeight(self.BUTTON_HEIGHT)
         self.min_plate_width_input.setToolTip("Минимальная ширина рамки, меньшие детекции будут отброшены")
 
         self.min_plate_width_input.valueChanged.connect(self._sync_plate_rects_from_inputs)
@@ -2527,6 +2561,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.min_plate_height_input = QtWidgets.QSpinBox()
         self.min_plate_height_input.setRange(0, 3000)
         self.min_plate_height_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.min_plate_height_input.setMinimumWidth(120)
+        self.min_plate_height_input.setMinimumHeight(self.BUTTON_HEIGHT)
         self.min_plate_height_input.setToolTip("Минимальная высота рамки, меньшие детекции будут отброшены")
 
         self.min_plate_height_input.valueChanged.connect(self._sync_plate_rects_from_inputs)
@@ -2534,6 +2570,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_plate_width_input = QtWidgets.QSpinBox()
         self.max_plate_width_input.setRange(0, 8000)
         self.max_plate_width_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.max_plate_width_input.setMinimumWidth(120)
+        self.max_plate_width_input.setMinimumHeight(self.BUTTON_HEIGHT)
         self.max_plate_width_input.setToolTip("Максимальная ширина рамки, более крупные детекции будут отброшены")
 
         self.max_plate_width_input.valueChanged.connect(self._sync_plate_rects_from_inputs)
@@ -2541,6 +2579,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_plate_height_input = QtWidgets.QSpinBox()
         self.max_plate_height_input.setRange(0, 4000)
         self.max_plate_height_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
+        self.max_plate_height_input.setMinimumWidth(120)
+        self.max_plate_height_input.setMinimumHeight(self.BUTTON_HEIGHT)
         self.max_plate_height_input.setToolTip("Максимальная высота рамки, более крупные детекции будут отброшены")
 
         self.max_plate_height_input.valueChanged.connect(self._sync_plate_rects_from_inputs)
