@@ -173,13 +173,11 @@ class ANPRPipeline:
         min_confidence: float = Config().ocr_confidence_threshold,
         postprocessor: Optional[PlatePostProcessor] = None,
         direction_config: Optional[Dict[str, float | int]] = None,
-        max_ocr_batch: int = 0,
     ) -> None:
         self.recognizer = recognizer
         self.aggregator = TrackAggregator(best_shots)
         self.cooldown_seconds = max(0, cooldown_seconds)
         self.min_confidence = max(0.0, min(1.0, min_confidence))
-        self.max_ocr_batch = max(0, int(max_ocr_batch))
         self._last_seen: Dict[str, float] = {}
         self.postprocessor = postprocessor
         self.preprocessor = PlatePreprocessor()
@@ -197,7 +195,6 @@ class ANPRPipeline:
     def process_frame(self, frame: np.ndarray, detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         plate_inputs: List[np.ndarray] = []
         detection_indices: List[int] = []
-        max_batch = self.max_ocr_batch
 
         for idx, detection in enumerate(detections):
             if self.direction_estimator and detection.get("track_id") is not None:
@@ -205,10 +202,6 @@ class ANPRPipeline:
                 detection.update(direction_info)
             else:
                 detection.setdefault("direction", TrackDirectionEstimator.UNKNOWN)
-
-            if max_batch and len(plate_inputs) >= max_batch:
-                detection["text"] = ""
-                continue
 
             x1, y1, x2, y2 = detection["bbox"]
             roi = frame[y1:y2, x1:x2]
