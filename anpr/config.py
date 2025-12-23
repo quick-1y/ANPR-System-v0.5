@@ -13,6 +13,10 @@ from typing import Any, Dict
 import torch
 
 from anpr.infrastructure.settings_manager import SettingsManager
+from anpr.infrastructure.logging_manager import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class Config:
@@ -41,8 +45,17 @@ class Config:
 
     @property
     def device(self) -> torch.device:
-        device_name = self.model_paths.get("device") or "cpu"
-        return torch.device(device_name)
+        device_name = str(self.model_paths.get("device") or "cpu").strip().lower()
+        if device_name == "gpu":
+            device_name = "cuda"
+        if device_name.startswith("cuda") and not torch.cuda.is_available():
+            logger.warning("CUDA недоступна, используется CPU.")
+            return torch.device("cpu")
+        try:
+            return torch.device(device_name)
+        except (TypeError, ValueError):
+            logger.warning("Некорректное устройство '%s', используется CPU.", device_name)
+            return torch.device("cpu")
 
     @property
     def ocr_config(self) -> Dict[str, Any]:
