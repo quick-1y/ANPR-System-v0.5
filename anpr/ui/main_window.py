@@ -1584,7 +1584,16 @@ class MainWindow(QtWidgets.QMainWindow):
         existing = self._find_channel_worker(channel_id)
         if existing:
             existing.stop()
-            existing.wait(2000)
+            if not existing.wait(2000):
+                logger.warning(
+                    "Остановка канала id=%s заняла слишком много времени; повтор рестарта позже",
+                    channel_id,
+                )
+                QtCore.QTimer.singleShot(
+                    200,
+                    lambda conf=channel_conf: self._restart_channel_worker(conf),
+                )
+                return
             try:
                 existing.frame_ready.disconnect()
                 existing.event_ready.disconnect()
