@@ -92,6 +92,7 @@ def build_components(
     direction_config: Dict[str, object] | None = None,
     min_plate_size: Dict[str, int] | None = None,
     max_plate_size: Dict[str, int] | None = None,
+    max_ocr_batch: int = 0,
 ) -> Tuple[ANPRPipeline, YOLODetector]:
     """Создаёт независимые компоненты пайплайна (детектор, OCR и агрегация)."""
 
@@ -111,5 +112,6 @@ def build_components(
         min_confidence=min_confidence,
         postprocessor=postprocessor,
         direction_config=direction_config,
+        max_ocr_batch=max_ocr_batch,
     )
     return pipeline, detector

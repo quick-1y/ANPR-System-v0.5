@@ -221,6 +221,8 @@ class ChannelRuntimeConfig:
     min_plate_size: PlateSize
     max_plate_size: PlateSize
     direction: DirectionSettings
+    max_ocr_batch: int
+    max_ocr_queue: int
 
     @classmethod
     def from_dict(cls, channel_conf: Dict[str, Any]) -> "ChannelRuntimeConfig":
@@ -244,6 +246,8 @@ class ChannelRuntimeConfig:
             min_plate_size=PlateSize.from_dict(channel_conf.get("min_plate_size"), size_defaults.get("min_plate_size")),
             max_plate_size=PlateSize.from_dict(channel_conf.get("max_plate_size"), size_defaults.get("max_plate_size")),
             direction=DirectionSettings.from_dict(channel_conf.get("direction"), direction_defaults),
+            max_ocr_batch=max(0, int(channel_conf.get("max_ocr_batch", 0))),
+            max_ocr_queue=max(0, int(channel_conf.get("max_ocr_queue", 0))),
         )
 
 
@@ -331,6 +335,7 @@ def _run_inference_task(
             config.get("direction", {}),
             config.get("min_plate_size"),
             config.get("max_plate_size"),
+            config.get("max_ocr_batch", 0),
         )
         _run_inference_task._local_cache[key] = (pipeline, detector)
 
@@ -443,6 +448,8 @@ class ChannelWorker(QtCore.QThread):
         self._confidence_scores: deque[float] = deque(maxlen=60)
         self._last_metrics_emit = 0.0
         self._metrics_interval = 1.0
+        self._ocr_queue: deque[tuple[cv2.Mat, cv2.Mat, Tuple[int, int, int, int], cv2.Mat]] = deque()
+        self._max_ocr_queue = max(0, int(self.config.max_ocr_queue))
         inference_conf = SettingsManager().get_inference_settings()
         self._use_shared_memory = bool(inference_conf.get("shared_memory", True))
         self._roi_mask_cache: Optional[np.ndarray] = None
@@ -498,6 +505,7 @@ class ChannelWorker(QtCore.QThread):
             "min_plate_size": self.config.min_plate_size.to_dict(),
             "max_plate_size": self.config.max_plate_size.to_dict(),
             "direction": self.config.direction.to_dict(),
+            "max_ocr_batch": self.config.max_ocr_batch,
         }
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:
@@ -825,10 +833,27 @@ class ChannelWorker(QtCore.QThread):
             if motion_status:
                 self.status_ready.emit(channel_name, motion_status)
 
+            if self._inference_task is not None and self._inference_task.done():
+                self._inference_task = None
+
+            if self._inference_task is None and self._ocr_queue:
+                queued_frame, queued_roi, queued_rect, queued_rgb = self._ocr_queue.popleft()
+                self._inference_task = asyncio.create_task(
+                    self._inference_and_process(
+                        event_writer,
+                        source,
+                        channel_name,
+                        queued_frame,
+                        queued_roi,
+                        queued_rect,
+                        queued_rgb,
+                    )
+                )
+
             if motion_detected:
                 # Запуск инференса с учетом stride
                 if self._inference_limiter.allow():
-                    if self._inference_task is None or self._inference_task.done():
+                    if self._inference_task is None:
                         self._inference_task = asyncio.create_task(
                             self._inference_and_process(
                                 event_writer,
@@ -840,9 +865,13 @@ class ChannelWorker(QtCore.QThread):
                                 rgb_frame.copy(),
                             )
                         )
+                    elif self._max_ocr_queue > 0 and len(self._ocr_queue) < self._max_ocr_queue:
+                        self._ocr_queue.append(
+                            (frame.copy(), roi_frame.copy(), roi_rect, rgb_frame.copy())
+                        )
                     else:
                         logger.debug(
-                            "Канал %s: пропуск инференса, предыдущая задача еще выполняется",
+                            "Канал %s: пропуск OCR, очередь переполнена",
                             channel_name,
                         )
 

@@ -146,6 +146,8 @@ class SettingsManager:
             "best_shots": int(tracking_defaults.get("best_shots", 3)),
             "cooldown_seconds": int(tracking_defaults.get("cooldown_seconds", 5)),
             "ocr_min_confidence": float(tracking_defaults.get("ocr_min_confidence", 0.6)),
+            "max_ocr_batch": 8,
+            "max_ocr_queue": 2,
             "direction": dict(tracking_defaults.get("direction", SettingsManager._direction_defaults())),
             "region": {"unit": "px", "points": [point.copy() for point in DEFAULT_ROI_POINTS]},
             "detection_mode": "motion",
