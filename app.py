@@ -2,6 +2,7 @@
 # /app.py
 import sys
 import warnings
+from pathlib import Path
 
 from PyQt5 import QtWidgets
 
@@ -32,6 +33,25 @@ def main() -> None:
     logger.info("Запуск ANPR Desktop")
 
     app = QtWidgets.QApplication(sys.argv)
+    model_paths = [
+        Path("models/yolo/best.pt"),
+        Path("models/ocr_crnn/crnn_ocr_model_int8_fx.pth"),
+    ]
+    missing_paths = [path for path in model_paths if not path.exists()]
+    for path in missing_paths:
+        logger.warning("Отсутствует файл модели: %s", path)
+    if missing_paths:
+        message = (
+            "Не найдены файлы моделей:\n"
+            + "\n".join(str(path) for path in missing_paths)
+            + "\nПроверьте пути и перезапустите приложение."
+        )
+        QtWidgets.QMessageBox.critical(
+            None,
+            "Ошибка загрузки моделей",
+            message,
+        )
+        sys.exit(1)
     window = MainWindow(config)
     window.show()
     sys.exit(app.exec_())
