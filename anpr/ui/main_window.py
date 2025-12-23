@@ -2137,6 +2137,13 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.setSpacing(12)
         widget.setStyleSheet(self.FORM_STYLE)
 
+        setup_hint = QtWidgets.QLabel(
+            "1) Укажите БД/скриншоты 2) Выберите устройство 3) Проверьте время"
+        )
+        setup_hint.setStyleSheet("color: #9ca3af;")
+        setup_hint.setWordWrap(True)
+        layout.addWidget(setup_hint)
+
         section_style = f"QFrame {{ background-color: {self.PANEL_COLOR}; border: none; border-radius: 12px; }}"
 
         def make_section(title: str) -> tuple[QtWidgets.QFrame, QtWidgets.QFormLayout]:
@@ -2345,8 +2352,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_channel_settings_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout(widget)
+        layout = QtWidgets.QVBoxLayout(widget)
         widget.setStyleSheet(self.GROUP_BOX_STYLE)
+
+        channel_hint = QtWidgets.QLabel(
+            "Добавьте канал → укажите источник → настройте ROI → сохраните"
+        )
+        channel_hint.setStyleSheet("color: #9ca3af;")
+        channel_hint.setWordWrap(True)
+        layout.addWidget(channel_hint)
+
+        content_layout = QtWidgets.QHBoxLayout()
 
         left_panel = QtWidgets.QVBoxLayout()
         left_panel.setSpacing(6)
@@ -2366,7 +2382,7 @@ class MainWindow(QtWidgets.QMainWindow):
         list_buttons.addWidget(add_btn)
         list_buttons.addWidget(remove_btn)
         left_panel.addLayout(list_buttons)
-        layout.addLayout(left_panel)
+        content_layout.addLayout(left_panel)
 
         self.channel_details_container = QtWidgets.QWidget()
         details_layout = QtWidgets.QHBoxLayout(self.channel_details_container)
@@ -2615,7 +2631,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         details_layout.addLayout(right_panel, 2)
 
-        layout.addWidget(self.channel_details_container, 1)
+        content_layout.addWidget(self.channel_details_container, 1)
+        layout.addLayout(content_layout, 1)
 
         self._load_general_settings()
         self._reload_channels_list()
