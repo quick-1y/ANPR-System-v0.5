@@ -232,11 +232,8 @@ class ANPRPipeline:
             detection["confidence"] = confidence
 
             if self.postprocessor and detection.get("text"):
-                original_text = detection.get("text")
-                corrected_text = self.postprocessor.correct_text(original_text)
-                detection["original_text"] = original_text
-                detection["text"] = corrected_text
-                processed = self.postprocessor.process(corrected_text, apply_corrections=False)
+                processed = self.postprocessor.process(detection["text"])
+                detection["original_text"] = detection.get("text")
                 if processed.is_valid:
                     detection["text"] = processed.plate
                 elif processed.plate:
