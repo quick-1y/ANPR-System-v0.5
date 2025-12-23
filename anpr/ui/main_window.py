@@ -1166,19 +1166,8 @@ class MainWindow(QtWidgets.QMainWindow):
         right_header.setContentsMargins(0, 0, 0, 0)
         right_title = QtWidgets.QLabel("Детали")
         right_title.setStyleSheet("color: #e5e7eb; font-weight: 800;")
-        toggle_details_btn = QtWidgets.QToolButton()
-        toggle_details_btn.setCheckable(True)
-        toggle_details_btn.setChecked(False)
-        toggle_details_btn.setText("◀")
-        toggle_details_btn.setToolTip("Скрыть панель деталей")
-        toggle_details_btn.setFixedSize(26, 26)
-        toggle_details_btn.setStyleSheet(
-            "QToolButton { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 6px; }"
-            "QToolButton:hover { background-color: rgba(255,255,255,0.08); }"
-        )
         right_header.addWidget(right_title)
         right_header.addStretch()
-        right_header.addWidget(toggle_details_btn)
         right_column.addLayout(right_header)
         details_group = QtWidgets.QGroupBox("Информация о событии")
         details_group.setStyleSheet(self.GROUP_BOX_STYLE)
@@ -1204,22 +1193,52 @@ class MainWindow(QtWidgets.QMainWindow):
         events_layout.addWidget(self.events_table)
         right_column.addWidget(events_group, stretch=1)
 
+        toggle_details_btn = QtWidgets.QToolButton()
+        toggle_details_btn.setCheckable(True)
+        toggle_details_btn.setChecked(False)
+        toggle_details_btn.setText("◀")
+        toggle_details_btn.setToolTip("Скрыть панель деталей")
+        toggle_details_btn.setFixedSize(26, 26)
+        toggle_details_btn.setStyleSheet(
+            "QToolButton { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 6px; }"
+            "QToolButton:hover { background-color: rgba(255,255,255,0.08); }"
+        )
+
+        toggle_rail = QtWidgets.QFrame()
+        toggle_rail.setFixedWidth(32)
+        toggle_rail.setStyleSheet("QFrame { background-color: transparent; }")
+        rail_layout = QtWidgets.QVBoxLayout(toggle_rail)
+        rail_layout.setContentsMargins(0, 0, 0, 0)
+        rail_layout.addStretch()
+        rail_layout.addWidget(toggle_details_btn, 0, QtCore.Qt.AlignCenter)
+        rail_layout.addStretch()
+
+        details_content = QtWidgets.QWidget()
+        details_content.setLayout(right_column)
+
         details_container = QtWidgets.QWidget()
-        details_container.setLayout(right_column)
-        details_container.setMaximumWidth(480)
+        details_layout = QtWidgets.QHBoxLayout(details_container)
+        details_layout.setContentsMargins(0, 0, 0, 0)
+        details_layout.setSpacing(0)
+        details_layout.addWidget(toggle_rail)
+        details_layout.addWidget(details_content, 1)
 
         def toggle_details_panel(checked: bool) -> None:
             if checked:
                 right_title.hide()
                 details_group.hide()
                 events_group.hide()
-                details_container.setMaximumWidth(32)
+                details_content.hide()
+                details_container.setMinimumWidth(toggle_rail.width())
+                details_container.setMaximumWidth(toggle_rail.width())
                 toggle_details_btn.setText("▶")
                 toggle_details_btn.setToolTip("Показать панель деталей")
             else:
                 right_title.show()
                 details_group.show()
                 events_group.show()
+                details_content.show()
+                details_container.setMinimumWidth(0)
                 details_container.setMaximumWidth(16777215)
                 toggle_details_btn.setText("◀")
                 toggle_details_btn.setToolTip("Скрыть панель деталей")
