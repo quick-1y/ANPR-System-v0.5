@@ -7,6 +7,7 @@ from pathlib import Path
 
 import cv2
 import psutil
+import torch
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -2227,6 +2228,23 @@ class MainWindow(QtWidgets.QMainWindow):
         screenshot_container.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Preferred)
         storage_form.addRow("Папка для скриншотов:", screenshot_container)
 
+        model_group, model_form = make_section("Модели")
+        model_group.setMaximumWidth(self.FIELD_MAX_WIDTH + 220)
+
+        self.device_combo = QtWidgets.QComboBox()
+        self.device_combo.setMinimumWidth(self.COMPACT_FIELD_WIDTH + 80)
+        self.device_combo.setStyleSheet(
+            "QComboBox { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; }"
+            "QComboBox QAbstractItemView { background-color: #0b0c10; color: #f8fafc; selection-background-color: #1f2937; }"
+            "QComboBox:on { padding-top: 3px; padding-left: 4px; }"
+        )
+        self.device_status_label = QtWidgets.QLabel("")
+        self.device_status_label.setStyleSheet("color: #9ca3af;")
+        self.device_status_label.setWordWrap(True)
+        self._populate_device_options()
+        model_form.addRow("Устройство инференса:", self.device_combo)
+        model_form.addRow("", self.device_status_label)
+
         time_group, time_form = make_section("Дата и время")
         time_group.setMaximumWidth(self.FIELD_MAX_WIDTH + 220)
 
@@ -2315,6 +2333,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         layout.addWidget(reconnect_group)
         layout.addWidget(storage_group)
+        layout.addWidget(model_group)
         layout.addWidget(time_group)
         layout.addWidget(plate_group)
         layout.addWidget(save_card)
@@ -2676,6 +2695,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.periodic_reconnect_checkbox.setChecked(bool(periodic.get("enabled", False)))
         self.periodic_interval_input.setValue(int(periodic.get("interval_minutes", 60)))
 
+        model_settings = self.settings.get_model_settings()
+        device_value = str(model_settings.get("device") or "cpu").strip().lower()
+        if device_value == "gpu":
+            device_value = "cuda"
+        cuda_available = torch.cuda.is_available()
+        if device_value.startswith("cuda") and not cuda_available:
+            device_value = "cpu"
+            self.device_status_label.setText("GPU не обнаружена. Выбрано использование CPU.")
+        else:
+            self._update_device_status_label(cuda_available)
+        index = self.device_combo.findData(device_value)
+        if index < 0:
+            index = self.device_combo.findData("cpu")
+        if index >= 0:
+            self.device_combo.setCurrentIndex(index)
+
         time_settings = self.settings.get_time_settings()
         tz_value = time_settings.get("timezone") or "UTC+00:00"
         offset_label = tz_value
@@ -2790,9 +2825,39 @@ class MainWindow(QtWidgets.QMainWindow):
         }
         os.makedirs(plate_settings["config_dir"], exist_ok=True)
         self.settings.save_plate_settings(plate_settings)
+        device_value = self.device_combo.currentData() or "cpu"
+        self.settings.save_model_device(device_value)
         self.db = EventDatabase(self.settings.get_db_path())
         self._refresh_events_table()
         self._start_channels()
+
+    def _populate_device_options(self) -> None:
+        self.device_combo.clear()
+        self.device_combo.addItem("CPU", "cpu")
+        cuda_available = torch.cuda.is_available()
+        if cuda_available:
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_label = f"GPU (CUDA) — {gpu_name}"
+        else:
+            gpu_label = "GPU (CUDA) — недоступно"
+        self.device_combo.addItem(gpu_label, "cuda")
+        if not cuda_available:
+            model = self.device_combo.model()
+            gpu_index = self.device_combo.count() - 1
+            if model is not None and gpu_index >= 0:
+                item = model.item(gpu_index)
+                if item is not None:
+                    item.setEnabled(False)
+        self._update_device_status_label(cuda_available)
+
+    def _update_device_status_label(self, cuda_available: Optional[bool] = None) -> None:
+        if cuda_available is None:
+            cuda_available = torch.cuda.is_available()
+        if cuda_available:
+            gpu_name = torch.cuda.get_device_name(0)
+            self.device_status_label.setText(f"Доступна GPU: {gpu_name}")
+        else:
+            self.device_status_label.setText("GPU не обнаружена. Используйте CPU.")
 
     def _load_channel_form(self, index: int) -> None:
         channels = self.settings.get_channels()

@@ -624,6 +624,14 @@ class SettingsManager:
                 self._save(settings_snapshot)
             return copy.deepcopy(self.settings.get("models", {}))
 
+    def save_model_device(self, device: str) -> None:
+        with self._file_lock:
+            models = self.settings.get("models", {})
+            models["device"] = device
+            self.settings["models"] = models
+            settings_snapshot = copy.deepcopy(self.settings)
+        self._save(settings_snapshot)
+
     def get_ocr_settings(self) -> Dict[str, Any]:
         with self._file_lock:
             if self._fill_ocr_defaults(self.settings, self._ocr_defaults()):
