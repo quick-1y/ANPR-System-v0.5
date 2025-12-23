@@ -4,7 +4,6 @@ import math
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlparse
 
 import cv2
 import psutil
@@ -719,77 +718,6 @@ class ROIEditor(QtWidgets.QLabel):
         self._emit_roi()
         self.update()
 
-class PreviewLoader(QtCore.QThread):
-    """Фоновая загрузка превью кадра канала, чтобы не блокировать UI."""
-
-    frameReady = QtCore.pyqtSignal(QtGui.QPixmap)
-    failed = QtCore.pyqtSignal()
-
-    def __init__(self, source: str) -> None:
-        super().__init__()
-        self.source = source
-
-    def _is_valid_stream_source(self) -> bool:
-        if self.source.isnumeric():
-            return True
-
-        if os.path.exists(self.source):
-            return True
-
-        parsed = urlparse(self.source)
-        if parsed.scheme.lower() not in {"rtsp", "rtmp", "http", "https"}:
-            return False
-        return bool(parsed.netloc)
-
-    def _open_capture(self) -> Optional[cv2.VideoCapture]:
-        if not self._is_valid_stream_source():
-            return None
-
-        capture = cv2.VideoCapture(
-            int(self.source) if self.source.isnumeric() else self.source
-        )
-        capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-        open_timeout = getattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC", None)
-        read_timeout = getattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC", None)
-        if open_timeout is not None:
-            capture.set(open_timeout, 3000)
-        if read_timeout is not None:
-            capture.set(read_timeout, 3000)
-
-        return capture
-
-    def run(self) -> None:  # noqa: N802
-        capture: Optional[cv2.VideoCapture] = None
-        try:
-            capture = self._open_capture()
-            if capture is None:
-                ret, frame = False, None
-            else:
-                ret, frame = capture.read()
-        except Exception:
-            ret, frame = False, None
-        finally:
-            if capture is not None:
-                capture.release()
-
-        if self.isInterruptionRequested():
-            return
-        if not ret or frame is None:
-            self.failed.emit()
-            return
-
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        height, width, _ = rgb_frame.shape
-        bytes_per_line = 3 * width
-        q_image = QtGui.QImage(
-            rgb_frame.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888
-        ).copy()
-        if self.isInterruptionRequested():
-            return
-        self.frameReady.emit(QtGui.QPixmap.fromImage(q_image))
-
-
 class EventDetailView(QtWidgets.QWidget):
     """Отображение выбранного события: метаданные, кадр и область номера."""
 
@@ -1038,8 +966,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pending_channel_restarts: set[int] = set()
         self._drag_counter = 0
         self._skip_frame_updates = False
-        self._preview_worker: Optional[PreviewLoader] = None
-        self._preview_request_id = 0
+        self._latest_frames: Dict[str, QtGui.QImage] = {}
 
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setStyleSheet(
@@ -1637,8 +1564,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 pass
         self.channel_workers = []
         self._pending_channel_restarts.clear()
+        self._latest_frames.clear()
 
     def _update_frame(self, channel_name: str, image: QtGui.QImage) -> None:
+        cached_preview = image.scaled(
+            QtCore.QSize(960, 540),
+            QtCore.Qt.KeepAspectRatio,
+            QtCore.Qt.SmoothTransformation,
+        )
+        self._latest_frames[channel_name] = cached_preview
         if self._skip_frame_updates:
             return
         label = self.channel_labels.get(channel_name)
@@ -3055,49 +2989,19 @@ class MainWindow(QtWidgets.QMainWindow):
             f"Прямоугольник {label}: {width}×{height} px"
         )
 
-    def _cancel_preview_worker(self) -> None:
-        if self._preview_worker:
-            self._preview_worker.requestInterruption()
-            self._preview_worker.wait(1000)
-            self._preview_worker.deleteLater()
-            self._preview_worker = None
-
     def _refresh_preview_frame(self) -> None:
         index = self.channels_list.currentRow()
         channels = self.settings.get_channels()
         if not (0 <= index < len(channels)):
             return
-        source = str(channels[index].get("source", ""))
-        if not source:
+        channel_name = channels[index].get("name", "Канал")
+        preview_image = self._latest_frames.get(channel_name)
+        if preview_image is None:
             self.preview.setPixmap(None)
             return
-        self._preview_request_id += 1
-        request_id = self._preview_request_id
-        self._cancel_preview_worker()
-        self.preview.setPixmap(None)
-
-        worker = PreviewLoader(source)
-        self._preview_worker = worker
-
-        def handle_frame(pixmap: QtGui.QPixmap, rid: int = request_id) -> None:
-            if rid != self._preview_request_id:
-                return
-            self.preview.setPixmap(pixmap)
-            self._preview_worker = None
-
-        def handle_failure(rid: int = request_id) -> None:
-            if rid != self._preview_request_id:
-                return
-            self.preview.setPixmap(None)
-            self._preview_worker = None
-
-        worker.frameReady.connect(handle_frame)
-        worker.failed.connect(handle_failure)
-        worker.finished.connect(worker.deleteLater)
-        worker.start()
+        self.preview.setPixmap(QtGui.QPixmap.fromImage(preview_image))
 
     # ------------------ Жизненный цикл ------------------
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
-        self._cancel_preview_worker()
         self._stop_workers()
         event.accept()
