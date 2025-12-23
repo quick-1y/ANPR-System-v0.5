@@ -1905,11 +1905,13 @@ class MainWindow(QtWidgets.QMainWindow):
         button_row.setSpacing(10)
         search_btn = QtWidgets.QPushButton("Поиск")
         search_btn.clicked.connect(self._run_plate_search)
+        self._polish_button(search_btn, 150)
         search_btn.setMinimumWidth(150)
         button_row.addWidget(search_btn)
 
         reset_btn = QtWidgets.QPushButton("Сбросить фильтр")
         reset_btn.clicked.connect(self._reset_journal_filters)
+        self._polish_button(reset_btn, 180)
         reset_btn.setMinimumWidth(180)
         button_row.addWidget(reset_btn)
         button_row.addStretch()

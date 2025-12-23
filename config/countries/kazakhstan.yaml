@@ -27,3 +27,7 @@ stop_words:
 invalid_sequences:
   - "0000"
   - "BBBB"
+language_model:
+  rules: []
+frequency_dictionary:
+  entries: {}
