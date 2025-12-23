@@ -90,11 +90,18 @@ def build_components(
     min_confidence: float,
     plate_config: Dict[str, object] | None = None,
     direction_config: Dict[str, object] | None = None,
+    min_plate_size: Dict[str, int] | None = None,
+    max_plate_size: Dict[str, int] | None = None,
 ) -> Tuple[ANPRPipeline, YOLODetector]:
     """Создаёт независимые компоненты пайплайна (детектор, OCR и агрегация)."""
 
     config = Config()
-    detector = YOLODetector(config.yolo_model_path, config.device)
+    detector = YOLODetector(
+        config.yolo_model_path,
+        config.device,
+        min_plate_size=min_plate_size,
+        max_plate_size=max_plate_size,
+    )
     recognizer = _get_shared_recognizer()
     postprocessor = _build_postprocessor(plate_config or {})
     pipeline = ANPRPipeline(
