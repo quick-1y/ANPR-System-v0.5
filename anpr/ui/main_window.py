@@ -1159,8 +1159,27 @@ class MainWindow(QtWidgets.QMainWindow):
         self.grid_layout.setContentsMargins(0, 0, 0, 0)
         left_column.addWidget(self.grid_widget, stretch=4)
 
-        right_widget = QtWidgets.QWidget()
-        right_column = QtWidgets.QVBoxLayout(right_widget)
+        right_column = QtWidgets.QVBoxLayout()
+        right_column.setContentsMargins(0, 0, 0, 0)
+
+        right_header = QtWidgets.QHBoxLayout()
+        right_header.setContentsMargins(0, 0, 0, 0)
+        right_title = QtWidgets.QLabel("Детали")
+        right_title.setStyleSheet("color: #e5e7eb; font-weight: 800;")
+        toggle_details_btn = QtWidgets.QToolButton()
+        toggle_details_btn.setCheckable(True)
+        toggle_details_btn.setChecked(False)
+        toggle_details_btn.setText("◀")
+        toggle_details_btn.setToolTip("Скрыть панель деталей")
+        toggle_details_btn.setFixedSize(26, 26)
+        toggle_details_btn.setStyleSheet(
+            "QToolButton { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 6px; }"
+            "QToolButton:hover { background-color: rgba(255,255,255,0.08); }"
+        )
+        right_header.addWidget(right_title)
+        right_header.addStretch()
+        right_header.addWidget(toggle_details_btn)
+        right_column.addLayout(right_header)
         details_group = QtWidgets.QGroupBox("Информация о событии")
         details_group.setStyleSheet(self.GROUP_BOX_STYLE)
         details_layout = QtWidgets.QVBoxLayout(details_group)
@@ -1185,27 +1204,30 @@ class MainWindow(QtWidgets.QMainWindow):
         events_layout.addWidget(self.events_table)
         right_column.addWidget(events_group, stretch=1)
 
-        splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        splitter.addWidget(left_widget)
-        splitter.addWidget(right_widget)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
-        splitter.setSizes([900, 600])
+        details_container = QtWidgets.QWidget()
+        details_container.setLayout(right_column)
+        details_container.setMaximumWidth(480)
 
         def toggle_details_panel(checked: bool) -> None:
             if checked:
-                self._last_details_sizes = splitter.sizes()
-                right_widget.hide()
-                splitter.setSizes([1, 0])
-                toggle_details_btn.setText("Показать детали")
+                right_title.hide()
+                details_group.hide()
+                events_group.hide()
+                details_container.setMaximumWidth(32)
+                toggle_details_btn.setText("▶")
+                toggle_details_btn.setToolTip("Показать панель деталей")
             else:
-                right_widget.show()
-                splitter.setSizes(getattr(self, "_last_details_sizes", [900, 600]))
-                toggle_details_btn.setText("Скрыть детали")
+                right_title.show()
+                details_group.show()
+                events_group.show()
+                details_container.setMaximumWidth(16777215)
+                toggle_details_btn.setText("◀")
+                toggle_details_btn.setToolTip("Скрыть панель деталей")
 
         toggle_details_btn.toggled.connect(toggle_details_panel)
 
-        layout.addWidget(splitter, 1)
+        layout.addWidget(left_widget, stretch=3)
+        layout.addWidget(details_container, stretch=2)
 
         self._draw_grid()
         return widget
