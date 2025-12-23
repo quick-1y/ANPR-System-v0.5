@@ -5,25 +5,25 @@ import json
 import os
 import time
 from collections import deque
-import uuid
 from concurrent.futures import ProcessPoolExecutor
 import threading
 import atexit
 from multiprocessing import shared_memory
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
 from PyQt5 import QtCore, QtGui
 
-from anpr.detection.motion_detector import MotionDetector, MotionDetectorConfig
+from anpr.detection.motion_detector import MotionDetectorConfig
+from anpr.infrastructure.event_writer import EventWriter
 from anpr.pipeline.anpr_pipeline import TrackDirectionEstimator
 from anpr.pipeline.factory import build_components
 from anpr.infrastructure.logging_manager import get_logger
 from anpr.infrastructure.settings_manager import SettingsManager
 from anpr.infrastructure.storage import AsyncEventDatabase
+from anpr.workers.motion_controller import MotionController
 
 logger = get_logger(__name__)
 
@@ -456,7 +456,6 @@ class ChannelWorker(QtCore.QThread):
         self.reconnect_policy = ReconnectPolicy.from_dict(reconnect_conf)
         self.db_path = db_path
         self.screenshot_dir = screenshot_dir
-        os.makedirs(self.screenshot_dir, exist_ok=True)
         self._running = True
         self.plate_config = plate_config or {}
 
@@ -466,7 +465,7 @@ class ChannelWorker(QtCore.QThread):
             activation_frames=self.config.motion_activation_frames,
             release_frames=self.config.motion_release_frames,
         )
-        self.motion_detector = MotionDetector(motion_config)
+        self.motion_controller = MotionController(self.config.detection_mode, motion_config)
         self._inference_limiter = InferenceLimiter(self.config.detector_frame_stride)
         self._inference_task: Optional[asyncio.Task] = None
         self._last_debug: Dict[str, list] = {"detections": [], "results": []}
@@ -557,13 +556,6 @@ class ChannelWorker(QtCore.QThread):
 
         return roi_frame, (x1, y1, x2, y2)
 
-    def _motion_detected(self, roi_frame: cv2.Mat) -> bool:
-        """Проверяет наличие движения в ROI."""
-        if self.config.detection_mode != "motion":
-            return True
-
-        return self.motion_detector.update(roi_frame)
-
     async def _run_inference(
         self, frame: cv2.Mat, roi_frame: cv2.Mat, roi_rect: Tuple[int, int, int, int]
     ) -> Tuple[list[dict], list[dict]]:
@@ -614,41 +606,6 @@ class ChannelWorker(QtCore.QThread):
                     continue
                 except Exception as exc:
                     logger.debug("Ошибка освобождения shared memory: %s", exc)
-
-    @staticmethod
-    def _to_qimage(frame: Optional[cv2.Mat], *, is_rgb: bool = False) -> Optional[QtGui.QImage]:
-        """Конвертирует OpenCV Mat в QImage."""
-        if frame is None or frame.size == 0:
-            return None
-        
-        rgb_frame = frame if is_rgb else cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        height, width, channels = rgb_frame.shape
-        bytes_per_line = channels * width
-        
-        # Важно создать копию данных, чтобы избежать проблем с памятью
-        return QtGui.QImage(
-            rgb_frame.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888
-        ).copy()
-
-    @staticmethod
-    def _sanitize_for_filename(value: str) -> str:
-        """Очищает строку для использования в имени файла."""
-        normalized = value.replace(os.sep, "_")
-        safe_chars = [c if c.isalnum() or c in ("-", "_") else "_" for c in normalized]
-        return "".join(safe_chars) or "event"
-
-    def _build_screenshot_paths(self, channel_name: str, plate: str) -> Tuple[str, str]:
-        """Генерирует пути для сохранения скриншотов."""
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-        channel_safe = self._sanitize_for_filename(channel_name)
-        plate_safe = self._sanitize_for_filename(plate or "plate")
-        uid = uuid.uuid4().hex[:8]
-        base = f"{timestamp}_{channel_safe}_{plate_safe}_{uid}"
-        
-        return (
-            os.path.join(self.screenshot_dir, f"{base}_frame.jpg"),
-            os.path.join(self.screenshot_dir, f"{base}_plate.jpg"),
-        )
 
     @staticmethod
     def _draw_label(frame: cv2.Mat, text: str, origin: Tuple[int, int]) -> None:
@@ -793,92 +750,9 @@ class ChannelWorker(QtCore.QThread):
         )
         self._last_metrics_emit = now
 
-    def _save_bgr_image(self, path: str, image: Optional[cv2.Mat]) -> Optional[str]:
-        """Сохраняет BGR изображение на диск."""
-        if image is None or image.size == 0:
-            return None
-        
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        try:
-            if cv2.imwrite(path, image):
-                return path
-        except Exception as e:
-            logger.exception("Не удалось сохранить скриншот по пути %s: %s", path, e)
-        
-        return None
-
-    async def _process_events(
-        self,
-        storage: AsyncEventDatabase,
-        source: str,
-        results: list[dict],
-        channel_name: str,
-        frame: cv2.Mat,
-        rgb_frame: Optional[cv2.Mat] = None,
-    ) -> None:
-        """Обрабатывает результаты распознавания и сохраняет события."""
-        for res in results:
-            if res.get("unreadable"):
-                logger.debug(
-                    "Канал %s: номер помечен как нечитаемый (confidence=%.2f)",
-                    channel_name,
-                    res.get("confidence", 0.0),
-                )
-                continue
-            
-            if not res.get("text"):
-                continue
-            
-            event = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "channel": channel_name,
-                "plate": res.get("text", ""),
-                "country": res.get("country"),
-                "confidence": res.get("confidence", 0.0),
-                "source": source,
-                "direction": res.get("direction"),
-            }
-            
-            # Извлекаем область номера для скриншота
-            x1, y1, x2, y2 = res.get("bbox", (0, 0, 0, 0))
-            plate_crop = frame[y1:y2, x1:x2] if frame is not None else None
-            
-            # Сохраняем скриншоты
-            frame_path, plate_path = self._build_screenshot_paths(channel_name, event["plate"])
-            event["frame_path"] = self._save_bgr_image(frame_path, frame)
-            event["plate_path"] = self._save_bgr_image(plate_path, plate_crop)
-            
-            # Готовим изображения для UI
-            event["frame_image"] = self._to_qimage(rgb_frame, is_rgb=True)
-            event["plate_image"] = self._to_qimage(plate_crop) if plate_crop is not None else None
-            
-            # Сохраняем в БД
-            event["id"] = await storage.insert_event_async(
-                channel=event["channel"],
-                plate=event["plate"],
-                country=event.get("country"),
-                confidence=event["confidence"],
-                source=event["source"],
-                timestamp=event["timestamp"],
-                frame_path=event.get("frame_path"),
-                plate_path=event.get("plate_path"),
-                direction=event.get("direction"),
-            )
-            
-            # Отправляем событие в UI
-            self.event_ready.emit(event)
-            logger.info(
-                "Канал %s: номер %s (conf=%.2f, dir=%s, track=%s)",
-                event["channel"],
-                event["plate"],
-                event["confidence"],
-                event.get("direction") or "-",
-                res.get("track_id", "-"),
-            )
-
     async def _inference_and_process(
         self,
-        storage: AsyncEventDatabase,
+        event_writer: EventWriter,
         source: str,
         channel_name: str,
         frame: cv2.Mat,
@@ -901,13 +775,22 @@ class ChannelWorker(QtCore.QThread):
             ]
             if confidences:
                 self._confidence_scores.extend(confidences)
-            await self._process_events(storage, source, results, channel_name, frame, rgb_frame)
+            events = await event_writer.write_events(
+                source,
+                results,
+                channel_name,
+                frame,
+                rgb_frame,
+            )
+            for event in events:
+                self.event_ready.emit(event)
         except Exception as e:
             logger.exception("Ошибка инференса для канала %s: %s", channel_name, e)
 
     async def _loop(self) -> None:
         """Основной цикл обработки канала."""
         storage = AsyncEventDatabase(self.db_path)
+        event_writer = EventWriter(storage, self.screenshot_dir)
 
         source = self.config.source
         channel_name = self.config.name
@@ -920,7 +803,6 @@ class ChannelWorker(QtCore.QThread):
         
         logger.info("Канал %s запущен (источник=%s)", channel_name, source)
         
-        waiting_for_motion = False
         last_frame_ts = time.monotonic()
         last_reconnect_ts = last_frame_ts
         
@@ -975,23 +857,17 @@ class ChannelWorker(QtCore.QThread):
             # Обработка кадра
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             roi_frame, roi_rect = self._extract_region(frame)
-            motion_detected = self._motion_detected(roi_frame)
+            motion_detected, motion_status = self.motion_controller.update(roi_frame)
+            if motion_status:
+                self.status_ready.emit(channel_name, motion_status)
 
-            if not motion_detected:
-                if not waiting_for_motion and self.config.detection_mode == "motion":
-                    self.status_ready.emit(channel_name, "Ожидание движения")
-                waiting_for_motion = True
-            else:
-                if waiting_for_motion:
-                    self.status_ready.emit(channel_name, "Движение обнаружено")
-                waiting_for_motion = False
-
+            if motion_detected:
                 # Запуск инференса с учетом stride
                 if self._inference_limiter.allow():
                     if self._inference_task is None or self._inference_task.done():
                         self._inference_task = asyncio.create_task(
                             self._inference_and_process(
-                                storage,
+                                event_writer,
                                 source,
                                 channel_name,
                                 frame.copy(),
