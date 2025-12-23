@@ -2562,6 +2562,21 @@ class MainWindow(QtWidgets.QMainWindow):
         size_group.setLayout(size_layout)
 
         roi_form.addRow("", size_group)
+        frame_group = QtWidgets.QGroupBox("Кадр для настройки")
+        frame_layout = QtWidgets.QHBoxLayout()
+        frame_hint = QtWidgets.QLabel(
+            "Нажмите, чтобы получить свежий кадр с канала для настройки зоны распознавания."
+        )
+        frame_hint.setWordWrap(True)
+        frame_hint.setStyleSheet("color: #9ca3af;")
+        refresh_btn = QtWidgets.QPushButton("Обновить кадр")
+        self._polish_button(refresh_btn, 160)
+        refresh_btn.clicked.connect(self._refresh_preview_frame)
+        frame_layout.addWidget(frame_hint, 1)
+        frame_layout.addWidget(refresh_btn, 0, alignment=QtCore.Qt.AlignRight)
+        frame_group.setLayout(frame_layout)
+        roi_form.addRow("", frame_group)
+
         self.roi_points_table = QtWidgets.QTableWidget()
         self.roi_points_table.setColumnCount(2)
         self.roi_points_table.setHorizontalHeaderLabels(["X (px)", "Y (px)"])
@@ -2595,11 +2610,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         roi_form.addRow("Точки ROI:", self.roi_points_table)
         roi_form.addRow("", roi_buttons)
-
-        refresh_btn = QtWidgets.QPushButton("Обновить кадр")
-        self._polish_button(refresh_btn, 160)
-        refresh_btn.clicked.connect(self._refresh_preview_frame)
-        roi_form.addRow("", refresh_btn)
 
         right_panel.addWidget(tabs)
 
@@ -2898,9 +2908,9 @@ class MainWindow(QtWidgets.QMainWindow):
             region = channel.get("region") or self._default_roi_region()
             if not region.get("points"):
                 region = {"unit": region.get("unit", "px"), "points": self._default_roi_region()["points"]}
+            self.preview.setPixmap(None)
             self.preview.set_roi(region)
             self._sync_roi_table(region)
-            self._refresh_preview_frame()
 
     def _add_channel(self) -> None:
         channels = self.settings.get_channels()
