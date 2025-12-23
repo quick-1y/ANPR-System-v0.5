@@ -446,8 +446,16 @@ class ChannelWorker(QtCore.QThread):
         self._frame_times: deque[float] = deque(maxlen=120)
         self._latency_ms: deque[float] = deque(maxlen=40)
         self._confidence_scores: deque[float] = deque(maxlen=60)
+        self._backlog_history: deque[int] = deque(maxlen=40)
         self._last_metrics_emit = 0.0
         self._metrics_interval = 1.0
+        self._base_detector_stride = max(1, int(self.config.detector_frame_stride))
+        self._max_detector_stride = max(self._base_detector_stride, self._base_detector_stride * 4)
+        self._current_detector_stride = self._base_detector_stride
+        self._last_stride_adjust = 0.0
+        self._stride_adjust_interval = 2.0
+        self._backlog_raise_threshold = 3
+        self._backlog_recover_threshold = 1
         self._ocr_queue: deque[tuple[cv2.Mat, cv2.Mat, Tuple[int, int, int, int], cv2.Mat]] = deque()
         self._max_ocr_queue = max(0, int(self.config.max_ocr_queue))
         inference_conf = SettingsManager().get_inference_settings()
@@ -690,7 +698,7 @@ class ChannelWorker(QtCore.QThread):
             label = f"#{track_id} {direction}"
             self._draw_label(frame, label, (int(tail_x) + 6, int(tail_y) - 6))
 
-    def _update_metrics(self, now: float) -> None:
+    def _update_metrics(self, now: float, backlog_frames: int) -> None:
         self._frame_times.append(now)
         window_seconds = 2.0
         while self._frame_times and now - self._frame_times[0] > window_seconds:
@@ -718,9 +726,34 @@ class ChannelWorker(QtCore.QThread):
                 "fps": fps,
                 "latency_ms": latency_ms,
                 "accuracy": accuracy,
+                "backlog_frames": backlog_frames,
+                "detector_frame_stride": self._current_detector_stride,
             },
         )
         self._last_metrics_emit = now
+
+    def _update_stride(self, now: float, backlog_frames: int) -> None:
+        self._backlog_history.append(backlog_frames)
+        if now - self._last_stride_adjust < self._stride_adjust_interval:
+            return
+
+        avg_backlog = float(sum(self._backlog_history)) / max(1, len(self._backlog_history))
+        new_stride = self._current_detector_stride
+        if avg_backlog >= self._backlog_raise_threshold:
+            new_stride = min(self._current_detector_stride + 1, self._max_detector_stride)
+        elif avg_backlog <= self._backlog_recover_threshold:
+            new_stride = max(self._current_detector_stride - 1, self._base_detector_stride)
+
+        if new_stride != self._current_detector_stride:
+            self._current_detector_stride = new_stride
+            self._inference_limiter.stride = new_stride
+            logger.info(
+                "Канал %s: detector_frame_stride изменен на %s (backlog=%.2f)",
+                self.config.name,
+                new_stride,
+                avg_backlog,
+            )
+        self._last_stride_adjust = now
 
     async def _inference_and_process(
         self,
@@ -819,12 +852,14 @@ class ChannelWorker(QtCore.QThread):
                     logger.warning("Переподключение не удалось для канала %s", channel_name)
                     break
                 
-                last_reconnect_ts = time.monotonic()
-                last_frame_ts = last_reconnect_ts
-                continue
+            last_reconnect_ts = time.monotonic()
+            last_frame_ts = last_reconnect_ts
+            continue
 
             last_frame_ts = time.monotonic()
-            self._update_metrics(last_frame_ts)
+            backlog_frames = len(self._ocr_queue) + (1 if self._inference_task is not None else 0)
+            self._update_stride(last_frame_ts, backlog_frames)
+            self._update_metrics(last_frame_ts, backlog_frames)
 
             # Обработка кадра
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
