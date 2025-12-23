@@ -1035,6 +1035,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._channel_save_timer = QtCore.QTimer(self)
         self._channel_save_timer.setSingleShot(True)
         self._channel_save_timer.timeout.connect(self._flush_pending_channels)
+        self._pending_channel_restarts: set[int] = set()
         self._drag_counter = 0
         self._skip_frame_updates = False
         self._preview_worker: Optional[PreviewLoader] = None
@@ -1543,16 +1544,26 @@ class MainWindow(QtWidgets.QMainWindow):
         reconnect_conf = self.settings.get_reconnect()
         plate_settings = self.settings.get_plate_settings()
         for channel_conf in self.settings.get_channels():
-            source = str(channel_conf.get("source", "")).strip()
-            channel_name = channel_conf.get("name", "Канал")
-            if not source:
-                label = self.channel_labels.get(channel_name)
-                if label:
-                    label.set_status("Нет источника")
-                continue
-            worker = self._create_channel_worker(channel_conf, reconnect_conf, plate_settings)
-            self.channel_workers.append(worker)
-            worker.start()
+            self._start_channel_worker(channel_conf, reconnect_conf, plate_settings)
+
+    def _start_channel_worker(
+        self,
+        channel_conf: Dict[str, Any],
+        reconnect_conf: Optional[Dict[str, Any]] = None,
+        plate_settings: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        source = str(channel_conf.get("source", "")).strip()
+        channel_name = channel_conf.get("name", "Канал")
+        if not source:
+            label = self.channel_labels.get(channel_name)
+            if label:
+                label.set_status("Нет источника")
+            return
+        reconnect_conf = reconnect_conf or self.settings.get_reconnect()
+        plate_settings = plate_settings or self.settings.get_plate_settings()
+        worker = self._create_channel_worker(channel_conf, reconnect_conf, plate_settings)
+        self.channel_workers.append(worker)
+        worker.start()
 
     def _create_channel_worker(
         self,
@@ -1583,31 +1594,35 @@ class MainWindow(QtWidgets.QMainWindow):
         channel_id = int(channel_conf.get("id", 0))
         existing = self._find_channel_worker(channel_id)
         if existing:
+            if channel_id in self._pending_channel_restarts:
+                return
+            self._pending_channel_restarts.add(channel_id)
             existing.stop()
-            existing.wait(2000)
-            try:
-                existing.frame_ready.disconnect()
-                existing.event_ready.disconnect()
-                existing.status_ready.disconnect()
-                existing.metrics_ready.disconnect()
-            except Exception:
-                pass
-            if existing in self.channel_workers:
-                self.channel_workers.remove(existing)
-
-        source = str(channel_conf.get("source", "")).strip()
-        channel_name = channel_conf.get("name", "Канал")
-        if not source:
-            label = self.channel_labels.get(channel_name)
-            if label:
-                label.set_status("Нет источника")
+            existing.finished.connect(
+                lambda conf=channel_conf, worker=existing: self._finalize_channel_restart(
+                    worker, conf
+                )
+            )
+            if existing.isFinished():
+                self._finalize_channel_restart(existing, channel_conf)
             return
 
-        reconnect_conf = self.settings.get_reconnect()
-        plate_settings = self.settings.get_plate_settings()
-        worker = self._create_channel_worker(channel_conf, reconnect_conf, plate_settings)
-        self.channel_workers.append(worker)
-        worker.start()
+        self._start_channel_worker(channel_conf)
+
+    def _finalize_channel_restart(self, worker: ChannelWorker, channel_conf: Dict[str, Any]) -> None:
+        channel_id = int(channel_conf.get("id", 0))
+        try:
+            worker.frame_ready.disconnect()
+            worker.event_ready.disconnect()
+            worker.status_ready.disconnect()
+            worker.metrics_ready.disconnect()
+        except Exception:
+            pass
+        if worker in self.channel_workers:
+            self.channel_workers.remove(worker)
+        worker.deleteLater()
+        self._pending_channel_restarts.discard(channel_id)
+        self._start_channel_worker(channel_conf)
 
     def _stop_workers(self) -> None:
         for worker in self.channel_workers:
@@ -1621,6 +1636,7 @@ class MainWindow(QtWidgets.QMainWindow):
             except Exception:
                 pass
         self.channel_workers = []
+        self._pending_channel_restarts.clear()
 
     def _update_frame(self, channel_name: str, image: QtGui.QImage) -> None:
         if self._skip_frame_updates:
