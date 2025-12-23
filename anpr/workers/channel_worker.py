@@ -491,6 +491,7 @@ class ChannelWorker(QtCore.QThread):
             plate_config["config_dir"] = os.path.abspath(str(plate_config.get("config_dir")))
 
         return {
+            "channel_id": self.channel_id,
             "best_shots": self.config.best_shots,
             "cooldown_seconds": self.config.cooldown_seconds,
             "min_confidence": self.config.min_confidence,
