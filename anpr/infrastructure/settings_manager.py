@@ -148,6 +148,7 @@ class SettingsManager:
     def _channel_defaults(tracking_defaults: Dict[str, Any]) -> Dict[str, Any]:
         size_defaults = SettingsManager._plate_size_defaults()
         return {
+            "enabled": True,
             "best_shots": int(tracking_defaults.get("best_shots", 3)),
             "cooldown_seconds": int(tracking_defaults.get("cooldown_seconds", 5)),
             "ocr_min_confidence": float(tracking_defaults.get("ocr_min_confidence", 0.6)),

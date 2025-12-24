@@ -1255,10 +1255,11 @@ class MainWindow(QtWidgets.QMainWindow):
     def _build_observation_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QHBoxLayout(widget)
-        layout.setSpacing(10)
+        layout.setSpacing(4)
 
         left_widget = QtWidgets.QWidget()
         left_column = QtWidgets.QVBoxLayout(left_widget)
+        left_column.setContentsMargins(0, 0, 0, 0)
         controls = QtWidgets.QHBoxLayout()
         controls.setSpacing(8)
 
@@ -1269,13 +1270,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._style_title_label(chooser_label)
         chooser_layout.addWidget(chooser_label)
         self.grid_combo = QtWidgets.QComboBox()
-        self.grid_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
         self.grid_combo.setSizePolicy(
-            QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Fixed
+            QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed
         )
         self._style_combo(self.grid_combo, rounded=True)
         for variant in self.GRID_VARIANTS:
             self.grid_combo.addItem(variant.replace("x", "×"), variant)
+        combo_width = max(self.fontMetrics().horizontalAdvance("3×3") + 18, 60)
+        self.grid_combo.setFixedWidth(combo_width)
+        self.grid_combo.setMinimumContentsLength(3)
         current_index = self.grid_combo.findData(self.current_grid)
         if current_index >= 0:
             self.grid_combo.setCurrentIndex(current_index)
@@ -1320,8 +1323,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.events_table.setHorizontalHeaderLabels(["Дата/Время", "Гос. номер", "Страна", "Канал", "Направление"])
         self._apply_stylesheet(self.events_table, lambda: self.table_style)
         header = self.events_table.horizontalHeader()
-        header.setMinimumSectionSize(90)
-        header.setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        header.setMinimumSectionSize(80)
+        header.setSectionResizeMode(QtWidgets.QHeaderView.Interactive)
+        header.setStretchLastSection(False)
+        self.events_table.setColumnWidth(0, 190)
+        self.events_table.setColumnWidth(1, 130)
+        self.events_table.setColumnWidth(2, 90)
+        self.events_table.setColumnWidth(3, 140)
+        self.events_table.setColumnWidth(4, 130)
         self.events_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.events_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.events_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -1345,7 +1354,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
         toggle_rail = QtWidgets.QFrame()
-        toggle_rail.setFixedWidth(32)
+        toggle_rail.setFixedWidth(max(toggle_details_btn.sizeHint().width() + 2, 26))
         toggle_rail.setStyleSheet("QFrame { background-color: transparent; }")
         rail_layout = QtWidgets.QVBoxLayout(toggle_rail)
         rail_layout.setContentsMargins(0, 0, 0, 0)
@@ -1399,6 +1408,18 @@ class MainWindow(QtWidgets.QMainWindow):
         button.setMinimumWidth(min_width)
         button.setMinimumHeight(MainWindow.BUTTON_HEIGHT)
         button.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+
+    def _style_channel_tool_button(self, button: QtWidgets.QToolButton) -> None:
+        def apply_style() -> None:
+            button.setStyleSheet(
+                f"QToolButton {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; border: 1px solid {self.colors['border']}; border-radius: 6px; }} "
+                f"QToolButton:hover {{ background-color: rgba({QtGui.QColor(self.colors['text_primary']).red()}, {QtGui.QColor(self.colors['text_primary']).green()}, {QtGui.QColor(self.colors['text_primary']).blue()}, 14); }} "
+                f"QToolButton:checked {{ background-color: {self.colors['accent']}; color: {self.colors['text_inverse']}; }}"
+            )
+
+        self._register_theme_setter(apply_style)
+        button.setAutoRaise(False)
+        button.setCursor(QtCore.Qt.PointingHandCursor)
 
     @staticmethod
     def _tune_form_layout(form: QtWidgets.QFormLayout) -> None:
@@ -1578,6 +1599,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     channel_name = channels[index].get("name", f"Канал {index+1}")
                     self.channel_labels[channel_name] = label
                 label.set_channel_name(channel_name)
+                if index < len(channels) and not channels[index].get("enabled", True):
+                    label.set_status("Отключен")
                 label.channelDropped.connect(self._on_channel_dropped)
                 label.channelActivated.connect(self._on_channel_activated)
                 label.dragStarted.connect(self._on_drag_started)
@@ -1661,11 +1684,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.channels_list.blockSignals(True)
         self.channels_list.clear()
         for channel in channels:
-            self.channels_list.addItem(channel.get("name", "Канал"))
+            self.channels_list.addItem(self._channel_item_label(channel))
         self.channels_list.blockSignals(False)
         if self.channels_list.count():
             target_row = min(current_row if current_row >= 0 else 0, self.channels_list.count() - 1)
             self.channels_list.setCurrentRow(target_row)
+        self._update_channel_action_states()
 
     def _schedule_channels_save(self, channels: List[Dict[str, Any]]) -> None:
         self._pending_channels = [dict(channel) for channel in channels]
@@ -1710,6 +1734,11 @@ class MainWindow(QtWidgets.QMainWindow):
         reconnect_conf = self.settings.get_reconnect()
         plate_settings = self.settings.get_plate_settings()
         for channel_conf in self.settings.get_channels():
+            if not channel_conf.get("enabled", True):
+                label = self.channel_labels.get(channel_conf.get("name", ""))
+                if label:
+                    label.set_status("Отключен")
+                continue
             self._start_channel_worker(channel_conf, reconnect_conf, plate_settings)
 
     def _start_channel_worker(
@@ -1718,6 +1747,11 @@ class MainWindow(QtWidgets.QMainWindow):
         reconnect_conf: Optional[Dict[str, Any]] = None,
         plate_settings: Optional[Dict[str, Any]] = None,
     ) -> None:
+        if not channel_conf.get("enabled", True):
+            label = self.channel_labels.get(channel_conf.get("name", "Канал"))
+            if label:
+                label.set_status("Отключен")
+            return
         source = str(channel_conf.get("source", "")).strip()
         channel_name = channel_conf.get("name", "Канал")
         if not source:
@@ -2587,23 +2621,42 @@ class MainWindow(QtWidgets.QMainWindow):
         self._apply_stylesheet(widget, lambda: self.group_box_style)
 
         left_panel = QtWidgets.QVBoxLayout()
-        left_panel.setSpacing(6)
+        left_panel.setSpacing(8)
+
+        toolbar = QtWidgets.QHBoxLayout()
+        toolbar.setSpacing(6)
+        self.add_channel_btn = QtWidgets.QToolButton()
+        self.add_channel_btn.setText("+")
+        self.add_channel_btn.setToolTip("Добавить канал")
+        self.add_channel_btn.setFixedSize(28, 28)
+        self._style_channel_tool_button(self.add_channel_btn)
+        self.add_channel_btn.clicked.connect(self._add_channel)
+        toolbar.addWidget(self.add_channel_btn)
+
+        self.remove_channel_btn = QtWidgets.QToolButton()
+        self.remove_channel_btn.setText("-")
+        self.remove_channel_btn.setToolTip("Удалить выбранный канал")
+        self.remove_channel_btn.setFixedSize(28, 28)
+        self._style_channel_tool_button(self.remove_channel_btn)
+        self.remove_channel_btn.clicked.connect(self._remove_channel)
+        toolbar.addWidget(self.remove_channel_btn)
+
+        self.toggle_channel_btn = QtWidgets.QToolButton()
+        self.toggle_channel_btn.setCheckable(True)
+        self.toggle_channel_btn.setText("●")
+        self.toggle_channel_btn.setToolTip("Деактивировать канал")
+        self.toggle_channel_btn.setFixedSize(28, 28)
+        self._style_channel_tool_button(self.toggle_channel_btn)
+        self.toggle_channel_btn.clicked.connect(self._toggle_channel_active)
+        toolbar.addWidget(self.toggle_channel_btn)
+        toolbar.addStretch(1)
+        left_panel.addLayout(toolbar)
+
         self.channels_list = QtWidgets.QListWidget()
         self.channels_list.setFixedWidth(180)
         self._apply_stylesheet(self.channels_list, lambda: self.list_style)
-        self.channels_list.currentRowChanged.connect(self._load_channel_form)
+        self.channels_list.currentRowChanged.connect(self._on_channel_selected)
         left_panel.addWidget(self.channels_list)
-
-        list_buttons = QtWidgets.QHBoxLayout()
-        add_btn = QtWidgets.QPushButton("Добавить")
-        self._polish_button(add_btn, 140)
-        add_btn.clicked.connect(self._add_channel)
-        remove_btn = QtWidgets.QPushButton("Удалить")
-        self._polish_button(remove_btn, 140)
-        remove_btn.clicked.connect(self._remove_channel)
-        list_buttons.addWidget(add_btn)
-        list_buttons.addWidget(remove_btn)
-        left_panel.addLayout(list_buttons)
         layout.addLayout(left_panel)
 
         self.channel_details_container = QtWidgets.QWidget()
@@ -2653,6 +2706,25 @@ class MainWindow(QtWidgets.QMainWindow):
         channel_form.addRow("Название:", self.channel_name_input)
         channel_form.addRow("Источник/RTSP:", self.channel_source_input)
 
+        debug_row = QtWidgets.QHBoxLayout()
+        self.debug_detection_checkbox = QtWidgets.QCheckBox("Рамки детекции")
+        self.debug_detection_checkbox.setToolTip(
+            "Отображать рамки поиска номеров на кадре"
+        )
+        self.debug_ocr_checkbox = QtWidgets.QCheckBox("Символы OCR")
+        self.debug_ocr_checkbox.setToolTip(
+            "Выводить распознанные символы поверх рамок"
+        )
+        self.debug_direction_checkbox = QtWidgets.QCheckBox("Трек движения")
+        self.debug_direction_checkbox.setToolTip(
+            "Показывать траектории движения и направление каждого трека"
+        )
+        debug_row.addWidget(self.debug_detection_checkbox)
+        debug_row.addWidget(self.debug_ocr_checkbox)
+        debug_row.addWidget(self.debug_direction_checkbox)
+        debug_row.addStretch(1)
+        channel_form.addRow("Отладка:", debug_row)
+
         recognition_form = make_form_tab()
         tabs.setTabText(1, "Распознавание")
         self.best_shots_input = QtWidgets.QSpinBox()
@@ -2684,25 +2756,6 @@ class MainWindow(QtWidgets.QMainWindow):
             "Минимальная уверенность OCR (0-1) для приема результата; ниже — помечается как нечитаемое"
         )
         recognition_form.addRow("Мин. уверенность OCR:", self.min_conf_input)
-
-        debug_row = QtWidgets.QHBoxLayout()
-        self.debug_detection_checkbox = QtWidgets.QCheckBox("Рамки детекции")
-        self.debug_detection_checkbox.setToolTip(
-            "Отображать рамки поиска номеров на кадре"
-        )
-        self.debug_ocr_checkbox = QtWidgets.QCheckBox("Символы OCR")
-        self.debug_ocr_checkbox.setToolTip(
-            "Выводить распознанные символы поверх рамок"
-        )
-        self.debug_direction_checkbox = QtWidgets.QCheckBox("Трек движения")
-        self.debug_direction_checkbox.setToolTip(
-            "Показывать траектории движения и направление каждого трека"
-        )
-        debug_row.addWidget(self.debug_detection_checkbox)
-        debug_row.addWidget(self.debug_ocr_checkbox)
-        debug_row.addWidget(self.debug_direction_checkbox)
-        debug_row.addStretch(1)
-        recognition_form.addRow("Отладка:", debug_row)
 
         motion_form = make_form_tab()
         tabs.setTabText(2, "Детектор движения")
@@ -2892,13 +2945,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self._reload_channels_list()
         return widget
 
+    def _channel_item_label(self, channel: Dict[str, Any]) -> str:
+        prefix = "●" if channel.get("enabled", True) else "○"
+        return f"{prefix} {channel.get('name', 'Канал')}"
+
+    def _on_channel_selected(self, index: int) -> None:
+        self._load_channel_form(index)
+        self._update_channel_action_states()
+
     def _reload_channels_list(self, target_index: Optional[int] = None) -> None:
         channels = self.settings.get_channels()
         current_row = self.channels_list.currentRow()
         self.channels_list.blockSignals(True)
         self.channels_list.clear()
         for channel in channels:
-            self.channels_list.addItem(channel.get("name", "Канал"))
+            self.channels_list.addItem(self._channel_item_label(channel))
         self.channels_list.blockSignals(False)
         if self.channels_list.count():
             if target_index is None:
@@ -2907,12 +2968,36 @@ class MainWindow(QtWidgets.QMainWindow):
             self.channels_list.setCurrentRow(target_row)
         else:
             self._set_channel_settings_visible(False)
+        self._update_channel_action_states()
 
     def _set_channel_settings_visible(self, visible: bool) -> None:
         self.channel_details_container.setVisible(visible)
         self.channel_details_container.setEnabled(visible)
         if not visible:
             self._clear_channel_form()
+
+    def _update_channel_action_states(self) -> None:
+        index = self.channels_list.currentRow()
+        channels = self.settings.get_channels()
+        has_selection = 0 <= index < len(channels)
+        for btn in (self.remove_channel_btn, self.toggle_channel_btn):
+            btn.setEnabled(has_selection)
+        if has_selection:
+            channel = channels[index]
+            enabled = bool(channel.get("enabled", True))
+            self.toggle_channel_btn.blockSignals(True)
+            self.toggle_channel_btn.setChecked(enabled)
+            self.toggle_channel_btn.blockSignals(False)
+            self.toggle_channel_btn.setText("●" if enabled else "○")
+            self.toggle_channel_btn.setToolTip(
+                "Деактивировать канал" if enabled else "Активировать канал"
+            )
+        else:
+            self.toggle_channel_btn.blockSignals(True)
+            self.toggle_channel_btn.setChecked(False)
+            self.toggle_channel_btn.blockSignals(False)
+            self.toggle_channel_btn.setText("●")
+            self.toggle_channel_btn.setToolTip("Активировать канал")
 
     def _clear_channel_form(self) -> None:
         self.channel_name_input.clear()
@@ -3183,6 +3268,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 "id": new_id,
                 "name": f"Канал {new_id}",
                 "source": "",
+                "enabled": True,
                 "best_shots": self.settings.get_best_shots(),
                 "cooldown_seconds": self.settings.get_cooldown_seconds(),
                 "ocr_min_confidence": self.settings.get_min_confidence(),
@@ -3206,6 +3292,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self._reload_channels_list(len(channels) - 1)
         self._draw_grid()
         self._start_channels()
+
+    def _toggle_channel_active(self) -> None:
+        index = self.channels_list.currentRow()
+        channels = self.settings.get_channels()
+        if 0 <= index < len(channels):
+            channel_conf = channels[index]
+            new_state = not bool(channel_conf.get("enabled", True))
+            channel_conf["enabled"] = new_state
+            self.settings.save_channels(channels)
+            channel_name = channel_conf.get("name", "Канал")
+            if new_state:
+                label = self.channel_labels.get(channel_name)
+                if label:
+                    label.set_status("")
+                self._start_channel_worker(channel_conf)
+            else:
+                worker = self._find_channel_worker(int(channel_conf.get("id", 0)))
+                if worker:
+                    self._stop_channel_worker(worker)
+                label = self.channel_labels.get(channel_name)
+                if label:
+                    label.set_status("Отключен")
+            self._update_channels_list_names(channels)
+            self._update_channel_action_states()
 
     def _remove_channel(self) -> None:
         index = self.channels_list.currentRow()
