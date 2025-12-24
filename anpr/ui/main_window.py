@@ -1276,7 +1276,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self._style_combo(self.grid_combo, rounded=True)
         for variant in self.GRID_VARIANTS:
-            self.grid_combo.addItem(variant.replace("x", "×"), variant)
+            self.grid_combo.addItem(variant.replace("x", "х"), variant)
         combo_width = max(self.fontMetrics().horizontalAdvance("3×3") + 18, 60)
         self.grid_combo.setFixedWidth(combo_width)
         self.grid_combo.setMinimumContentsLength(3)
