@@ -1142,11 +1142,6 @@ class MainWindow(QtWidgets.QMainWindow):
         chooser.addWidget(self.grid_combo)
 
         controls.addLayout(chooser)
-        toggle_details_btn = QtWidgets.QPushButton("Скрыть детали")
-        self._polish_button(toggle_details_btn, self.ACTION_BUTTON_WIDTH)
-        toggle_details_btn.setCheckable(True)
-        toggle_details_btn.setChecked(False)
-        controls.addWidget(toggle_details_btn)
         controls.addStretch()
         left_column.addLayout(controls)
 
