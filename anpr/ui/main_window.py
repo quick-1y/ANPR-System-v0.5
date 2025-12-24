@@ -753,6 +753,8 @@ class EventDetailView(QtWidgets.QWidget):
 
         bottom_row = QtWidgets.QHBoxLayout()
         self.plate_preview = self._build_preview("Кадр номера", min_size=QtCore.QSize(200, 140), keep_aspect=True)
+        self.frame_preview.display_label.installEventFilter(self)  # type: ignore[attr-defined]
+        self.plate_preview.display_label.installEventFilter(self)  # type: ignore[attr-defined]
         bottom_row.addWidget(self.plate_preview, 1)
 
         meta_group = QtWidgets.QGroupBox("Данные распознавания")
@@ -847,6 +849,14 @@ class EventDetailView(QtWidgets.QWidget):
 
         self._set_image(self.frame_preview, frame_image, keep_aspect=True)
         self._set_image(self.plate_preview, plate_image, keep_aspect=True)
+
+    def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # noqa: N802
+        if event.type() == QtCore.QEvent.Resize:
+            if obj is getattr(self.frame_preview, "display_label", None):
+                self._apply_image_to_label(self.frame_preview, self._frame_image, keep_aspect=True)
+            elif obj is getattr(self.plate_preview, "display_label", None):
+                self._apply_image_to_label(self.plate_preview, self._plate_image, keep_aspect=True)
+        return super().eventFilter(obj, event)
 
     def _set_image(
         self,
