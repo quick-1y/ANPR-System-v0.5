@@ -221,6 +221,7 @@ class ChannelRuntimeConfig:
     min_plate_size: PlateSize
     max_plate_size: PlateSize
     direction: DirectionSettings
+    size_filter_enabled: bool
 
     @classmethod
     def from_dict(cls, channel_conf: Dict[str, Any]) -> "ChannelRuntimeConfig":
@@ -244,6 +245,7 @@ class ChannelRuntimeConfig:
             min_plate_size=PlateSize.from_dict(channel_conf.get("min_plate_size"), size_defaults.get("min_plate_size")),
             max_plate_size=PlateSize.from_dict(channel_conf.get("max_plate_size"), size_defaults.get("max_plate_size")),
             direction=DirectionSettings.from_dict(channel_conf.get("direction"), direction_defaults),
+            size_filter_enabled=bool(channel_conf.get("size_filter_enabled", True)),
         )
 
 
@@ -331,6 +333,7 @@ def _run_inference_task(
             config.get("direction", {}),
             config.get("min_plate_size"),
             config.get("max_plate_size"),
+            bool(config.get("size_filter_enabled", True)),
         )
         _run_inference_task._local_cache[key] = (pipeline, detector)
 
@@ -526,6 +529,7 @@ class ChannelWorker(QtCore.QThread):
             "min_plate_size": config.min_plate_size.to_dict(),
             "max_plate_size": config.max_plate_size.to_dict(),
             "direction": config.direction.to_dict(),
+            "size_filter_enabled": bool(config.size_filter_enabled),
         }
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:

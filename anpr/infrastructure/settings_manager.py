@@ -166,6 +166,7 @@ class SettingsManager:
             },
             "min_plate_size": size_defaults["min_plate_size"].copy(),
             "max_plate_size": size_defaults["max_plate_size"].copy(),
+            "size_filter_enabled": True,
         }
 
     @staticmethod

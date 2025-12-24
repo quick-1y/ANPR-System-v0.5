@@ -2820,6 +2820,11 @@ class MainWindow(QtWidgets.QMainWindow):
         size_layout.setHorizontalSpacing(14)
         size_layout.setVerticalSpacing(10)
 
+        self.size_filter_checkbox = QtWidgets.QCheckBox("Включить фильтр по размеру")
+        self.size_filter_checkbox.setChecked(True)
+        self.size_filter_checkbox.setToolTip("При отключении минимальный и максимальный размер рамки не будут применяться")
+        self.size_filter_checkbox.toggled.connect(self._on_size_filter_toggled)
+
         self.min_plate_width_input = QtWidgets.QSpinBox()
         self.min_plate_width_input.setRange(0, 5000)
         self.min_plate_width_input.setMaximumWidth(self.COMPACT_FIELD_WIDTH)
@@ -2863,14 +2868,15 @@ class MainWindow(QtWidgets.QMainWindow):
         for label in (min_width_label, min_height_label, max_width_label, max_height_label):
             self._ensure_label_width(label)
 
-        size_layout.addWidget(min_width_label, 0, 0)
-        size_layout.addWidget(self.min_plate_width_input, 0, 1)
-        size_layout.addWidget(min_height_label, 0, 2)
-        size_layout.addWidget(self.min_plate_height_input, 0, 3)
-        size_layout.addWidget(max_width_label, 1, 0)
-        size_layout.addWidget(self.max_plate_width_input, 1, 1)
-        size_layout.addWidget(max_height_label, 1, 2)
-        size_layout.addWidget(self.max_plate_height_input, 1, 3)
+        size_layout.addWidget(self.size_filter_checkbox, 0, 0, 1, 4)
+        size_layout.addWidget(min_width_label, 1, 0)
+        size_layout.addWidget(self.min_plate_width_input, 1, 1)
+        size_layout.addWidget(min_height_label, 1, 2)
+        size_layout.addWidget(self.min_plate_height_input, 1, 3)
+        size_layout.addWidget(max_width_label, 2, 0)
+        size_layout.addWidget(self.max_plate_width_input, 2, 1)
+        size_layout.addWidget(max_height_label, 2, 2)
+        size_layout.addWidget(self.max_plate_height_input, 2, 3)
 
         self.plate_size_hint = QtWidgets.QLabel(
             "Перетаскивайте прямоугольники мин/макс на превью слева, значения сохраняются автоматически"
@@ -2879,7 +2885,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.plate_size_hint,
             lambda: f"color: {self.colors['text_muted']}; padding-top: 6px;",
         )
-        size_layout.addWidget(self.plate_size_hint, 2, 0, 1, 4)
+        size_layout.addWidget(self.plate_size_hint, 3, 0, 1, 4)
         size_group.setLayout(size_layout)
 
         self._apply_stylesheet(size_group, lambda: self.group_box_style)
@@ -3034,6 +3040,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.max_plate_width_input.value(),
             self.max_plate_height_input.value(),
         )
+        self.size_filter_checkbox.setChecked(True)
+        self._on_size_filter_toggled(True)
         default_roi = self._default_roi_region()
         self.preview.setPixmap(None)
         self.preview.set_roi(default_roi)
@@ -3245,9 +3253,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.min_plate_height_input.setValue(int(min_size.get("height", 0)))
             self.max_plate_width_input.setValue(int(max_size.get("width", 0)))
             self.max_plate_height_input.setValue(int(max_size.get("height", 0)))
+            size_filter_enabled = bool(channel.get("size_filter_enabled", True))
+            self.size_filter_checkbox.setChecked(size_filter_enabled)
             self.plate_size_hint.setText(
                 "Перетаскивайте прямоугольники мин/макс на превью слева, значения сохраняются автоматически"
             )
+            self._on_size_filter_toggled(size_filter_enabled)
             self._sync_plate_rects_from_inputs()
 
             debug_conf = channel.get("debug", {})
@@ -3283,6 +3294,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 "motion_release_frames": 6,
                 "min_plate_size": self.settings.get_plate_size_defaults().get("min_plate_size"),
                 "max_plate_size": self.settings.get_plate_size_defaults().get("max_plate_size"),
+                "size_filter_enabled": True,
                 "debug": {
                     "show_detection_boxes": False,
                     "show_ocr_text": False,
@@ -3356,6 +3368,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     "width": int(self.max_plate_width_input.value()),
                     "height": int(self.max_plate_height_input.value()),
                 }
+                channels[index]["size_filter_enabled"] = self.size_filter_checkbox.isChecked()
                 channels[index]["region"] = {"unit": "px", "points": self._collect_roi_points_from_table()}
                 channels[index]["debug"] = {
                     "show_detection_boxes": self.debug_detection_checkbox.isChecked(),
@@ -3458,6 +3471,21 @@ class MainWindow(QtWidgets.QMainWindow):
             self.max_plate_width_input.value(),
             self.max_plate_height_input.value(),
         )
+
+    def _on_size_filter_toggled(self, enabled: bool) -> None:
+        for widget in (
+            self.min_plate_width_input,
+            self.min_plate_height_input,
+            self.max_plate_width_input,
+            self.max_plate_height_input,
+        ):
+            widget.setEnabled(enabled)
+        if enabled:
+            self.plate_size_hint.setText(
+                "Перетаскивайте прямоугольники мин/макс на превью слева, значения сохраняются автоматически"
+            )
+        else:
+            self.plate_size_hint.setText("Фильтр по размеру отключен, все детекции проходят без ограничений")
 
     def _on_plate_size_selected(self, target: str, width: int, height: int) -> None:
         if target == "min":
