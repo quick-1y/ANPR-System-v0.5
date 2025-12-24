@@ -1197,7 +1197,7 @@ class MainWindow(QtWidgets.QMainWindow):
         toggle_details_btn = QtWidgets.QToolButton()
         toggle_details_btn.setCheckable(True)
         toggle_details_btn.setChecked(False)
-        toggle_details_btn.setText("◀")
+        toggle_details_btn.setText("▶")
         toggle_details_btn.setToolTip("Скрыть панель деталей")
         toggle_details_btn.setFixedSize(26, 26)
         toggle_details_btn.setStyleSheet(
@@ -1232,7 +1232,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 details_content.hide()
                 details_container.setMinimumWidth(toggle_rail.width())
                 details_container.setMaximumWidth(toggle_rail.width())
-                toggle_details_btn.setText("▶")
+                toggle_details_btn.setText("◀")
                 toggle_details_btn.setToolTip("Показать панель деталей")
             else:
                 right_title.show()
@@ -1241,7 +1241,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 details_content.show()
                 details_container.setMinimumWidth(0)
                 details_container.setMaximumWidth(16777215)
-                toggle_details_btn.setText("◀")
+                toggle_details_btn.setText("▶")
                 toggle_details_btn.setToolTip("Скрыть панель деталей")
 
         toggle_details_btn.toggled.connect(toggle_details_panel)
