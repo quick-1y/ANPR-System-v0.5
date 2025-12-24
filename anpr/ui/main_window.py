@@ -1066,6 +1066,7 @@ class MainWindow(QtWidgets.QMainWindow):
             f"QPushButton:pressed {{ background-color: {accent_darker}; color: {c['text_inverse']}; }}"
         )
         self.table_style = (
+            f"QHeaderView {{ background-color: {c['table_header_bg']}; border: none; }}"
             f"QHeaderView::section {{ background-color: {c['table_header_bg']}; color: {c['text_secondary']}; padding: 8px; font-weight: 700; border: none; }}"
             f"QTableWidget {{ background-color: {c['table_row_bg']}; color: {c['text_primary']}; gridline-color: {c['border']}; selection-background-color: {accent_rgba}; }}"
             f"QTableWidget::item {{ border-bottom: 1px solid {c['border']}; padding: 6px; }}"
