@@ -36,6 +36,8 @@ class MotionDetector:
         """Обновляет состояние детектора и возвращает, активно ли движение."""
 
         if frame.size == 0:
+            # Сбрасываем состояние, чтобы не использовать кадры другой формы после разрыва сигнала
+            self._previous_frame = None
             return False
 
         if not self._should_analyze():
@@ -44,7 +46,11 @@ class MotionDetector:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
-        if self._previous_frame is None:
+        if self._previous_frame is None or self._previous_frame.shape != gray.shape:
+            # При смене разрешения или ROI нельзя вычитать кадры разного размера
+            self._motion_frames = 0
+            self._static_frames = 0
+            self._motion_active = False
             self._previous_frame = gray
             return False
 
