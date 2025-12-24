@@ -1016,6 +1016,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._start_system_monitoring()
         self._refresh_events_table()
         self._start_channels()
+        # Повторно применяем тему после инициализации всех виджетов,
+        # чтобы зарегистрированные сеттеры обновили стили при стартовом запуске.
+        self._apply_theme_styles()
 
     def _apply_theme_palette(self, theme: str) -> None:
         palette = self.THEME_PALETTES.get(theme, self.THEME_PALETTES["dark"])
@@ -1122,6 +1125,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.theme_btn.setProperty("windowControl", True)
         self.theme_btn.setToolTip("Переключить тему")
         self.theme_btn.clicked.connect(self._toggle_theme)
+        self.theme_btn.setMinimumWidth(34)
+        self._register_theme_setter(
+            lambda btn=self.theme_btn: btn.setStyleSheet(
+                f"QToolButton {{ background-color: transparent; border: 1px solid {self.colors['border']}; color: {self.colors['text_primary']}; padding: 6px; border-radius: 8px; }}"
+                f"QToolButton:hover {{ background-color: rgba({QtGui.QColor(self.colors['text_primary']).red()}, {QtGui.QColor(self.colors['text_primary']).green()}, {QtGui.QColor(self.colors['text_primary']).blue()}, 18); }}"
+            )
+        )
         layout.addWidget(self.theme_btn)
 
         minimize_btn = QtWidgets.QToolButton()
