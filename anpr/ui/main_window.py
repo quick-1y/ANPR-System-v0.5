@@ -1003,7 +1003,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._latest_frames: Dict[str, QtGui.QImage] = {}
 
         self.tabs = QtWidgets.QTabWidget()
-        self._register_theme_setter(lambda: self.tabs.setStyleSheet(self.tabs_style))
+        self._apply_stylesheet(self.tabs, lambda: self.tabs_style)
         self.observation_tab = self._build_observation_tab()
         self.search_tab = self._build_search_tab()
         self.settings_tab = self._build_settings_tab()
@@ -1021,7 +1021,7 @@ class MainWindow(QtWidgets.QMainWindow):
         root_layout.addWidget(self.tabs, 1)
 
         self.setCentralWidget(root)
-        self._register_theme_setter(lambda: self.setStyleSheet(self.main_style))
+        self._apply_stylesheet(self, lambda: self.main_style)
         self._build_status_bar()
         self._start_system_monitoring()
         self._refresh_events_table()
@@ -1082,6 +1082,17 @@ class MainWindow(QtWidgets.QMainWindow):
             f"QListWidget::item:selected {{ background-color: rgba({accent_color.red()}, {accent_color.green()}, {accent_color.blue()}, 32); color: {c['accent']}; border-radius: 6px; }}"
             "QListWidget::item { padding: 8px 10px; margin: 2px 0; }"
         )
+        self.combo_style = (
+            f"QComboBox {{ background-color: {c['field_bg']}; color: {c['text_primary']}; border: 1px solid {c['border']}; border-radius: 10px; padding: 6px 10px; min-width: 0px; }}"
+            "QComboBox::drop-down { border: 0px; width: 28px; }"
+            "QComboBox::down-arrow { image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png); width: 12px; height: 12px; margin-right: 6px; }"
+            f"QComboBox QAbstractItemView {{ background-color: {c['field_bg']}; color: {c['text_primary']}; selection-background-color: {c['accent']}; border: 1px solid {c['border']}; padding: 6px; }}"
+        )
+        self.combo_plain_style = (
+            f"QComboBox {{ background-color: {c['field_bg']}; color: {c['text_primary']}; border: 1px solid {c['border']}; }}"
+            f"QComboBox QAbstractItemView {{ background-color: {c['field_bg']}; color: {c['text_primary']}; selection-background-color: {c['accent']}; }}"
+            "QComboBox:on { padding-top: 3px; padding-left: 4px; }"
+        )
         self.tabs_style = (
             "QTabBar { font-weight: 700; }"
             f"QTabBar::tab {{ background: {c['field_bg']}; color: {c['text_muted']}; padding: 10px 18px; border: 1px solid {c['border']}; border-top-left-radius: 10px; border-top-right-radius: 10px; margin-right: 6px; }}"
@@ -1103,6 +1114,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self._theme_setters.append(setter)
         setter()
 
+    def _apply_stylesheet(self, widget: QtWidgets.QWidget, stylesheet: Any) -> None:
+        def apply_style() -> None:
+            style_value = stylesheet() if callable(stylesheet) else stylesheet
+            widget.setStyleSheet(style_value)
+
+        self._register_theme_setter(apply_style)
+
+    def _style_title_label(self, label: QtWidgets.QLabel) -> None:
+        self._apply_stylesheet(label, f"color: {self.colors['text_primary']}; font-weight: 800;")
+
+    def _style_combo(self, combo: QtWidgets.QComboBox, rounded: bool = False) -> None:
+        style = lambda: self.combo_style if rounded else self.combo_plain_style
+        self._apply_stylesheet(combo, style)
+
     def _toggle_theme(self) -> None:
         new_theme = "light" if self.theme == "dark" else "dark"
         self.settings.save_theme(new_theme)
@@ -1115,19 +1140,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def _build_main_header(self) -> QtWidgets.QWidget:
         header = QtWidgets.QFrame()
         header.setFixedHeight(48)
-        self._register_theme_setter(
-            lambda h=header: h.setStyleSheet(
-                f"QFrame {{ background-color: {self.colors['header_bg']}; border-bottom: 1px solid {self.colors['border']}; }}"
-            )
+        self._apply_stylesheet(
+            header,
+            lambda: f"QFrame {{ background-color: {self.colors['header_bg']}; border-bottom: 1px solid {self.colors['border']}; }}",
         )
         layout = QtWidgets.QHBoxLayout(header)
         layout.setContentsMargins(12, 6, 12, 6)
         layout.setSpacing(8)
 
         title = QtWidgets.QLabel("ANPR Desktop")
-        self._register_theme_setter(
-            lambda lbl=title: lbl.setStyleSheet(f"color: {self.colors['text_primary']}; font-weight: 800;")
-        )
+        self._style_title_label(title)
         layout.addWidget(title)
         layout.addStretch()
 
@@ -1136,11 +1158,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.theme_btn.setToolTip("Переключить тему")
         self.theme_btn.clicked.connect(self._toggle_theme)
         self.theme_btn.setMinimumWidth(34)
-        self._register_theme_setter(
-            lambda btn=self.theme_btn: btn.setStyleSheet(
+        self._apply_stylesheet(
+            self.theme_btn,
+            lambda: (
                 f"QToolButton {{ background-color: transparent; border: 1px solid {self.colors['border']}; color: {self.colors['text_primary']}; padding: 6px; border-radius: 8px; }}"
                 f"QToolButton:hover {{ background-color: rgba({QtGui.QColor(self.colors['text_primary']).red()}, {QtGui.QColor(self.colors['text_primary']).green()}, {QtGui.QColor(self.colors['text_primary']).blue()}, 18); }}"
-            )
+            ),
         )
         layout.addWidget(self.theme_btn)
 
@@ -1205,10 +1228,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_status_bar(self) -> None:
         status = self.statusBar()
-        self._register_theme_setter(
-            lambda s=status: s.setStyleSheet(
-                f"background-color: {self.colors['background']}; color: {self.colors['text_primary']}; padding: 6px; border-top: 1px solid {self.colors['border']};"
-            )
+        self._apply_stylesheet(
+            status,
+            lambda: f"background-color: {self.colors['background']}; color: {self.colors['text_primary']}; padding: 6px; border-top: 1px solid {self.colors['border']};",
         )
         status.setSizeGripEnabled(False)
         self.cpu_label = QtWidgets.QLabel("CPU: —")
@@ -1244,25 +1266,14 @@ class MainWindow(QtWidgets.QMainWindow):
         chooser_layout.setSpacing(8)
         chooser_layout.setContentsMargins(4, 4, 4, 4)
         chooser_label = QtWidgets.QLabel("Сетка")
-        self._register_theme_setter(
-            lambda lbl=chooser_label: lbl.setStyleSheet(
-                f"color: {self.colors['text_primary']}; font-weight: 800;"
-            )
-        )
+        self._style_title_label(chooser_label)
         chooser_layout.addWidget(chooser_label)
         self.grid_combo = QtWidgets.QComboBox()
         self.grid_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
         self.grid_combo.setSizePolicy(
             QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Fixed
         )
-        self._register_theme_setter(
-            lambda combo=self.grid_combo: combo.setStyleSheet(
-                f"QComboBox {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; border: 1px solid {self.colors['border']}; border-radius: 10px; padding: 6px 10px; min-width: 0px; }}"
-                "QComboBox::drop-down { border: 0px; width: 28px; }"
-                "QComboBox::down-arrow { image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png); width: 12px; height: 12px; margin-right: 6px; }"
-                f"QComboBox QAbstractItemView {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; selection-background-color: {self.colors['accent']}; border: 1px solid {self.colors['border']}; padding: 6px; }}"
-            )
-        )
+        self._style_combo(self.grid_combo, rounded=True)
         for variant in self.GRID_VARIANTS:
             self.grid_combo.addItem(variant.replace("x", "×"), variant)
         current_index = self.grid_combo.findData(self.current_grid)
@@ -1290,16 +1301,12 @@ class MainWindow(QtWidgets.QMainWindow):
         right_header = QtWidgets.QHBoxLayout()
         right_header.setContentsMargins(0, 0, 0, 0)
         right_title = QtWidgets.QLabel("Детали")
-        self._register_theme_setter(
-            lambda lbl=right_title: lbl.setStyleSheet(
-                f"color: {self.colors['text_primary']}; font-weight: 800;"
-            )
-        )
+        self._style_title_label(right_title)
         right_header.addWidget(right_title)
         right_header.addStretch()
         right_column.addLayout(right_header)
         details_group = QtWidgets.QGroupBox("Информация о событии")
-        self._register_theme_setter(lambda g=details_group: g.setStyleSheet(self.group_box_style))
+        self._apply_stylesheet(details_group, lambda: self.group_box_style)
         details_layout = QtWidgets.QVBoxLayout(details_group)
         self.event_detail = EventDetailView()
         self._register_theme_setter(lambda: self.event_detail.set_theme(self.colors))
@@ -1307,11 +1314,11 @@ class MainWindow(QtWidgets.QMainWindow):
         right_column.addWidget(details_group, stretch=3)
 
         events_group = QtWidgets.QGroupBox("События")
-        self._register_theme_setter(lambda g=events_group: g.setStyleSheet(self.group_box_style))
+        self._apply_stylesheet(events_group, lambda: self.group_box_style)
         events_layout = QtWidgets.QVBoxLayout(events_group)
         self.events_table = QtWidgets.QTableWidget(0, 5)
         self.events_table.setHorizontalHeaderLabels(["Дата/Время", "Гос. номер", "Страна", "Канал", "Направление"])
-        self._register_theme_setter(lambda: self.events_table.setStyleSheet(self.table_style))
+        self._apply_stylesheet(self.events_table, lambda: self.table_style)
         header = self.events_table.horizontalHeader()
         header.setMinimumSectionSize(90)
         header.setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
@@ -1329,11 +1336,12 @@ class MainWindow(QtWidgets.QMainWindow):
         toggle_details_btn.setText("▶")
         toggle_details_btn.setToolTip("Скрыть панель деталей")
         toggle_details_btn.setFixedSize(26, 26)
-        self._register_theme_setter(
-            lambda btn=toggle_details_btn: btn.setStyleSheet(
+        self._apply_stylesheet(
+            toggle_details_btn,
+            lambda: (
                 f"QToolButton {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; border: 1px solid {self.colors['border']}; border-radius: 6px; }}"
                 f"QToolButton:hover {{ background-color: rgba({QtGui.QColor(self.colors['text_primary']).red()}, {QtGui.QColor(self.colors['text_primary']).green()}, {QtGui.QColor(self.colors['text_primary']).blue()}, 12); }}"
-            )
+            ),
         )
 
         toggle_rail = QtWidgets.QFrame()
@@ -2064,10 +2072,10 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
-        self._register_theme_setter(lambda w=widget: w.setStyleSheet(self.form_style))
+        self._apply_stylesheet(widget, lambda: self.form_style)
 
         filters_group = QtWidgets.QGroupBox("Фильтры поиска")
-        self._register_theme_setter(lambda g=filters_group: g.setStyleSheet(self.group_box_style))
+        self._apply_stylesheet(filters_group, lambda: self.group_box_style)
         form = QtWidgets.QFormLayout(filters_group)
         form.setFieldGrowthPolicy(QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
         metrics = self.fontMetrics()
@@ -2136,7 +2144,7 @@ class MainWindow(QtWidgets.QMainWindow):
         header.setMinimumSectionSize(90)
         self.search_table.setColumnWidth(0, 220)
         self.search_table.setColumnWidth(3, 140)
-        self._register_theme_setter(lambda: self.search_table.setStyleSheet(self.table_style))
+        self._apply_stylesheet(self.search_table, lambda: self.table_style)
         self.search_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.search_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.search_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -2329,10 +2337,9 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.setSpacing(12)
 
         content = QtWidgets.QFrame()
-        self._register_theme_setter(
-            lambda c=content: c.setStyleSheet(
-                f"QFrame {{ background-color: {self.colors['surface']}; border: none; border-radius: 14px; }}"
-            )
+        self._apply_stylesheet(
+            content,
+            lambda: f"QFrame {{ background-color: {self.colors['surface']}; border: none; border-radius: 14px; }}",
         )
         content_layout = QtWidgets.QHBoxLayout(content)
         content_layout.setContentsMargins(12, 12, 12, 12)
@@ -2340,7 +2347,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.settings_nav = QtWidgets.QListWidget()
         self.settings_nav.setFixedWidth(220)
-        self._register_theme_setter(lambda: self.settings_nav.setStyleSheet(self.list_style))
+        self._apply_stylesheet(self.settings_nav, lambda: self.list_style)
         self.settings_nav.addItem("Общие")
         self.settings_nav.addItem("Каналы")
         content_layout.addWidget(self.settings_nav)
@@ -2361,35 +2368,34 @@ class MainWindow(QtWidgets.QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        self._register_theme_setter(
-            lambda s=scroll: s.setStyleSheet(
+        self._apply_stylesheet(
+            scroll,
+            lambda: (
                 f"QScrollArea {{ background: transparent; border: none; }}"
                 f"QScrollArea > QWidget > QWidget {{ background-color: {self.colors['surface']}; }}"
-            )
+            ),
         )
 
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
-        self._register_theme_setter(lambda w=widget: w.setStyleSheet(self.form_style))
+        self._apply_stylesheet(widget, lambda: self.form_style)
 
         def make_section(title: str) -> tuple[QtWidgets.QFrame, QtWidgets.QFormLayout]:
             frame = QtWidgets.QFrame()
-            self._register_theme_setter(
-                lambda f=frame: f.setStyleSheet(
-                    f"QFrame {{ background-color: {self.colors['panel']}; border: none; border-radius: 12px; }}"
-                )
+            self._apply_stylesheet(
+                frame,
+                lambda: f"QFrame {{ background-color: {self.colors['panel']}; border: none; border-radius: 12px; }}",
             )
             frame_layout = QtWidgets.QVBoxLayout(frame)
             frame_layout.setContentsMargins(14, 12, 14, 12)
             frame_layout.setSpacing(10)
 
             header = QtWidgets.QLabel(title)
-            self._register_theme_setter(
-                lambda lbl=header: lbl.setStyleSheet(
-                    f"font-size: 14px; font-weight: 800; color: {self.colors['text_primary']};"
-                )
+            self._apply_stylesheet(
+                header,
+                lambda: f"font-size: 14px; font-weight: 800; color: {self.colors['text_primary']};",
             )
             self._ensure_label_width(header)
             frame_layout.addWidget(header)
@@ -2475,17 +2481,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.device_combo = QtWidgets.QComboBox()
         self._configure_combo(self.device_combo)
-        self._register_theme_setter(
-            lambda combo=self.device_combo: combo.setStyleSheet(
-                f"QComboBox {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; border: 1px solid {self.colors['border']}; }}"
-                f"QComboBox QAbstractItemView {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; selection-background-color: {self.colors['accent']}; }}"
-                "QComboBox:on { padding-top: 3px; padding-left: 4px; }"
-            )
-        )
+        self._style_combo(self.device_combo)
         self.device_status_label = QtWidgets.QLabel("")
-        self._register_theme_setter(
-            lambda lbl=self.device_status_label: lbl.setStyleSheet(f"color: {self.colors['text_muted']};")
-        )
+        self._apply_stylesheet(self.device_status_label, lambda: f"color: {self.colors['text_muted']};")
         self.device_status_label.setWordWrap(True)
         self._populate_device_options()
         model_form.addRow("Устройство инференса:", self.device_combo)
@@ -2497,13 +2495,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.timezone_combo = QtWidgets.QComboBox()
         self.timezone_combo.setEditable(False)
         self._configure_combo(self.timezone_combo)
-        self._register_theme_setter(
-            lambda combo=self.timezone_combo: combo.setStyleSheet(
-                f"QComboBox {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; border: 1px solid {self.colors['border']}; }}"
-                f"QComboBox QAbstractItemView {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; selection-background-color: {self.colors['accent']}; }}"
-                "QComboBox:on { padding-top: 3px; padding-left: 4px; }"
-            )
-        )
+        self._style_combo(self.timezone_combo)
         for label in self._available_offset_labels():
             self.timezone_combo.addItem(label, label)
         time_form.addRow("Часовой пояс:", self.timezone_combo)
@@ -2592,13 +2584,13 @@ class MainWindow(QtWidgets.QMainWindow):
     def _build_channel_settings_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QHBoxLayout(widget)
-        self._register_theme_setter(lambda w=widget: w.setStyleSheet(self.group_box_style))
+        self._apply_stylesheet(widget, lambda: self.group_box_style)
 
         left_panel = QtWidgets.QVBoxLayout()
         left_panel.setSpacing(6)
         self.channels_list = QtWidgets.QListWidget()
         self.channels_list.setFixedWidth(180)
-        self._register_theme_setter(lambda: self.channels_list.setStyleSheet(self.list_style))
+        self._apply_stylesheet(self.channels_list, lambda: self.list_style)
         self.channels_list.currentRowChanged.connect(self._load_channel_form)
         left_panel.addWidget(self.channels_list)
 
@@ -2631,8 +2623,9 @@ class MainWindow(QtWidgets.QMainWindow):
         right_panel.setSpacing(10)
 
         tabs = QtWidgets.QTabWidget()
-        self._register_theme_setter(
-            lambda t=tabs: t.setStyleSheet(
+        self._apply_stylesheet(
+            tabs,
+            lambda: (
                 "QTabBar { font-weight: 700; }"
                 f"QTabBar::tab {{ background: {self.colors['field_bg']}; color: {self.colors['text_muted']}; padding: 8px 14px; border: 1px solid {self.colors['border']}; border-top-left-radius: 10px; border-top-right-radius: 10px; margin-right: 6px; }}"
                 f"QTabBar::tab:selected {{ background: {self.colors['surface']}; color: {self.colors['accent']}; border: 1px solid {self.colors['border']}; border-bottom: 2px solid {self.colors['accent']}; }}"
@@ -2640,7 +2633,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"QWidget {{ background-color: {self.colors['surface']}; color: {self.colors['text_secondary']}; }}"
                 f"QLabel {{ color: {self.colors['text_secondary']}; font-size: 13px; }}"
                 f"QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; border: 1px solid {self.colors['border']}; border-radius: 8px; padding: 8px; }}"
-            )
+            ),
         )
 
         def make_form_tab() -> QtWidgets.QFormLayout:
@@ -2827,19 +2820,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plate_size_hint = QtWidgets.QLabel(
             "Перетаскивайте прямоугольники мин/макс на превью слева, значения сохраняются автоматически"
         )
-        self._register_theme_setter(
-            lambda lbl=self.plate_size_hint: lbl.setStyleSheet(
-                f"color: {self.colors['text_muted']}; padding-top: 6px;"
-            )
+        self._apply_stylesheet(
+            self.plate_size_hint,
+            lambda: f"color: {self.colors['text_muted']}; padding-top: 6px;",
         )
         size_layout.addWidget(self.plate_size_hint, 2, 0, 1, 4)
         size_group.setLayout(size_layout)
 
-        self._register_theme_setter(lambda g=size_group: g.setStyleSheet(self.group_box_style))
+        self._apply_stylesheet(size_group, lambda: self.group_box_style)
         roi_form.addRow("", size_group)
 
         roi_group = QtWidgets.QGroupBox("Точки ROI")
-        self._register_theme_setter(lambda g=roi_group: g.setStyleSheet(self.group_box_style))
+        self._apply_stylesheet(roi_group, lambda: self.group_box_style)
         roi_layout = QtWidgets.QVBoxLayout(roi_group)
         roi_layout.setContentsMargins(12, 12, 12, 12)
         roi_layout.setSpacing(10)
@@ -2852,9 +2844,7 @@ class MainWindow(QtWidgets.QMainWindow):
         header.setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
         header.setDefaultSectionSize(90)
         header.setMinimumSectionSize(80)
-        self._register_theme_setter(
-            lambda: self.roi_points_table.setStyleSheet(self.table_style)
-        )
+        self._apply_stylesheet(self.roi_points_table, lambda: self.table_style)
         self.roi_points_table.verticalHeader().setVisible(False)
         self.roi_points_table.setEditTriggers(QtWidgets.QAbstractItemView.AllEditTriggers)
         self.roi_points_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
