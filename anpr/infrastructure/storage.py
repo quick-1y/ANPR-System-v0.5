@@ -17,7 +17,6 @@ class EventDatabase:
         self.db_path = db_path
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         self._init_db()
-        self.logger = get_logger(__name__)
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.db_path)
@@ -74,48 +73,6 @@ class EventDatabase:
             self._ensure_columns(conn)
             self._ensure_indexes(conn)
             conn.commit()
-
-    def insert_event(
-        self,
-        channel: str,
-        plate: str,
-        country: Optional[str] = None,
-        confidence: float = 0.0,
-        source: str = "",
-        timestamp: Optional[str] = None,
-        frame_path: Optional[str] = None,
-        plate_path: Optional[str] = None,
-        direction: Optional[str] = None,
-    ) -> int:
-        ts = timestamp or datetime.now(timezone.utc).isoformat()
-        with self._connect() as conn:
-            cursor = conn.execute(
-                (
-                    "INSERT INTO events (timestamp, channel, plate, country, confidence, source, frame_path, plate_path, direction)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                ),
-                (
-                    ts,
-                    channel,
-                    plate,
-                    country,
-                    confidence,
-                    source,
-                    frame_path,
-                    plate_path,
-                    direction,
-                ),
-            )
-            conn.commit()
-            self.logger.info(
-                "Event saved: %s (%s, country=%s, conf=%.2f, src=%s)",
-                plate,
-                channel,
-                country or "?",
-                confidence or 0.0,
-                source,
-            )
-            return cursor.lastrowid
 
     def fetch_recent(self, limit: int = 100) -> List[sqlite3.Row]:
         with self._connect() as conn:
@@ -188,11 +145,6 @@ class EventDatabase:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(query, tuple(params))
             return cursor.fetchall()
-
-    def list_channels(self) -> List[str]:
-        with self._connect() as conn:
-            cursor = conn.execute("SELECT DISTINCT channel FROM events ORDER BY channel")
-            return [row[0] for row in cursor.fetchall()]
 
 
 class AsyncEventDatabase:
