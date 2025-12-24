@@ -23,18 +23,23 @@ class YOLODetector:
         device,
         min_plate_size: Optional[Dict[str, int]] = None,
         max_plate_size: Optional[Dict[str, int]] = None,
+        size_filter_enabled: bool = True,
     ) -> None:
         self.model = YOLO(model_path)
         self.model.to(device)
         self.device = device
         self._min_plate_size = min_plate_size or {}
         self._max_plate_size = max_plate_size or {}
+        self._size_filter_enabled = bool(size_filter_enabled)
         self._tracking_supported = True
         logger.info("Детектор YOLO успешно загружен (model=%s, device=%s)", model_path, device)
 
     def _filter_by_size(self, detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not detections:
             return []
+
+        if not self._size_filter_enabled:
+            return detections
 
         min_width = int(self._min_plate_size.get("width", 0) or 0)
         min_height = int(self._min_plate_size.get("height", 0) or 0)

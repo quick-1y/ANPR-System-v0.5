@@ -216,8 +216,10 @@ class ChannelRuntimeConfig:
     motion_frame_stride: int
     motion_activation_frames: int
     motion_release_frames: int
+    roi_enabled: bool
     region: Region
     debug: DebugOptions
+    size_filter_enabled: bool
     min_plate_size: PlateSize
     max_plate_size: PlateSize
     direction: DirectionSettings
@@ -239,8 +241,10 @@ class ChannelRuntimeConfig:
             motion_frame_stride=int(channel_conf.get("motion_frame_stride", 1)),
             motion_activation_frames=int(channel_conf.get("motion_activation_frames", 3)),
             motion_release_frames=int(channel_conf.get("motion_release_frames", 6)),
+            roi_enabled=bool(channel_conf.get("roi_enabled", True)),
             region=Region.from_dict(channel_conf.get("region")),
             debug=DebugOptions.from_dict(channel_conf.get("debug")),
+            size_filter_enabled=bool(channel_conf.get("size_filter_enabled", True)),
             min_plate_size=PlateSize.from_dict(channel_conf.get("min_plate_size"), size_defaults.get("min_plate_size")),
             max_plate_size=PlateSize.from_dict(channel_conf.get("max_plate_size"), size_defaults.get("max_plate_size")),
             direction=DirectionSettings.from_dict(channel_conf.get("direction"), direction_defaults),
@@ -331,6 +335,7 @@ def _run_inference_task(
             config.get("direction", {}),
             config.get("min_plate_size"),
             config.get("max_plate_size"),
+            config.get("size_filter_enabled", True),
         )
         _run_inference_task._local_cache[key] = (pipeline, detector)
 
@@ -526,12 +531,18 @@ class ChannelWorker(QtCore.QThread):
             "min_plate_size": config.min_plate_size.to_dict(),
             "max_plate_size": config.max_plate_size.to_dict(),
             "direction": config.direction.to_dict(),
+            "size_filter_enabled": config.size_filter_enabled,
         }
 
     def _extract_region(self, frame: cv2.Mat) -> Tuple[cv2.Mat, Tuple[int, int, int, int]]:
         """Извлекает ROI из кадра с учетом произвольной формы."""
         with self._config_lock:
             region = self.config.region
+            roi_enabled = self.config.roi_enabled
+        if not roi_enabled:
+            height, width, _ = frame.shape
+            return frame, (0, 0, width, height)
+
         polygon = region.polygon_points(frame.shape)
         x1, y1, x2, y2 = region.bounding_rect(frame.shape)
         roi_frame = frame[y1:y2, x1:x2]
