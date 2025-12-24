@@ -1116,12 +1116,12 @@ class MainWindow(QtWidgets.QMainWindow):
         controls = QtWidgets.QHBoxLayout()
         controls.setSpacing(8)
 
-        chooser = QtWidgets.QVBoxLayout()
-        chooser.setSpacing(6)
-        chooser.setContentsMargins(4, 4, 4, 4)
+        chooser_layout = QtWidgets.QHBoxLayout()
+        chooser_layout.setSpacing(8)
+        chooser_layout.setContentsMargins(4, 4, 4, 4)
         chooser_label = QtWidgets.QLabel("Сетка")
         chooser_label.setStyleSheet("color: #e5e7eb; font-weight: 800;")
-        chooser.addWidget(chooser_label)
+        chooser_layout.addWidget(chooser_label)
         self.grid_combo = QtWidgets.QComboBox()
         self.grid_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
         self.grid_combo.setSizePolicy(
@@ -1139,9 +1139,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if current_index >= 0:
             self.grid_combo.setCurrentIndex(current_index)
         self.grid_combo.currentIndexChanged.connect(self._on_grid_combo_changed)
-        chooser.addWidget(self.grid_combo)
+        chooser_layout.addWidget(self.grid_combo)
 
-        controls.addLayout(chooser)
+        controls.addLayout(chooser_layout)
         controls.addStretch()
         left_column.addLayout(controls)
 
