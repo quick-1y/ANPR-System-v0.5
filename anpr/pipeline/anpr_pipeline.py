@@ -145,7 +145,6 @@ class TrackDirectionEstimator:
         vertical_deltas = np.diff(centers)
         area_deltas = np.diff(areas)
 
-        trend_vertical = self._recent_trend(vertical_deltas)
         trend_area = self._recent_trend(area_deltas)
 
         votes = self._votes(vertical_deltas, area_deltas, areas[-1])
