@@ -28,6 +28,7 @@ class SettingsManager:
 
     def __init__(self, path: str = "settings.json") -> None:
         self.path = path
+        self._settings_lock = threading.RLock()
         self.settings = self._load()
 
     def _default(self) -> Dict[str, Any]:
@@ -147,7 +148,6 @@ class SettingsManager:
     def _channel_defaults(tracking_defaults: Dict[str, Any]) -> Dict[str, Any]:
         size_defaults = SettingsManager._plate_size_defaults()
         return {
-            "enabled": True,
             "best_shots": int(tracking_defaults.get("best_shots", 3)),
             "cooldown_seconds": int(tracking_defaults.get("cooldown_seconds", 5)),
             "ocr_min_confidence": float(tracking_defaults.get("ocr_min_confidence", 0.6)),
@@ -166,7 +166,6 @@ class SettingsManager:
             },
             "min_plate_size": size_defaults["min_plate_size"].copy(),
             "max_plate_size": size_defaults["max_plate_size"].copy(),
-            "size_filter_enabled": True,
         }
 
     @staticmethod
@@ -582,15 +581,39 @@ class SettingsManager:
             tracking = self.settings.get("tracking", {})
             return int(tracking.get("best_shots", 3))
 
+    def save_best_shots(self, best_shots: int) -> None:
+        with self._file_lock:
+            tracking = self.settings.get("tracking", {})
+            tracking["best_shots"] = int(best_shots)
+            self.settings["tracking"] = tracking
+            settings_snapshot = copy.deepcopy(self.settings)
+        self._save(settings_snapshot)
+
     def get_cooldown_seconds(self) -> int:
         with self._file_lock:
             tracking = self.settings.get("tracking", {})
             return int(tracking.get("cooldown_seconds", 5))
 
+    def save_cooldown_seconds(self, cooldown: int) -> None:
+        with self._file_lock:
+            tracking = self.settings.get("tracking", {})
+            tracking["cooldown_seconds"] = int(cooldown)
+            self.settings["tracking"] = tracking
+            settings_snapshot = copy.deepcopy(self.settings)
+        self._save(settings_snapshot)
+
     def get_min_confidence(self) -> float:
         with self._file_lock:
             tracking = self.settings.get("tracking", {})
             return float(tracking.get("ocr_min_confidence", 0.6))
+
+    def save_min_confidence(self, min_conf: float) -> None:
+        with self._file_lock:
+            tracking = self.settings.get("tracking", {})
+            tracking["ocr_min_confidence"] = float(min_conf)
+            self.settings["tracking"] = tracking
+            settings_snapshot = copy.deepcopy(self.settings)
+        self._save(settings_snapshot)
 
     def get_plate_settings(self) -> Dict[str, Any]:
         with self._file_lock:
@@ -652,3 +675,17 @@ class SettingsManager:
     def get_direction_defaults(self) -> Dict[str, float | int]:
         defaults = self._direction_defaults()
         return dict(defaults)
+
+    def refresh(self) -> None:
+        with self._file_lock:
+            self.settings = self._load()
+
+    def update_channel(self, channel_id: int, data: Dict[str, Any]) -> None:
+        channels = self.get_channels()
+        for idx, channel in enumerate(channels):
+            if channel.get("id") == channel_id:
+                channels[idx].update(data)
+                break
+        else:
+            channels.append(data)
+        self.save_channels(channels)
