@@ -38,6 +38,7 @@ class SettingsManager:
             "detector": self._detector_defaults(),
             "inference": self._inference_defaults(),
             "grid": "2x2",
+            "theme": "dark",
             "channels": [],
             "reconnect": {
                 "signal_loss": {
@@ -94,6 +95,10 @@ class SettingsManager:
         ocr_defaults = self._ocr_defaults()
         detector_defaults = self._detector_defaults()
         inference_defaults = self._inference_defaults()
+
+        if not data.get("theme"):
+            data["theme"] = "dark"
+            changed = True
 
         direction_defaults = self._direction_defaults()
         direction_settings = tracking_defaults.get("direction")
@@ -485,6 +490,16 @@ class SettingsManager:
     def save_grid(self, grid: str) -> None:
         with self._file_lock:
             self.settings["grid"] = grid
+            settings_snapshot = copy.deepcopy(self.settings)
+        self._save(settings_snapshot)
+
+    def get_theme(self) -> str:
+        with self._file_lock:
+            return self.settings.get("theme", "dark")
+
+    def save_theme(self, theme: str) -> None:
+        with self._file_lock:
+            self.settings["theme"] = theme
             settings_snapshot = copy.deepcopy(self.settings)
         self._save(settings_snapshot)
 
