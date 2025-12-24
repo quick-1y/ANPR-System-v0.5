@@ -1272,13 +1272,14 @@ class MainWindow(QtWidgets.QMainWindow):
         chooser_layout.addWidget(chooser_label)
         self.grid_combo = QtWidgets.QComboBox()
         self.grid_combo.setSizePolicy(
-            QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed
+            QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed
         )
+        self.grid_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
         self._style_combo(self.grid_combo, rounded=True)
         for variant in self.GRID_VARIANTS:
             self.grid_combo.addItem(variant.replace("x", "х"), variant)
-        combo_width = max(self.fontMetrics().horizontalAdvance("3×3") + 18, 60)
-        self.grid_combo.setFixedWidth(combo_width)
+        combo_width = max(self.fontMetrics().horizontalAdvance("3х3") + 26, 80)
+        self.grid_combo.setMinimumWidth(combo_width)
         self.grid_combo.setMinimumContentsLength(3)
         current_index = self.grid_combo.findData(self.current_grid)
         if current_index >= 0:
