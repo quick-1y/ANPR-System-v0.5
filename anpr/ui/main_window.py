@@ -135,6 +135,9 @@ class ChannelView(QtWidgets.QWidget):
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
+        self._update_overlay_positions()
+
+    def _update_overlay_positions(self) -> None:
         rect = self.video_label.contentsRect()
         margin = 8
         indicator_size = self.motion_indicator.sizeHint()
@@ -218,18 +221,21 @@ class ChannelView(QtWidgets.QWidget):
         self.last_plate.setVisible(bool(plate))
         self.last_plate.setText(plate or "—")
         self.last_plate.adjustSize()
+        self._update_overlay_positions()
 
     def set_status(self, text: str) -> None:
         self.status_hint.setVisible(bool(text))
         self.status_hint.setText(text)
         if text:
             self.status_hint.adjustSize()
+        self._update_overlay_positions()
 
     def set_metrics(self, text: str) -> None:
         self.metrics_hint.setVisible(bool(text))
         self.metrics_hint.setText(text)
         if text:
             self.metrics_hint.adjustSize()
+        self._update_overlay_positions()
 
 
 class ROIEditor(QtWidgets.QLabel):
@@ -1116,12 +1122,12 @@ class MainWindow(QtWidgets.QMainWindow):
         controls = QtWidgets.QHBoxLayout()
         controls.setSpacing(8)
 
-        chooser = QtWidgets.QVBoxLayout()
-        chooser.setSpacing(6)
-        chooser.setContentsMargins(4, 4, 4, 4)
+        chooser_layout = QtWidgets.QHBoxLayout()
+        chooser_layout.setSpacing(8)
+        chooser_layout.setContentsMargins(4, 4, 4, 4)
         chooser_label = QtWidgets.QLabel("Сетка")
         chooser_label.setStyleSheet("color: #e5e7eb; font-weight: 800;")
-        chooser.addWidget(chooser_label)
+        chooser_layout.addWidget(chooser_label)
         self.grid_combo = QtWidgets.QComboBox()
         self.grid_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
         self.grid_combo.setSizePolicy(
@@ -1139,9 +1145,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if current_index >= 0:
             self.grid_combo.setCurrentIndex(current_index)
         self.grid_combo.currentIndexChanged.connect(self._on_grid_combo_changed)
-        chooser.addWidget(self.grid_combo)
+        chooser_layout.addWidget(self.grid_combo)
 
-        controls.addLayout(chooser)
+        controls.addLayout(chooser_layout)
         controls.addStretch()
         left_column.addLayout(controls)
 
