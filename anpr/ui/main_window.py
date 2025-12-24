@@ -135,6 +135,9 @@ class ChannelView(QtWidgets.QWidget):
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
+        self._update_overlay_positions()
+
+    def _update_overlay_positions(self) -> None:
         rect = self.video_label.contentsRect()
         margin = 8
         indicator_size = self.motion_indicator.sizeHint()
@@ -218,18 +221,21 @@ class ChannelView(QtWidgets.QWidget):
         self.last_plate.setVisible(bool(plate))
         self.last_plate.setText(plate or "—")
         self.last_plate.adjustSize()
+        self._update_overlay_positions()
 
     def set_status(self, text: str) -> None:
         self.status_hint.setVisible(bool(text))
         self.status_hint.setText(text)
         if text:
             self.status_hint.adjustSize()
+        self._update_overlay_positions()
 
     def set_metrics(self, text: str) -> None:
         self.metrics_hint.setVisible(bool(text))
         self.metrics_hint.setText(text)
         if text:
             self.metrics_hint.adjustSize()
+        self._update_overlay_positions()
 
 
 class ROIEditor(QtWidgets.QLabel):
