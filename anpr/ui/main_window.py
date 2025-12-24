@@ -9,7 +9,7 @@ import cv2
 import psutil
 import torch
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from zoneinfo import ZoneInfo
@@ -64,7 +64,7 @@ class ChannelView(QtWidgets.QWidget):
     dragStarted = QtCore.pyqtSignal()
     dragFinished = QtCore.pyqtSignal()
 
-    def __init__(self, name: str, pixmap_pool: Optional[PixmapPool]) -> None:
+    def __init__(self, name: str, pixmap_pool: Optional[PixmapPool], colors: Optional[Dict[str, str]] = None) -> None:
         super().__init__()
         self.name = name
         self._pixmap_pool = pixmap_pool
@@ -75,11 +75,9 @@ class ChannelView(QtWidgets.QWidget):
         self.setAcceptDrops(True)
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
 
+        self._colors: Dict[str, str] = colors or {}
         self.video_label = QtWidgets.QLabel("Нет сигнала")
         self.video_label.setAlignment(QtCore.Qt.AlignCenter)
-        self.video_label.setStyleSheet(
-            "background-color: #000; color: #ccc; border: 1px solid #2e2e2e; padding: 4px;"
-        )
         self.video_label.setMinimumSize(220, 170)
         self.video_label.setScaledContents(False)
         self.video_label.setSizePolicy(
@@ -92,37 +90,24 @@ class ChannelView(QtWidgets.QWidget):
 
         self.motion_indicator = QtWidgets.QLabel("Движение")
         self.motion_indicator.setParent(self.video_label)
-        self.motion_indicator.setStyleSheet(
-            "background-color: rgba(220, 53, 69, 0.85); color: white;"
-            "padding: 3px 6px; border-radius: 6px; font-weight: bold;"
-        )
         self.motion_indicator.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
         self.motion_indicator.hide()
 
         self.last_plate = QtWidgets.QLabel("—")
         self.last_plate.setParent(self.video_label)
-        self.last_plate.setStyleSheet(
-            "background-color: rgba(0, 0, 0, 0.55); color: white;"
-            "padding: 2px 6px; border-radius: 4px; font-weight: bold;"
-        )
         self.last_plate.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
         self.last_plate.hide()
 
         self.status_hint = QtWidgets.QLabel("")
         self.status_hint.setParent(self.video_label)
-        self.status_hint.setStyleSheet(
-            "background-color: rgba(0, 0, 0, 0.55); color: #ddd; padding: 2px 4px;"
-        )
         self.status_hint.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
         self.status_hint.hide()
 
         self.metrics_hint = QtWidgets.QLabel("")
         self.metrics_hint.setParent(self.video_label)
-        self.metrics_hint.setStyleSheet(
-            "background-color: rgba(0, 0, 0, 0.55); color: #9ae6ff; padding: 2px 4px;"
-        )
         self.metrics_hint.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
         self.metrics_hint.hide()
+        self.set_theme(self._colors or MainWindow.THEME_PALETTES["dark"])
 
     def set_channel_name(self, channel_name: Optional[str]) -> None:
         self._channel_name = channel_name
@@ -132,6 +117,30 @@ class ChannelView(QtWidgets.QWidget):
 
     def set_grid_position(self, position: int) -> None:
         self._grid_position = position
+
+    def set_theme(self, colors: Dict[str, str]) -> None:
+        self._colors = colors
+        video_bg = colors.get("background", "#000000")
+        text = colors.get("text_secondary", "#cccccc")
+        overlay_bg = colors.get("overlay_bg", "rgba(0,0,0,0.55)")
+        accent = colors.get("accent", "#22d3ee")
+        self.video_label.setStyleSheet(
+            f"background-color: {video_bg}; color: {text}; border: 1px solid {colors.get('border', '#2e2e2e')}; padding: 4px;"
+        )
+        self.motion_indicator.setStyleSheet(
+            "background-color: rgba(220, 53, 69, 0.85); color: white;"
+            "padding: 3px 6px; border-radius: 6px; font-weight: bold;"
+        )
+        self.last_plate.setStyleSheet(
+            f"background-color: {overlay_bg}; color: {colors.get('text_primary', '#ffffff')};"
+            "padding: 2px 6px; border-radius: 4px; font-weight: bold;"
+        )
+        self.status_hint.setStyleSheet(
+            f"background-color: {overlay_bg}; color: {text}; padding: 2px 4px;"
+        )
+        self.metrics_hint.setStyleSheet(
+            f"background-color: {overlay_bg}; color: {accent}; padding: 2px 4px;"
+        )
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -248,9 +257,7 @@ class ROIEditor(QtWidgets.QLabel):
         super().__init__("Нет кадра")
         self.setAlignment(QtCore.Qt.AlignCenter)
         self.setMinimumSize(400, 260)
-        self.setStyleSheet(
-            "background-color: #111; color: #888; border: 1px solid #444; padding: 6px;"
-        )
+        self.set_theme(MainWindow.THEME_PALETTES["dark"])
         self._pixmap: Optional[QtGui.QPixmap] = None
         self._roi_data: Dict[str, Any] = {"unit": "px", "points": []}
         self._points: List[QtCore.QPointF] = []
@@ -260,6 +267,11 @@ class ROIEditor(QtWidgets.QLabel):
         self._active_size_handle: Optional[str] = None
         self._active_size_origin: Optional[QtCore.QPointF] = None
         self._active_size_rect: Optional[QtCore.QRectF] = None
+
+    def set_theme(self, colors: Dict[str, str]) -> None:
+        self.setStyleSheet(
+            f"background-color: {colors['field_bg']}; color: {colors['text_muted']}; border: 1px solid {colors['border']}; padding: 6px;"
+        )
 
     def image_size(self) -> Optional[QtCore.QSize]:
         return self._pixmap.size() if self._pixmap else None
@@ -730,13 +742,8 @@ class EventDetailView(QtWidgets.QWidget):
 
     def __init__(self) -> None:
         super().__init__()
+        self._theme_colors: Dict[str, str] = MainWindow.THEME_PALETTES["dark"]
         layout = QtWidgets.QVBoxLayout(self)
-
-        self.setStyleSheet(
-            "QWidget { background-color: #16181d; }"
-            "QGroupBox { background-color: #0f1115; color: #f6f7fb; border: 1px solid #20242c; border-radius: 12px; padding: 10px; margin-top: 8px; }"
-            "QLabel { color: #e5e7eb; }"
-        )
 
         self._frame_image: Optional[QtGui.QImage] = None
         self._plate_image: Optional[QtGui.QImage] = None
@@ -766,6 +773,19 @@ class EventDetailView(QtWidgets.QWidget):
         bottom_row.addWidget(meta_group, 1)
 
         layout.addLayout(bottom_row, stretch=1)
+        self.set_theme(self._theme_colors)
+
+    def set_theme(self, colors: Dict[str, str]) -> None:
+        self._theme_colors = colors
+        self.setStyleSheet(
+            f"QWidget {{ background-color: {colors['surface']}; }}"
+            f"QGroupBox {{ background-color: {colors['panel']}; color: {colors['text_primary']}; border: 1px solid {colors['border']}; border-radius: 12px; padding: 10px; margin-top: 8px; }}"
+            f"QLabel {{ color: {colors['text_primary']}; }}"
+        )
+        for group in (self.frame_preview, self.plate_preview):
+            group.display_label.setStyleSheet(
+                f"background-color: {colors['field_bg']}; color: {colors['text_muted']}; border: 1px solid {colors['border']}; border-radius: 10px;"
+            )  # type: ignore[attr-defined]
 
     def _build_preview(
         self,
@@ -875,29 +895,43 @@ class EventDetailView(QtWidgets.QWidget):
 class MainWindow(QtWidgets.QMainWindow):
     """Главное окно приложения ANPR с вкладками наблюдения, поиска и настроек."""
 
+    THEME_PALETTES = {
+        "dark": {
+            "accent": "#22d3ee",
+            "background": "#0b0c10",
+            "surface": "#16181d",
+        "panel": "#0f1115",
+        "border": "#20242c",
+        "text_primary": "#e5e7eb",
+        "text_secondary": "#cbd5e1",
+        "text_muted": "#9ca3af",
+        "text_inverse": "#0b0c10",
+        "field_bg": "#0b0c10",
+        "header_bg": "#0b0c10",
+        "table_header_bg": "#11131a",
+        "table_row_bg": "#0b0c10",
+        "overlay_bg": "rgba(0, 0, 0, 0.55)",
+    },
+    "light": {
+        "accent": "#0ea5e9",
+        "background": "#f5f7fb",
+        "surface": "#ffffff",
+            "panel": "#eef2f7",
+            "border": "#d4d4d8",
+            "text_primary": "#0f172a",
+            "text_secondary": "#1f2937",
+        "text_muted": "#475569",
+        "text_inverse": "#ffffff",
+        "field_bg": "#ffffff",
+        "header_bg": "#e5e7eb",
+        "table_header_bg": "#e5e7eb",
+        "table_row_bg": "#ffffff",
+        "overlay_bg": "rgba(255, 255, 255, 0.8)",
+    },
+}
     GRID_VARIANTS = ["1x1", "1x2", "2x2", "2x3", "3x3"]
     MAX_IMAGE_CACHE = 200
     MAX_IMAGE_CACHE_BYTES = 256 * 1024 * 1024  # 256 MB
-    ACCENT_COLOR = "#22d3ee"
-    SURFACE_COLOR = "#16181d"
-    PANEL_COLOR = "#0f1115"
-    GROUP_BOX_STYLE = (
-        "QGroupBox { background-color: #16181d; color: #f6f7fb; border: 1px solid #20242c; border-radius: 12px; padding: 12px; margin-top: 10px; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; font-weight: 700; color: #e2e8f0; }"
-        "QLabel { color: #cbd5e1; font-size: 13px; }"
-        "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
-        "QPushButton { background-color: #22d3ee; color: #0b0c10; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }"
-        "QPushButton:hover { background-color: #4ddcf3; }"
-        "QCheckBox { color: #e5e7eb; font-size: 13px; }"
-    )
-    FORM_STYLE = (
-        "QLabel { color: #cbd5e1; font-size: 13px; }"
-        "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
-        "QPushButton { background-color: #22d3ee; color: #0b0c10; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }"
-        "QPushButton:hover { background-color: #4ddcf3; }"
-        "QCheckBox { color: #e5e7eb; font-size: 13px; }"
-        f"QWidget {{ background-color: {SURFACE_COLOR}; }}"
-    )
     FIELD_MAX_WIDTH = 520
     COMPACT_FIELD_WIDTH = 180
     FIELD_MIN_WIDTH = 360
@@ -905,36 +939,13 @@ class MainWindow(QtWidgets.QMainWindow):
     LABEL_MIN_WIDTH = 180
     ACTION_BUTTON_WIDTH = 180
 
-    PRIMARY_HOLLOW_BUTTON = (
-        "QPushButton { background-color: transparent; color: #ffffff; border: 1px solid #ffffff; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }"
-        "QPushButton:hover { background-color: #22d3ee; color: #0b0c10; }"
-        "QPushButton:pressed { background-color: #1fb6d5; color: #0b0c10; }"
-    )
-    #f?
-    TABLE_STYLE = (
-        "QHeaderView::section { background-color: #11131a; color: #e2e8f0; padding: 8px; font-weight: 700; border: none; }"
-        "QTableWidget { background-color: #0b0c10; color: #e5e7eb; gridline-color: #1f2937; selection-background-color: #11131a; }"
-        "QTableWidget::item { border-bottom: 1px solid #1f2937; padding: 6px; }"
-        "QTableWidget::item:selected { background-color: rgba(34,211,238,0.18); color: #22d3ee; border: 1px solid #22d3ee; }"
-        "QScrollBar:vertical { background: #0b0c10; width: 12px; margin: 0px; border: 1px solid #1f2937; border-radius: 6px; }"
-        "QScrollBar::handle:vertical { background: #1f2937; min-height: 24px; border-radius: 6px; }"
-        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
-        "QScrollBar:horizontal { background: #0b0c10; height: 12px; margin: 0px; border: 1px solid #1f2937; border-radius: 6px; }"
-        "QScrollBar::handle:horizontal { background: #1f2937; min-width: 24px; border-radius: 6px; }"
-        "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }"
-    )
-    LIST_STYLE = (
-        "QListWidget { background-color: #0b0c10; color: #cbd5e1; border: 1px solid #1f2937; border-radius: 10px; padding: 6px; }"
-        "QListWidget::item:selected { background-color: rgba(34,211,238,0.16); color: #22d3ee; border-radius: 6px; }"
-        "QListWidget::item { padding: 8px 10px; margin: 2px 0; }"
-    )
-
     @staticmethod
     def _default_roi_region() -> Dict[str, Any]:
         return {"unit": "px", "points": [point.copy() for point in DEFAULT_ROI_POINTS]}
 
     def __init__(self, settings: Optional[Config] = None) -> None:
         super().__init__()
+        self._theme_setters: List[Callable[[], None]] = []
         self.setWindowTitle("ANPR Desktop")
         self.resize(1280, 800)
         screen = QtWidgets.QApplication.primaryScreen()
@@ -953,6 +964,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._window_drag_pos: Optional[QtCore.QPoint] = None
 
         self.settings = settings or Config()
+        self.theme = self.settings.get_theme()
+        self._apply_theme_palette(self.theme)
         self.current_grid = self.settings.get_grid()
         if self.current_grid not in self.GRID_VARIANTS:
             self.current_grid = self.GRID_VARIANTS[0]
@@ -980,12 +993,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._latest_frames: Dict[str, QtGui.QImage] = {}
 
         self.tabs = QtWidgets.QTabWidget()
-        self.tabs.setStyleSheet(
-            "QTabBar { font-weight: 700; }"
-            f"QTabBar::tab {{ background: #0b0c10; color: #9ca3af; padding: 10px 18px; border: 1px solid #0f1115; border-top-left-radius: 10px; border-top-right-radius: 10px; margin-right: 6px; }}"
-            f"QTabBar::tab:selected {{ background: #16181d; color: {self.ACCENT_COLOR}; border: 1px solid #20242c; border-bottom: 2px solid {self.ACCENT_COLOR}; }}"
-            "QTabWidget::pane { border: 1px solid #20242c; border-radius: 10px; background-color: #16181d; top: -1px; }"
-        )
+        self._register_theme_setter(lambda: self.tabs.setStyleSheet(self.tabs_style))
         self.observation_tab = self._build_observation_tab()
         self.search_tab = self._build_search_tab()
         self.settings_tab = self._build_settings_tab()
@@ -1003,31 +1011,118 @@ class MainWindow(QtWidgets.QMainWindow):
         root_layout.addWidget(self.tabs, 1)
 
         self.setCentralWidget(root)
-        self.setStyleSheet(
-            "QMainWindow { background-color: #0b0c10; }"
-            "QStatusBar { background-color: #0b0c10; color: #e5e7eb; padding: 4px; border-top: 1px solid #1f2937; }"
-            "QToolButton[windowControl='true'] { background-color: transparent; border: none; color: white; padding: 6px; }"
-            "QToolButton[windowControl='true']:hover { background-color: rgba(255,255,255,0.08); border-radius: 6px; }"
-        )
+        self._register_theme_setter(lambda: self.setStyleSheet(self.main_style))
         self._build_status_bar()
         self._start_system_monitoring()
         self._refresh_events_table()
         self._start_channels()
 
+    def _apply_theme_palette(self, theme: str) -> None:
+        palette = self.THEME_PALETTES.get(theme, self.THEME_PALETTES["dark"])
+        self.theme = theme if theme in self.THEME_PALETTES else "dark"
+        self.colors = palette
+        self._build_styles()
+        self._apply_theme_styles()
+
+    def _build_styles(self) -> None:
+        c = self.colors
+        accent_color = QtGui.QColor(c["accent"])
+        accent_lighter = accent_color.lighter(115).name()
+        accent_darker = accent_color.darker(110).name()
+        accent_rgba = f"rgba({accent_color.red()}, {accent_color.green()}, {accent_color.blue()}, 38)"
+        self.group_box_style = (
+            f"QGroupBox {{ background-color: {c['surface']}; color: {c['text_primary']}; border: 1px solid {c['border']}; border-radius: 12px; padding: 12px; margin-top: 10px; }}"
+            "QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; font-weight: 700; }"
+            f"QLabel {{ color: {c['text_secondary']}; font-size: 13px; }}"
+            f"QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateTimeEdit {{ background-color: {c['field_bg']}; color: {c['text_primary']}; border: 1px solid {c['border']}; border-radius: 8px; padding: 8px; }}"
+            f"QPushButton {{ background-color: {c['accent']}; color: {c['text_inverse']}; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }}"
+            f"QPushButton:hover {{ background-color: {accent_lighter}; }}"
+            f"QCheckBox {{ color: {c['text_primary']}; font-size: 13px; }}"
+        )
+        self.form_style = (
+            f"QLabel {{ color: {c['text_secondary']}; font-size: 13px; }}"
+            f"QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateTimeEdit {{ background-color: {c['field_bg']}; color: {c['text_primary']}; border: 1px solid {c['border']}; border-radius: 8px; padding: 8px; }}"
+            f"QPushButton {{ background-color: {c['accent']}; color: {c['text_inverse']}; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }}"
+            f"QPushButton:hover {{ background-color: {accent_lighter}; }}"
+            f"QCheckBox {{ color: {c['text_primary']}; font-size: 13px; }}"
+            f"QWidget {{ background-color: {c['surface']}; }}"
+        )
+        self.primary_hollow_button = (
+            f"QPushButton {{ background-color: transparent; color: {c['text_primary']}; border: 1px solid {c['text_primary']}; border-radius: 8px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.2px; }}"
+            f"QPushButton:hover {{ background-color: {c['accent']}; color: {c['text_inverse']}; }}"
+            f"QPushButton:pressed {{ background-color: {accent_darker}; color: {c['text_inverse']}; }}"
+        )
+        self.table_style = (
+            f"QHeaderView::section {{ background-color: {c['table_header_bg']}; color: {c['text_secondary']}; padding: 8px; font-weight: 700; border: none; }}"
+            f"QTableWidget {{ background-color: {c['table_row_bg']}; color: {c['text_primary']}; gridline-color: {c['border']}; selection-background-color: {accent_rgba}; }}"
+            f"QTableWidget::item {{ border-bottom: 1px solid {c['border']}; padding: 6px; }}"
+            f"QTableWidget::item:selected {{ background-color: {accent_rgba}; color: {c['accent']}; border: 1px solid {c['accent']}; }}"
+            f"QScrollBar:vertical {{ background: {c['field_bg']}; width: 12px; margin: 0px; border: 1px solid {c['border']}; border-radius: 6px; }}"
+            f"QScrollBar::handle:vertical {{ background: {c['border']}; min-height: 24px; border-radius: 6px; }}"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+            f"QScrollBar:horizontal {{ background: {c['field_bg']}; height: 12px; margin: 0px; border: 1px solid {c['border']}; border-radius: 6px; }}"
+            f"QScrollBar::handle:horizontal {{ background: {c['border']}; min-width: 24px; border-radius: 6px; }}"
+            "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }"
+        )
+        self.list_style = (
+            f"QListWidget {{ background-color: {c['field_bg']}; color: {c['text_secondary']}; border: 1px solid {c['border']}; border-radius: 10px; padding: 6px; }}"
+            f"QListWidget::item:selected {{ background-color: rgba({accent_color.red()}, {accent_color.green()}, {accent_color.blue()}, 32); color: {c['accent']}; border-radius: 6px; }}"
+            "QListWidget::item { padding: 8px 10px; margin: 2px 0; }"
+        )
+        self.tabs_style = (
+            "QTabBar { font-weight: 700; }"
+            f"QTabBar::tab {{ background: {c['field_bg']}; color: {c['text_muted']}; padding: 10px 18px; border: 1px solid {c['border']}; border-top-left-radius: 10px; border-top-right-radius: 10px; margin-right: 6px; }}"
+            f"QTabBar::tab:selected {{ background: {c['surface']}; color: {c['accent']}; border: 1px solid {c['border']}; border-bottom: 2px solid {c['accent']}; }}"
+            f"QTabWidget::pane {{ border: 1px solid {c['border']}; border-radius: 10px; background-color: {c['surface']}; top: -1px; }}"
+        )
+        self.main_style = (
+            f"QMainWindow {{ background-color: {c['background']}; }}"
+            f"QStatusBar {{ background-color: {c['background']}; color: {c['text_primary']}; padding: 4px; border-top: 1px solid {c['border']}; }}"
+            f"QToolButton[windowControl='true'] {{ background-color: transparent; border: none; color: {c['text_primary']}; padding: 6px; }}"
+            f"QToolButton[windowControl='true']:hover {{ background-color: rgba({QtGui.QColor(c['text_primary']).red()}, {QtGui.QColor(c['text_primary']).green()}, {QtGui.QColor(c['text_primary']).blue()}, 20); border-radius: 6px; }}"
+        )
+
+    def _apply_theme_styles(self) -> None:
+        for setter in getattr(self, "_theme_setters", []):
+            setter()
+
+    def _register_theme_setter(self, setter: Callable[[], None]) -> None:
+        self._theme_setters.append(setter)
+        setter()
+
+    def _toggle_theme(self) -> None:
+        new_theme = "light" if self.theme == "dark" else "dark"
+        self.settings.save_theme(new_theme)
+        self._apply_theme_palette(new_theme)
+        self._update_theme_button_icon()
+
+    def _update_theme_button_icon(self) -> None:
+        if hasattr(self, "theme_btn"):
+            self.theme_btn.setText("🌙" if self.theme == "light" else "☀")
     def _build_main_header(self) -> QtWidgets.QWidget:
         header = QtWidgets.QFrame()
         header.setFixedHeight(48)
-        header.setStyleSheet(
-            "QFrame { background-color: #0b0c10; border-bottom: 1px solid #20242c; }"
+        self._register_theme_setter(
+            lambda h=header: h.setStyleSheet(
+                f"QFrame {{ background-color: {self.colors['header_bg']}; border-bottom: 1px solid {self.colors['border']}; }}"
+            )
         )
         layout = QtWidgets.QHBoxLayout(header)
         layout.setContentsMargins(12, 6, 12, 6)
         layout.setSpacing(8)
 
         title = QtWidgets.QLabel("ANPR Desktop")
-        title.setStyleSheet("color: white; font-weight: 800;")
+        self._register_theme_setter(
+            lambda lbl=title: lbl.setStyleSheet(f"color: {self.colors['text_primary']}; font-weight: 800;")
+        )
         layout.addWidget(title)
         layout.addStretch()
+
+        self.theme_btn = QtWidgets.QToolButton()
+        self.theme_btn.setProperty("windowControl", True)
+        self.theme_btn.setToolTip("Переключить тему")
+        self.theme_btn.clicked.connect(self._toggle_theme)
+        layout.addWidget(self.theme_btn)
 
         minimize_btn = QtWidgets.QToolButton()
         minimize_btn.setProperty("windowControl", True)
@@ -1085,12 +1180,15 @@ class MainWindow(QtWidgets.QMainWindow):
         header.mouseMoveEvent = move_window  # type: ignore[assignment]
         header.mouseReleaseEvent = end_move  # type: ignore[assignment]
         header.mouseDoubleClickEvent = double_click  # type: ignore[assignment]
+        self._register_theme_setter(self._update_theme_button_icon)
         return header
 
     def _build_status_bar(self) -> None:
         status = self.statusBar()
-        status.setStyleSheet(
-            "background-color: #0b0c10; color: #e5e7eb; padding: 6px; border-top: 1px solid #1f2937;"
+        self._register_theme_setter(
+            lambda s=status: s.setStyleSheet(
+                f"background-color: {self.colors['background']}; color: {self.colors['text_primary']}; padding: 6px; border-top: 1px solid {self.colors['border']};"
+            )
         )
         status.setSizeGripEnabled(False)
         self.cpu_label = QtWidgets.QLabel("CPU: —")
@@ -1126,18 +1224,24 @@ class MainWindow(QtWidgets.QMainWindow):
         chooser_layout.setSpacing(8)
         chooser_layout.setContentsMargins(4, 4, 4, 4)
         chooser_label = QtWidgets.QLabel("Сетка")
-        chooser_label.setStyleSheet("color: #e5e7eb; font-weight: 800;")
+        self._register_theme_setter(
+            lambda lbl=chooser_label: lbl.setStyleSheet(
+                f"color: {self.colors['text_primary']}; font-weight: 800;"
+            )
+        )
         chooser_layout.addWidget(chooser_label)
         self.grid_combo = QtWidgets.QComboBox()
         self.grid_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
         self.grid_combo.setSizePolicy(
             QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Fixed
         )
-        self.grid_combo.setStyleSheet(
-            "QComboBox { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 10px; padding: 6px 10px; min-width: 0px; }"
-            "QComboBox::drop-down { border: 0px; width: 28px; }"
-            "QComboBox::down-arrow { image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png); width: 12px; height: 12px; margin-right: 6px; }"
-            "QComboBox QAbstractItemView { background-color: #0b0c10; color: #e5e7eb; selection-background-color: rgba(34,211,238,0.14); border: 1px solid #1f2937; padding: 6px; }"
+        self._register_theme_setter(
+            lambda combo=self.grid_combo: combo.setStyleSheet(
+                f"QComboBox {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; border: 1px solid {self.colors['border']}; border-radius: 10px; padding: 6px 10px; min-width: 0px; }}"
+                "QComboBox::drop-down { border: 0px; width: 28px; }"
+                "QComboBox::down-arrow { image: url(:/qt-project.org/styles/commonstyle/images/arrowdown.png); width: 12px; height: 12px; margin-right: 6px; }"
+                f"QComboBox QAbstractItemView {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; selection-background-color: {self.colors['accent']}; border: 1px solid {self.colors['border']}; padding: 6px; }}"
+            )
         )
         for variant in self.GRID_VARIANTS:
             self.grid_combo.addItem(variant.replace("x", "×"), variant)
@@ -1166,23 +1270,28 @@ class MainWindow(QtWidgets.QMainWindow):
         right_header = QtWidgets.QHBoxLayout()
         right_header.setContentsMargins(0, 0, 0, 0)
         right_title = QtWidgets.QLabel("Детали")
-        right_title.setStyleSheet("color: #e5e7eb; font-weight: 800;")
+        self._register_theme_setter(
+            lambda lbl=right_title: lbl.setStyleSheet(
+                f"color: {self.colors['text_primary']}; font-weight: 800;"
+            )
+        )
         right_header.addWidget(right_title)
         right_header.addStretch()
         right_column.addLayout(right_header)
         details_group = QtWidgets.QGroupBox("Информация о событии")
-        details_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        self._register_theme_setter(lambda g=details_group: g.setStyleSheet(self.group_box_style))
         details_layout = QtWidgets.QVBoxLayout(details_group)
         self.event_detail = EventDetailView()
+        self._register_theme_setter(lambda: self.event_detail.set_theme(self.colors))
         details_layout.addWidget(self.event_detail)
         right_column.addWidget(details_group, stretch=3)
 
         events_group = QtWidgets.QGroupBox("События")
-        events_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        self._register_theme_setter(lambda g=events_group: g.setStyleSheet(self.group_box_style))
         events_layout = QtWidgets.QVBoxLayout(events_group)
         self.events_table = QtWidgets.QTableWidget(0, 5)
         self.events_table.setHorizontalHeaderLabels(["Дата/Время", "Гос. номер", "Страна", "Канал", "Направление"])
-        self.events_table.setStyleSheet(self.TABLE_STYLE)
+        self._register_theme_setter(lambda: self.events_table.setStyleSheet(self.table_style))
         header = self.events_table.horizontalHeader()
         header.setMinimumSectionSize(90)
         header.setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
@@ -1200,9 +1309,11 @@ class MainWindow(QtWidgets.QMainWindow):
         toggle_details_btn.setText("◀")
         toggle_details_btn.setToolTip("Скрыть панель деталей")
         toggle_details_btn.setFixedSize(26, 26)
-        toggle_details_btn.setStyleSheet(
-            "QToolButton { background-color: #0b0c10; color: #e5e7eb; border: 1px solid #1f2937; border-radius: 6px; }"
-            "QToolButton:hover { background-color: rgba(255,255,255,0.08); }"
+        self._register_theme_setter(
+            lambda btn=toggle_details_btn: btn.setStyleSheet(
+                f"QToolButton {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; border: 1px solid {self.colors['border']}; border-radius: 6px; }}"
+                f"QToolButton:hover {{ background-color: rgba({QtGui.QColor(self.colors['text_primary']).red()}, {QtGui.QColor(self.colors['text_primary']).green()}, {QtGui.QColor(self.colors['text_primary']).blue()}, 12); }}"
+            )
         )
 
         toggle_rail = QtWidgets.QFrame()
@@ -1252,9 +1363,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._draw_grid()
         return widget
 
-    @staticmethod
-    def _polish_button(button: QtWidgets.QPushButton, min_width: int = 140) -> None:
-        button.setStyleSheet(MainWindow.PRIMARY_HOLLOW_BUTTON)
+    def _polish_button(self, button: QtWidgets.QPushButton, min_width: int = 140) -> None:
+        def apply_style() -> None:
+            button.setStyleSheet(self.primary_hollow_button)
+
+        self._register_theme_setter(apply_style)
         button.setMinimumWidth(min_width)
         button.setMinimumHeight(MainWindow.BUTTON_HEIGHT)
         button.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
@@ -1291,18 +1404,19 @@ class MainWindow(QtWidgets.QMainWindow):
         widget.setSpecialValueText("Не выбрано")
         widget.setDateTime(min_dt)
 
-    def _apply_dark_calendar_style(self, widget: QtWidgets.QDateTimeEdit) -> None:
+    def _apply_calendar_style(self, widget: QtWidgets.QDateTimeEdit) -> None:
         widget.setStyleSheet(
-            "QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 6px; }"
+            f"QDateTimeEdit {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; border: 1px solid {self.colors['border']}; border-radius: 8px; padding: 6px; }}"
             "QDateTimeEdit::drop-down { width: 24px; }"
         )
         calendar = widget.calendarWidget()
+        accent = self.colors["accent"]
         calendar.setStyleSheet(
-            "QCalendarWidget QWidget { background-color: #0b0c10; color: #f8fafc; }"
-            "QCalendarWidget QToolButton { background-color: #1f2937; color: #f8fafc; border: none; padding: 6px; }"
+            f"QCalendarWidget QWidget {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; }}"
+            f"QCalendarWidget QToolButton {{ background-color: {self.colors['border']}; color: {self.colors['text_primary']}; border: none; padding: 6px; }}"
             "QCalendarWidget QToolButton#qt_calendar_prevmonth, QCalendarWidget QToolButton#qt_calendar_nextmonth { width: 24px; }"
-            "QCalendarWidget QSpinBox { background-color: #1f2937; color: #f8fafc; }"
-            "QCalendarWidget QTableView { selection-background-color: rgba(34,211,238,0.18); selection-color: #22d3ee; alternate-background-color: #11131a; }"
+            f"QCalendarWidget QSpinBox {{ background-color: {self.colors['border']}; color: {self.colors['text_primary']}; }}"
+            f"QCalendarWidget QTableView {{ selection-background-color: {accent}; selection-color: {self.colors['text_inverse']}; alternate-background-color: {self.colors['surface']}; }}"
         )
 
     @staticmethod
@@ -1429,7 +1543,7 @@ class MainWindow(QtWidgets.QMainWindow):
         index = 0
         for row in range(rows):
             for col in range(cols):
-                label = ChannelView(f"Канал {index+1}", self._pixmap_pool)
+                label = ChannelView(f"Канал {index+1}", self._pixmap_pool, self.colors)
                 label.set_grid_position(index)
                 channel_name: Optional[str] = None
                 if index < len(channels):
@@ -1440,6 +1554,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 label.channelActivated.connect(self._on_channel_activated)
                 label.dragStarted.connect(self._on_drag_started)
                 label.dragFinished.connect(self._on_drag_finished)
+                self._register_theme_setter(lambda l=label: l.set_theme(self.colors))
                 self.grid_layout.addWidget(label, row, col)
                 self.grid_cells[index] = label
                 index += 1
@@ -1929,10 +2044,10 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
-        widget.setStyleSheet(self.FORM_STYLE)
+        self._register_theme_setter(lambda w=widget: w.setStyleSheet(self.form_style))
 
         filters_group = QtWidgets.QGroupBox("Фильтры поиска")
-        filters_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        self._register_theme_setter(lambda g=filters_group: g.setStyleSheet(self.group_box_style))
         form = QtWidgets.QFormLayout(filters_group)
         form.setFieldGrowthPolicy(QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
         metrics = self.fontMetrics()
@@ -1945,14 +2060,16 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.search_from = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_from)
-        self._apply_dark_calendar_style(self.search_from)
+        self._apply_calendar_style(self.search_from)
+        self._register_theme_setter(lambda: self._apply_calendar_style(self.search_from))
         self.search_from.setMinimumWidth(input_width)
         self.search_from.setSizePolicy(
             QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Fixed
         )
         self.search_to = QtWidgets.QDateTimeEdit()
         self._prepare_optional_datetime(self.search_to)
-        self._apply_dark_calendar_style(self.search_to)
+        self._apply_calendar_style(self.search_to)
+        self._register_theme_setter(lambda: self._apply_calendar_style(self.search_to))
         self.search_to.setMinimumWidth(input_width)
         self.search_to.setSizePolicy(
             QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Fixed
@@ -1999,7 +2116,7 @@ class MainWindow(QtWidgets.QMainWindow):
         header.setMinimumSectionSize(90)
         self.search_table.setColumnWidth(0, 220)
         self.search_table.setColumnWidth(3, 140)
-        self.search_table.setStyleSheet(self.TABLE_STYLE)
+        self._register_theme_setter(lambda: self.search_table.setStyleSheet(self.table_style))
         self.search_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.search_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.search_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -2111,13 +2228,13 @@ class MainWindow(QtWidgets.QMainWindow):
             | QtCore.Qt.WindowMinMaxButtonsHint
         )
         dialog.setStyleSheet(
-            f"QDialog {{ background-color: {self.SURFACE_COLOR}; border: 1px solid #20242c; border-radius: 12px; }}"
-            f"QGroupBox {{ background-color: {self.PANEL_COLOR}; color: #f6f7fb; border: 1px solid #20242c; border-radius: 12px; padding: 10px; margin-top: 8px; }}"
-            "QLabel { color: #e5e7eb; }"
-            "QToolButton { background-color: transparent; border: none; color: white; padding: 6px; }"
-            "QToolButton:hover { background-color: rgba(255,255,255,0.08); border-radius: 6px; }"
-            f"QPushButton {{ background-color: {self.ACCENT_COLOR}; color: #0b0c10; border: none; border-radius: 8px; padding: 8px 16px; font-weight: 700; }}"
-            f"QPushButton:hover {{ background-color: #4ddcf3; }}"
+            f"QDialog {{ background-color: {self.colors['surface']}; border: 1px solid {self.colors['border']}; border-radius: 12px; }}"
+            f"QGroupBox {{ background-color: {self.colors['panel']}; color: {self.colors['text_primary']}; border: 1px solid {self.colors['border']}; border-radius: 12px; padding: 10px; margin-top: 8px; }}"
+            f"QLabel {{ color: {self.colors['text_primary']}; }}"
+            f"QToolButton {{ background-color: transparent; border: none; color: {self.colors['text_primary']}; padding: 6px; }}"
+            f"QToolButton:hover {{ background-color: rgba({QtGui.QColor(self.colors['text_primary']).red()}, {QtGui.QColor(self.colors['text_primary']).green()}, {QtGui.QColor(self.colors['text_primary']).blue()}, 20); border-radius: 6px; }}"
+            f"QPushButton {{ background-color: {self.colors['accent']}; color: {self.colors['text_inverse']}; border: none; border-radius: 8px; padding: 8px 16px; font-weight: 700; }}"
+            f"QPushButton:hover {{ background-color: {QtGui.QColor(self.colors['accent']).lighter(115).name()}; }}"
         )
         dialog_layout = QtWidgets.QVBoxLayout(dialog)
         dialog_layout.setContentsMargins(0, 0, 0, 12)
@@ -2125,14 +2242,14 @@ class MainWindow(QtWidgets.QMainWindow):
         header = QtWidgets.QFrame()
         header.setFixedHeight(44)
         header.setStyleSheet(
-            f"QFrame {{ background-color: #0b0c10; border-bottom: 1px solid #20242c; border-top-left-radius: 12px; border-top-right-radius: 12px; }}"
+            f"QFrame {{ background-color: {self.colors['header_bg']}; border-bottom: 1px solid {self.colors['border']}; border-top-left-radius: 12px; border-top-right-radius: 12px; }}"
         )
         header_layout = QtWidgets.QHBoxLayout(header)
         header_layout.setContentsMargins(12, 6, 12, 6)
         header_layout.setSpacing(10)
 
         title = QtWidgets.QLabel("Информация о событии")
-        title.setStyleSheet("color: white; font-weight: 800;")
+        title.setStyleSheet(f"color: {self.colors['text_primary']}; font-weight: 800;")
         header_layout.addWidget(title)
         header_layout.addStretch()
 
@@ -2171,6 +2288,7 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog_layout.addWidget(header)
 
         details = EventDetailView()
+        details.set_theme(self.colors)
         details.set_event(display_event, frame_image, plate_image)
         dialog_layout.addWidget(details)
 
@@ -2191,8 +2309,10 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.setSpacing(12)
 
         content = QtWidgets.QFrame()
-        content.setStyleSheet(
-            f"QFrame {{ background-color: {self.SURFACE_COLOR}; border: none; border-radius: 14px; }}"
+        self._register_theme_setter(
+            lambda c=content: c.setStyleSheet(
+                f"QFrame {{ background-color: {self.colors['surface']}; border: none; border-radius: 14px; }}"
+            )
         )
         content_layout = QtWidgets.QHBoxLayout(content)
         content_layout.setContentsMargins(12, 12, 12, 12)
@@ -2200,7 +2320,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.settings_nav = QtWidgets.QListWidget()
         self.settings_nav.setFixedWidth(220)
-        self.settings_nav.setStyleSheet(self.LIST_STYLE)
+        self._register_theme_setter(lambda: self.settings_nav.setStyleSheet(self.list_style))
         self.settings_nav.addItem("Общие")
         self.settings_nav.addItem("Каналы")
         content_layout.addWidget(self.settings_nav)
@@ -2221,28 +2341,36 @@ class MainWindow(QtWidgets.QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        scroll.setStyleSheet(
-            f"QScrollArea {{ background: transparent; border: none; }}"
-            f"QScrollArea > QWidget > QWidget {{ background-color: {self.SURFACE_COLOR}; }}"
+        self._register_theme_setter(
+            lambda s=scroll: s.setStyleSheet(
+                f"QScrollArea {{ background: transparent; border: none; }}"
+                f"QScrollArea > QWidget > QWidget {{ background-color: {self.colors['surface']}; }}"
+            )
         )
 
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
-        widget.setStyleSheet(self.FORM_STYLE)
-
-        section_style = f"QFrame {{ background-color: {self.PANEL_COLOR}; border: none; border-radius: 12px; }}"
+        self._register_theme_setter(lambda w=widget: w.setStyleSheet(self.form_style))
 
         def make_section(title: str) -> tuple[QtWidgets.QFrame, QtWidgets.QFormLayout]:
             frame = QtWidgets.QFrame()
-            frame.setStyleSheet(section_style)
+            self._register_theme_setter(
+                lambda f=frame: f.setStyleSheet(
+                    f"QFrame {{ background-color: {self.colors['panel']}; border: none; border-radius: 12px; }}"
+                )
+            )
             frame_layout = QtWidgets.QVBoxLayout(frame)
             frame_layout.setContentsMargins(14, 12, 14, 12)
             frame_layout.setSpacing(10)
 
             header = QtWidgets.QLabel(title)
-            header.setStyleSheet("font-size: 14px; font-weight: 800; color: #e5e7eb;")
+            self._register_theme_setter(
+                lambda lbl=header: lbl.setStyleSheet(
+                    f"font-size: 14px; font-weight: 800; color: {self.colors['text_primary']};"
+                )
+            )
             self._ensure_label_width(header)
             frame_layout.addWidget(header)
 
@@ -2327,13 +2455,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.device_combo = QtWidgets.QComboBox()
         self._configure_combo(self.device_combo)
-        self.device_combo.setStyleSheet(
-            "QComboBox { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; }"
-            "QComboBox QAbstractItemView { background-color: #0b0c10; color: #f8fafc; selection-background-color: #1f2937; }"
-            "QComboBox:on { padding-top: 3px; padding-left: 4px; }"
+        self._register_theme_setter(
+            lambda combo=self.device_combo: combo.setStyleSheet(
+                f"QComboBox {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; border: 1px solid {self.colors['border']}; }}"
+                f"QComboBox QAbstractItemView {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; selection-background-color: {self.colors['accent']}; }}"
+                "QComboBox:on { padding-top: 3px; padding-left: 4px; }"
+            )
         )
         self.device_status_label = QtWidgets.QLabel("")
-        self.device_status_label.setStyleSheet("color: #9ca3af;")
+        self._register_theme_setter(
+            lambda lbl=self.device_status_label: lbl.setStyleSheet(f"color: {self.colors['text_muted']};")
+        )
         self.device_status_label.setWordWrap(True)
         self._populate_device_options()
         model_form.addRow("Устройство инференса:", self.device_combo)
@@ -2345,10 +2477,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.timezone_combo = QtWidgets.QComboBox()
         self.timezone_combo.setEditable(False)
         self._configure_combo(self.timezone_combo)
-        self.timezone_combo.setStyleSheet(
-            "QComboBox { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; }"
-            "QComboBox QAbstractItemView { background-color: #0b0c10; color: #f8fafc; selection-background-color: #1f2937; }"
-            "QComboBox:on { padding-top: 3px; padding-left: 4px; }"
+        self._register_theme_setter(
+            lambda combo=self.timezone_combo: combo.setStyleSheet(
+                f"QComboBox {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; border: 1px solid {self.colors['border']}; }}"
+                f"QComboBox QAbstractItemView {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; selection-background-color: {self.colors['accent']}; }}"
+                "QComboBox:on { padding-top: 3px; padding-left: 4px; }"
+            )
         )
         for label in self._available_offset_labels():
             self.timezone_combo.addItem(label, label)
@@ -2362,16 +2496,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.time_correction_input.setCalendarPopup(True)
         self.time_correction_input.setMaximumWidth(self.FIELD_MAX_WIDTH)
         self.time_correction_input.setMinimumWidth(self.FIELD_MIN_WIDTH)
-        self.time_correction_input.setStyleSheet(
-            "QDateTimeEdit { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
-            "QDateTimeEdit::drop-down { width: 26px; }")
-        calendar = self.time_correction_input.calendarWidget()
-        calendar.setStyleSheet(
-            "QCalendarWidget QWidget { background-color: #0b0c10; color: #f8fafc; }"
-            "QCalendarWidget QToolButton { background-color: #1f2937; color: #f8fafc; border: none; padding: 6px; }"
-            "QCalendarWidget QToolButton#qt_calendar_prevmonth, QCalendarWidget QToolButton#qt_calendar_nextmonth { width: 24px; }"
-            "QCalendarWidget QSpinBox { background-color: #1f2937; color: #f8fafc; }"
-            "QCalendarWidget QTableView { selection-background-color: rgba(34,211,238,0.18); selection-color: #22d3ee; alternate-background-color: #11131a; }")
+        self._apply_calendar_style(self.time_correction_input)
+        self._register_theme_setter(lambda: self._apply_calendar_style(self.time_correction_input))
         sync_now_btn = QtWidgets.QPushButton("Текущее время")
         self._polish_button(sync_now_btn, 160)
         sync_now_btn.clicked.connect(self._sync_time_now)
@@ -2406,7 +2532,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.country_templates_list.setMaximumWidth(self.FIELD_MAX_WIDTH)
         self.country_templates_list.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Expanding)
         self.country_templates_list.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
-        self.country_templates_list.setStyleSheet(self.LIST_STYLE)
+        self._register_theme_setter(
+            lambda: self.country_templates_list.setStyleSheet(self.list_style)
+        )
         plate_form.addRow("Активные страны:", self.country_templates_list)
 
         refresh_countries_btn = QtWidgets.QPushButton("Обновить список стран")
@@ -2415,7 +2543,11 @@ class MainWindow(QtWidgets.QMainWindow):
         plate_form.addRow("", refresh_countries_btn)
 
         save_card = QtWidgets.QFrame()
-        save_card.setStyleSheet(section_style)
+        self._register_theme_setter(
+            lambda f=save_card: f.setStyleSheet(
+                f"QFrame {{ background-color: {self.colors['panel']}; border: none; border-radius: 12px; }}"
+            )
+        )
         save_row = QtWidgets.QHBoxLayout(save_card)
         save_row.setContentsMargins(14, 12, 14, 12)
         save_row.setSpacing(10)
@@ -2440,13 +2572,13 @@ class MainWindow(QtWidgets.QMainWindow):
     def _build_channel_settings_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QHBoxLayout(widget)
-        widget.setStyleSheet(self.GROUP_BOX_STYLE)
+        self._register_theme_setter(lambda w=widget: w.setStyleSheet(self.group_box_style))
 
         left_panel = QtWidgets.QVBoxLayout()
         left_panel.setSpacing(6)
         self.channels_list = QtWidgets.QListWidget()
         self.channels_list.setFixedWidth(180)
-        self.channels_list.setStyleSheet(self.LIST_STYLE)
+        self._register_theme_setter(lambda: self.channels_list.setStyleSheet(self.list_style))
         self.channels_list.currentRowChanged.connect(self._load_channel_form)
         left_panel.addWidget(self.channels_list)
 
@@ -2471,24 +2603,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.preview = ROIEditor()
         self.preview.roi_changed.connect(self._on_roi_drawn)
         self.preview.plate_size_selected.connect(self._on_plate_size_selected)
+        self._register_theme_setter(lambda: self.preview.set_theme(self.colors))
         center_panel.addWidget(self.preview)
         details_layout.addLayout(center_panel, 2)
 
         right_panel = QtWidgets.QVBoxLayout()
         right_panel.setSpacing(10)
 
-        tab_styles = (
-            "QTabBar { font-weight: 700; }"
-            f"QTabBar::tab {{ background: #0b0c10; color: #9ca3af; padding: 8px 14px; border: 1px solid #0f1115; border-top-left-radius: 10px; border-top-right-radius: 10px; margin-right: 6px; }}"
-            f"QTabBar::tab:selected {{ background: #16181d; color: {self.ACCENT_COLOR}; border: 1px solid #20242c; border-bottom: 2px solid {self.ACCENT_COLOR}; }}"
-            "QTabWidget::pane { border: 1px solid #20242c; border-radius: 10px; background-color: #16181d; top: -1px; }"
-            "QWidget { background-color: #16181d; color: #cbd5e1; }"
-            "QLabel { color: #cbd5e1; font-size: 13px; }"
-            "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox { background-color: #0b0c10; color: #f8fafc; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; }"
-        )
-
         tabs = QtWidgets.QTabWidget()
-        tabs.setStyleSheet(tab_styles)
+        self._register_theme_setter(
+            lambda t=tabs: t.setStyleSheet(
+                "QTabBar { font-weight: 700; }"
+                f"QTabBar::tab {{ background: {self.colors['field_bg']}; color: {self.colors['text_muted']}; padding: 8px 14px; border: 1px solid {self.colors['border']}; border-top-left-radius: 10px; border-top-right-radius: 10px; margin-right: 6px; }}"
+                f"QTabBar::tab:selected {{ background: {self.colors['surface']}; color: {self.colors['accent']}; border: 1px solid {self.colors['border']}; border-bottom: 2px solid {self.colors['accent']}; }}"
+                f"QTabWidget::pane {{ border: 1px solid {self.colors['border']}; border-radius: 10px; background-color: {self.colors['surface']}; top: -1px; }}"
+                f"QWidget {{ background-color: {self.colors['surface']}; color: {self.colors['text_secondary']}; }}"
+                f"QLabel {{ color: {self.colors['text_secondary']}; font-size: 13px; }}"
+                f"QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{ background-color: {self.colors['field_bg']}; color: {self.colors['text_primary']}; border: 1px solid {self.colors['border']}; border-radius: 8px; padding: 8px; }}"
+            )
+        )
 
         def make_form_tab() -> QtWidgets.QFormLayout:
             tab_widget = QtWidgets.QWidget()
@@ -2615,7 +2748,6 @@ class MainWindow(QtWidgets.QMainWindow):
         tabs.setTabText(3, "Зона распознавания")
 
         size_group = QtWidgets.QGroupBox("Фильтр по размеру рамки")
-        size_group.setStyleSheet(self.GROUP_BOX_STYLE)
         size_layout = QtWidgets.QGridLayout()
         size_layout.setHorizontalSpacing(14)
         size_layout.setVerticalSpacing(10)
@@ -2675,14 +2807,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plate_size_hint = QtWidgets.QLabel(
             "Перетаскивайте прямоугольники мин/макс на превью слева, значения сохраняются автоматически"
         )
-        self.plate_size_hint.setStyleSheet("color: #9ca3af; padding-top: 6px;")
+        self._register_theme_setter(
+            lambda lbl=self.plate_size_hint: lbl.setStyleSheet(
+                f"color: {self.colors['text_muted']}; padding-top: 6px;"
+            )
+        )
         size_layout.addWidget(self.plate_size_hint, 2, 0, 1, 4)
         size_group.setLayout(size_layout)
 
+        self._register_theme_setter(lambda g=size_group: g.setStyleSheet(self.group_box_style))
         roi_form.addRow("", size_group)
 
         roi_group = QtWidgets.QGroupBox("Точки ROI")
-        roi_group.setStyleSheet(self.GROUP_BOX_STYLE)
+        self._register_theme_setter(lambda g=roi_group: g.setStyleSheet(self.group_box_style))
         roi_layout = QtWidgets.QVBoxLayout(roi_group)
         roi_layout.setContentsMargins(12, 12, 12, 12)
         roi_layout.setSpacing(10)
@@ -2695,8 +2832,8 @@ class MainWindow(QtWidgets.QMainWindow):
         header.setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
         header.setDefaultSectionSize(90)
         header.setMinimumSectionSize(80)
-        header.setStyleSheet(
-            "QHeaderView::section { background-color: #11131a; color: #cbd5e1; border: 1px solid #1f2937; }"
+        self._register_theme_setter(
+            lambda: self.roi_points_table.setStyleSheet(self.table_style)
         )
         self.roi_points_table.verticalHeader().setVisible(False)
         self.roi_points_table.setEditTriggers(QtWidgets.QAbstractItemView.AllEditTriggers)
