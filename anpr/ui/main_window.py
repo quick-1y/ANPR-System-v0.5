@@ -267,6 +267,11 @@ class ROIEditor(QtWidgets.QLabel):
         self._active_size_handle: Optional[str] = None
         self._active_size_origin: Optional[QtCore.QPointF] = None
         self._active_size_rect: Optional[QtCore.QRectF] = None
+        self._size_capture_target: Optional[str] = None
+        self._size_capture_start: Optional[QtCore.QPointF] = None
+        self._size_capture_end: Optional[QtCore.QPointF] = None
+        self._roi_usage_enabled = True
+        self._size_overlay_enabled = True
 
     def set_theme(self, colors: Dict[str, str]) -> None:
         self.setStyleSheet(
@@ -351,6 +356,19 @@ class ROIEditor(QtWidgets.QLabel):
     ) -> None:
         self._update_size_rect("min", float(min_width), float(min_height))
         self._update_size_rect("max", float(max_width), float(max_height))
+        self.update()
+
+    def set_roi_usage_enabled(self, enabled: bool) -> None:
+        self._roi_usage_enabled = bool(enabled)
+        self.update()
+
+    def set_size_overlay_enabled(self, enabled: bool) -> None:
+        self._size_overlay_enabled = bool(enabled)
+        if not enabled:
+            self._active_size_target = None
+            self._active_size_handle = None
+            self._active_size_origin = None
+            self._active_size_rect = None
         self.update()
 
     def setPixmap(self, pixmap: Optional[QtGui.QPixmap]) -> None:  # noqa: N802
@@ -503,10 +521,12 @@ class ROIEditor(QtWidgets.QLabel):
         if len(widget_points) < 3:
             return
 
-        pen = QtGui.QPen(QtGui.QColor(0, 200, 0))
+        pen_color = QtGui.QColor(0, 200, 0) if self._roi_usage_enabled else QtGui.QColor(170, 170, 170)
+        fill_color = QtGui.QColor(0, 200, 0, 40) if self._roi_usage_enabled else QtGui.QColor(170, 170, 170, 30)
+        pen = QtGui.QPen(pen_color)
         pen.setWidth(2)
         painter.setPen(pen)
-        painter.setBrush(QtGui.QColor(0, 200, 0, 40))
+        painter.setBrush(fill_color)
         painter.drawPolygon(QtGui.QPolygonF(widget_points))
 
         handle_brush = QtGui.QBrush(QtGui.QColor(0, 255, 0))
@@ -515,43 +535,52 @@ class ROIEditor(QtWidgets.QLabel):
         for p in widget_points:
             painter.drawEllipse(QtCore.QPointF(p), 5, 5)
 
-        for target, color in ("min", QtGui.QColor(34, 211, 238)), ("max", QtGui.QColor(249, 115, 22)):
-            rect = self._size_rects.get(target)
-            if rect is None:
-                continue
-            top_left = self._image_to_widget(rect.topLeft())
-            bottom_right = self._image_to_widget(rect.bottomRight())
-            if top_left is None or bottom_right is None:
-                continue
-            widget_rect = QtCore.QRectF(top_left, bottom_right).normalized()
-            pen = QtGui.QPen(color)
-            pen.setWidth(2)
-            pen.setStyle(QtCore.Qt.DashLine)
-            painter.setPen(pen)
-            painter.setBrush(QtGui.QColor(color.red(), color.green(), color.blue(), 40))
-            painter.drawRect(widget_rect)
-
-            painter.setPen(QtGui.QPen(color))
-            painter.setBrush(QtGui.QBrush(color))
-            for corner in (
-                widget_rect.topLeft(),
-                widget_rect.topRight(),
-                widget_rect.bottomLeft(),
-                widget_rect.bottomRight(),
-            ):
-                painter.drawEllipse(corner, 5, 5)
-
-            label = "минимальный" if target == "min" else "максимальный"
-            metrics = painter.fontMetrics()
-            text_rect = metrics.boundingRect(label)
-            label_rect = QtCore.QRectF(
-                widget_rect.left(),
-                max(0.0, widget_rect.top() - text_rect.height() - 4),
-                text_rect.width(),
-                text_rect.height(),
+        if not self._roi_usage_enabled:
+            painter.setPen(QtGui.QPen(QtGui.QColor(210, 210, 210)))
+            painter.drawText(
+                self.rect().adjusted(10, 10, -10, -10),
+                QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop,
+                "ROI отключена — поиск по всему кадру",
             )
-            painter.setPen(QtGui.QPen(color))
-            painter.drawText(label_rect, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, label)
+
+        if self._size_overlay_enabled:
+            for target, color in ("min", QtGui.QColor(34, 211, 238)), ("max", QtGui.QColor(249, 115, 22)):
+                rect = self._size_rects.get(target)
+                if rect is None:
+                    continue
+                top_left = self._image_to_widget(rect.topLeft())
+                bottom_right = self._image_to_widget(rect.bottomRight())
+                if top_left is None or bottom_right is None:
+                    continue
+                widget_rect = QtCore.QRectF(top_left, bottom_right).normalized()
+                pen = QtGui.QPen(color)
+                pen.setWidth(2)
+                pen.setStyle(QtCore.Qt.DashLine)
+                painter.setPen(pen)
+                painter.setBrush(QtGui.QColor(color.red(), color.green(), color.blue(), 40))
+                painter.drawRect(widget_rect)
+
+                painter.setPen(QtGui.QPen(color))
+                painter.setBrush(QtGui.QBrush(color))
+                for corner in (
+                    widget_rect.topLeft(),
+                    widget_rect.topRight(),
+                    widget_rect.bottomLeft(),
+                    widget_rect.bottomRight(),
+                ):
+                    painter.drawEllipse(corner, 5, 5)
+
+                label = "минимальный" if target == "min" else "максимальный"
+                metrics = painter.fontMetrics()
+                text_rect = metrics.boundingRect(label)
+                label_rect = QtCore.QRectF(
+                    widget_rect.left(),
+                    max(0.0, widget_rect.top() - text_rect.height() - 4),
+                    text_rect.width(),
+                    text_rect.height(),
+                )
+                painter.setPen(QtGui.QPen(color))
+                painter.drawText(label_rect, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, label)
 
     def _emit_roi(self) -> None:
         roi = {
@@ -592,6 +621,8 @@ class ROIEditor(QtWidgets.QLabel):
         return best_index
 
     def _size_handle_at(self, pos: QtCore.QPoint) -> Optional[Tuple[str, str]]:
+        if not self._size_overlay_enabled:
+            return None
         if self._pixmap is None:
             return None
         handle_radius = 10
@@ -621,7 +652,7 @@ class ROIEditor(QtWidgets.QLabel):
         if event.button() != QtCore.Qt.LeftButton:
             return
 
-        size_handle = self._size_handle_at(event.pos())
+        size_handle = self._size_handle_at(event.pos()) if self._size_overlay_enabled else None
         if size_handle:
             self._active_size_target, self._active_size_handle = size_handle
             self._active_size_origin = self._widget_to_image_clamped(event.pos())
@@ -636,6 +667,9 @@ class ROIEditor(QtWidgets.QLabel):
         if self._size_capture_target:
             self._size_capture_start = self._size_capture_end = img_pos
             self.update()
+            return
+
+        if not self._roi_usage_enabled:
             return
 
         handle_radius = 8
@@ -688,6 +722,8 @@ class ROIEditor(QtWidgets.QLabel):
 
         if self._drag_index is None:
             return
+        if not self._roi_usage_enabled:
+            return
         img_pos = self._widget_to_image(event.pos())
         if img_pos is None:
             return
@@ -712,6 +748,8 @@ class ROIEditor(QtWidgets.QLabel):
 
         img_pos = self._widget_to_image(event.pos())
         if img_pos is None:
+            return
+        if not self._roi_usage_enabled:
             return
 
         handle_radius = 8
@@ -2815,6 +2853,12 @@ class MainWindow(QtWidgets.QMainWindow):
         roi_form = make_form_tab()
         tabs.setTabText(3, "Зона распознавания")
 
+        self.size_filter_checkbox = QtWidgets.QCheckBox("Использовать фильтр по размеру")
+        self.size_filter_checkbox.setChecked(True)
+        self.size_filter_checkbox.setToolTip("При отключении детектор не будет отбрасывать рамки по размеру")
+        self.size_filter_checkbox.toggled.connect(self._on_size_filter_toggled)
+        roi_form.addRow("Фильтрация размеров:", self.size_filter_checkbox)
+
         size_group = QtWidgets.QGroupBox("Фильтр по размеру рамки")
         size_layout = QtWidgets.QGridLayout()
         size_layout.setHorizontalSpacing(14)
@@ -2885,6 +2929,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._apply_stylesheet(size_group, lambda: self.group_box_style)
         roi_form.addRow("", size_group)
 
+        self.roi_enabled_checkbox = QtWidgets.QCheckBox("Ограничивать поиск зоной ROI")
+        self.roi_enabled_checkbox.setChecked(True)
+        self.roi_enabled_checkbox.setToolTip("При отключении поиск номеров выполняется по всему кадру")
+        self.roi_enabled_checkbox.toggled.connect(self._on_roi_usage_toggled)
+        roi_form.addRow("Использование ROI:", self.roi_enabled_checkbox)
+
         roi_group = QtWidgets.QGroupBox("Точки ROI")
         self._apply_stylesheet(roi_group, lambda: self.group_box_style)
         roi_layout = QtWidgets.QVBoxLayout(roi_group)
@@ -2907,21 +2957,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.roi_points_table.itemChanged.connect(self._on_roi_table_changed)
 
         roi_buttons = QtWidgets.QHBoxLayout()
-        add_point_btn = QtWidgets.QPushButton("Добавить точку")
-        self._polish_button(add_point_btn, 150)
-        add_point_btn.clicked.connect(self._add_roi_point)
-        remove_point_btn = QtWidgets.QPushButton("Удалить точку")
-        self._polish_button(remove_point_btn, 150)
-        remove_point_btn.clicked.connect(self._remove_roi_point)
-        clear_roi_btn = QtWidgets.QPushButton("Очистить зону")
-        self._polish_button(clear_roi_btn, 150)
-        clear_roi_btn.clicked.connect(self._clear_roi_points)
-        roi_buttons.addWidget(add_point_btn)
-        roi_buttons.addWidget(remove_point_btn)
-        roi_buttons.addWidget(clear_roi_btn)
+        self.add_point_btn = QtWidgets.QPushButton("Добавить точку")
+        self._polish_button(self.add_point_btn, 150)
+        self.add_point_btn.clicked.connect(self._add_roi_point)
+        self.remove_point_btn = QtWidgets.QPushButton("Удалить точку")
+        self._polish_button(self.remove_point_btn, 150)
+        self.remove_point_btn.clicked.connect(self._remove_roi_point)
+        self.clear_roi_btn = QtWidgets.QPushButton("Очистить зону")
+        self._polish_button(self.clear_roi_btn, 150)
+        self.clear_roi_btn.clicked.connect(self._clear_roi_points)
+        roi_buttons.addWidget(self.add_point_btn)
+        roi_buttons.addWidget(self.remove_point_btn)
+        roi_buttons.addWidget(self.clear_roi_btn)
 
         roi_layout.addWidget(self.roi_points_table)
         roi_layout.addLayout(roi_buttons)
+        self.roi_hint_label = QtWidgets.QLabel("Перетаскивайте вершины ROI на предпросмотре слева")
+        self._apply_stylesheet(self.roi_hint_label, lambda: f"color: {self.colors['text_muted']}; padding-top: 2px;")
+        roi_layout.addWidget(self.roi_hint_label)
         roi_form.addRow("", roi_group)
 
         right_panel.addWidget(tabs)
@@ -3018,6 +3071,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.debug_detection_checkbox.setChecked(False)
         self.debug_ocr_checkbox.setChecked(False)
         self.debug_direction_checkbox.setChecked(False)
+        self.roi_enabled_checkbox.blockSignals(True)
+        self.roi_enabled_checkbox.setChecked(True)
+        self.roi_enabled_checkbox.blockSignals(False)
+        self.size_filter_checkbox.blockSignals(True)
+        self.size_filter_checkbox.setChecked(True)
+        self.size_filter_checkbox.blockSignals(False)
         size_defaults = self.settings.get_plate_size_defaults()
         min_size = size_defaults.get("min_plate_size", {})
         max_size = size_defaults.get("max_plate_size", {})
@@ -3034,10 +3093,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.max_plate_width_input.value(),
             self.max_plate_height_input.value(),
         )
+        self._on_size_filter_toggled(True)
         default_roi = self._default_roi_region()
         self.preview.setPixmap(None)
         self.preview.set_roi(default_roi)
         self._sync_roi_table(default_roi)
+        self._on_roi_usage_toggled(True)
 
     def _load_general_settings(self) -> None:
         reconnect = self.settings.get_reconnect()
@@ -3248,7 +3309,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.plate_size_hint.setText(
                 "Перетаскивайте прямоугольники мин/макс на превью слева, значения сохраняются автоматически"
             )
+            size_filter_enabled = bool(channel.get("size_filter_enabled", True))
+            self.size_filter_checkbox.blockSignals(True)
+            self.size_filter_checkbox.setChecked(size_filter_enabled)
+            self.size_filter_checkbox.blockSignals(False)
             self._sync_plate_rects_from_inputs()
+            self._on_size_filter_toggled(size_filter_enabled)
 
             debug_conf = channel.get("debug", {})
             self.debug_detection_checkbox.setChecked(bool(debug_conf.get("show_detection_boxes", False)))
@@ -3261,6 +3327,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.preview.setPixmap(None)
             self.preview.set_roi(region)
             self._sync_roi_table(region)
+            roi_enabled = bool(channel.get("roi_enabled", True))
+            self.roi_enabled_checkbox.blockSignals(True)
+            self.roi_enabled_checkbox.setChecked(roi_enabled)
+            self.roi_enabled_checkbox.blockSignals(False)
+            self._on_roi_usage_toggled(roi_enabled)
 
     def _add_channel(self) -> None:
         channels = self.settings.get_channels()
@@ -3281,8 +3352,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 "motion_frame_stride": 1,
                 "motion_activation_frames": 3,
                 "motion_release_frames": 6,
+                "roi_enabled": True,
                 "min_plate_size": self.settings.get_plate_size_defaults().get("min_plate_size"),
                 "max_plate_size": self.settings.get_plate_size_defaults().get("max_plate_size"),
+                "size_filter_enabled": True,
                 "debug": {
                     "show_detection_boxes": False,
                     "show_ocr_text": False,
@@ -3348,6 +3421,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 channels[index]["motion_frame_stride"] = int(self.motion_stride_input.value())
                 channels[index]["motion_activation_frames"] = int(self.motion_activation_frames_input.value())
                 channels[index]["motion_release_frames"] = int(self.motion_release_frames_input.value())
+                channels[index]["roi_enabled"] = self.roi_enabled_checkbox.isChecked()
                 channels[index]["min_plate_size"] = {
                     "width": int(self.min_plate_width_input.value()),
                     "height": int(self.min_plate_height_input.value()),
@@ -3356,6 +3430,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     "width": int(self.max_plate_width_input.value()),
                     "height": int(self.max_plate_height_input.value()),
                 }
+                channels[index]["size_filter_enabled"] = self.size_filter_checkbox.isChecked()
                 channels[index]["region"] = {"unit": "px", "points": self._collect_roi_points_from_table()}
                 channels[index]["debug"] = {
                     "show_detection_boxes": self.debug_detection_checkbox.isChecked(),
@@ -3458,6 +3533,40 @@ class MainWindow(QtWidgets.QMainWindow):
             self.max_plate_width_input.value(),
             self.max_plate_height_input.value(),
         )
+
+    def _on_size_filter_toggled(self, enabled: bool) -> None:
+        widgets = (
+            self.min_plate_width_input,
+            self.min_plate_height_input,
+            self.max_plate_width_input,
+            self.max_plate_height_input,
+            self.plate_size_hint,
+        )
+        for widget in widgets:
+            widget.setEnabled(enabled)
+        self.preview.set_size_overlay_enabled(enabled)
+        if enabled:
+            self._sync_plate_rects_from_inputs()
+            self.plate_size_hint.setText(
+                "Перетаскивайте прямоугольники мин/макс на превью слева, значения сохраняются автоматически"
+            )
+        else:
+            self.plate_size_hint.setText("Фильтр выключен — рамки не ограничиваются по размеру")
+
+    def _on_roi_usage_toggled(self, enabled: bool) -> None:
+        widgets = (
+            self.roi_points_table,
+            self.add_point_btn,
+            self.remove_point_btn,
+            self.clear_roi_btn,
+        )
+        for widget in widgets:
+            widget.setEnabled(enabled)
+        self.preview.set_roi_usage_enabled(enabled)
+        if enabled:
+            self.roi_hint_label.setText("Перетаскивайте вершины ROI на предпросмотре слева")
+        else:
+            self.roi_hint_label.setText("ROI отключена — поиск номеров идёт по всему кадру")
 
     def _on_plate_size_selected(self, target: str, width: int, height: int) -> None:
         if target == "min":

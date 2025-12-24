@@ -153,6 +153,7 @@ class SettingsManager:
             "cooldown_seconds": int(tracking_defaults.get("cooldown_seconds", 5)),
             "ocr_min_confidence": float(tracking_defaults.get("ocr_min_confidence", 0.6)),
             "direction": dict(tracking_defaults.get("direction", SettingsManager._direction_defaults())),
+            "roi_enabled": True,
             "region": {"unit": "px", "points": [point.copy() for point in DEFAULT_ROI_POINTS]},
             "detection_mode": "motion",
             "detector_frame_stride": 2,
@@ -165,6 +166,7 @@ class SettingsManager:
                 "show_ocr_text": False,
                 "show_direction_tracks": False,
             },
+            "size_filter_enabled": True,
             "min_plate_size": size_defaults["min_plate_size"].copy(),
             "max_plate_size": size_defaults["max_plate_size"].copy(),
         }
