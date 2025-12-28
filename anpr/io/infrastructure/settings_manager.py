@@ -8,7 +8,7 @@ import threading
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from anpr.infrastructure.logging_manager import get_logger
+from anpr.io.infrastructure.logging_manager import get_logger
 
 DEFAULT_ROI_POINTS = [
     {"x": 500, "y": 300},

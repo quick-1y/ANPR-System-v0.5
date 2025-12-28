@@ -8,8 +8,8 @@ from typing import Optional
 import cv2
 from PyQt5 import QtGui
 
-from anpr.infrastructure.logging_manager import get_logger
-from anpr.infrastructure.storage import AsyncEventDatabase
+from anpr.io.infrastructure.logging_manager import get_logger
+from anpr.io.infrastructure.storage import AsyncEventDatabase
 
 logger = get_logger(__name__)
 

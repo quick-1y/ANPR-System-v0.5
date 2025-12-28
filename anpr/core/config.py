@@ -12,8 +12,8 @@ from typing import Any, Dict
 
 import torch
 
-from anpr.infrastructure.settings_manager import SettingsManager
-from anpr.infrastructure.logging_manager import get_logger
+from anpr.io.infrastructure.settings_manager import SettingsManager
+from anpr.io.infrastructure.logging_manager import get_logger
 
 
 logger = get_logger(__name__)

@@ -14,12 +14,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from PyQt5 import QtCore, QtGui, QtWidgets
 from zoneinfo import ZoneInfo
 
-from anpr.config import Config
-from anpr.infrastructure.settings_manager import DEFAULT_ROI_POINTS
-from anpr.postprocessing.country_config import CountryConfigLoader
-from anpr.workers.channel_worker import ChannelWorker
-from anpr.infrastructure.logging_manager import get_logger
-from anpr.infrastructure.storage import EventDatabase
+from anpr.core.config import Config
+from anpr.core.postprocessing.country_config import CountryConfigLoader
+from anpr.core.workers.channel_worker import ChannelWorker
+from anpr.io.infrastructure.logging_manager import get_logger
+from anpr.io.infrastructure.settings_manager import DEFAULT_ROI_POINTS
+from anpr.io.infrastructure.storage import EventDatabase
 
 logger = get_logger(__name__)
 

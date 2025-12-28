@@ -6,8 +6,8 @@ from pathlib import Path
 
 from PyQt5 import QtWidgets
 
-from anpr.config import Config
-from anpr.infrastructure.logging_manager import LoggingManager, get_logger
+from anpr.core.config import Config
+from anpr.io.infrastructure.logging_manager import LoggingManager, get_logger
 from anpr.ui.main_window import MainWindow
 
 # Silence noisy quantization warnings emitted by torch on repeated startups.
