@@ -16,14 +16,14 @@ import cv2
 import numpy as np
 from PyQt5 import QtCore, QtGui
 
-from anpr.detection.motion_detector import MotionDetectorConfig
-from anpr.infrastructure.event_writer import EventWriter
-from anpr.pipeline.anpr_pipeline import TrackDirectionEstimator
-from anpr.pipeline.factory import build_components
-from anpr.infrastructure.logging_manager import get_logger
-from anpr.infrastructure.settings_manager import SettingsManager
-from anpr.infrastructure.storage import AsyncEventDatabase
-from anpr.workers.motion_controller import MotionController
+from anpr.core.detection.motion_detector import MotionDetectorConfig
+from anpr.core.pipeline.anpr_pipeline import TrackDirectionEstimator
+from anpr.core.pipeline.factory import build_components
+from anpr.core.workers.motion_controller import MotionController
+from anpr.io.infrastructure.event_writer import EventWriter
+from anpr.io.infrastructure.logging_manager import get_logger
+from anpr.io.infrastructure.settings_manager import SettingsManager
+from anpr.io.infrastructure.storage import AsyncEventDatabase
 
 logger = get_logger(__name__)
 

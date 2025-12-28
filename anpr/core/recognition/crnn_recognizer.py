@@ -12,9 +12,9 @@ import torch.ao.quantization.quantize_fx as quantize_fx
 from torch.ao.quantization import QConfigMapping
 from torchvision import transforms
 
-from anpr.config import Config
-from anpr.recognition.crnn import CRNN
-from anpr.infrastructure.logging_manager import get_logger
+from anpr.core.config import Config
+from anpr.core.recognition.crnn import CRNN
+from anpr.io.infrastructure.logging_manager import get_logger
 
 logger = get_logger(__name__)
 
@@ -99,4 +99,3 @@ class CRNNRecognizer:
             results.append((text, avg_confidence))
 
         return results
-

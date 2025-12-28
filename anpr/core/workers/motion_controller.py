@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 
 import cv2
 
-from anpr.detection.motion_detector import MotionDetector, MotionDetectorConfig
+from anpr.core.detection.motion_detector import MotionDetector, MotionDetectorConfig
 
 
 class MotionController:

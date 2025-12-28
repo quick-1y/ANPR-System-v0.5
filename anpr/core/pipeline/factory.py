@@ -6,12 +6,12 @@ import os
 import threading
 from typing import Dict, Tuple
 
-from anpr.config import Config
-from anpr.detection.yolo_detector import YOLODetector
-from anpr.pipeline.anpr_pipeline import ANPRPipeline
-from anpr.postprocessing.country_config import CountryConfigLoader
-from anpr.postprocessing.validator import PlatePostProcessor
-from anpr.recognition.crnn_recognizer import CRNNRecognizer
+from anpr.core.config import Config
+from anpr.core.detection.yolo_detector import YOLODetector
+from anpr.core.pipeline.anpr_pipeline import ANPRPipeline
+from anpr.core.postprocessing.country_config import CountryConfigLoader
+from anpr.core.postprocessing.validator import PlatePostProcessor
+from anpr.core.recognition.crnn_recognizer import CRNNRecognizer
 
 
 _RECOGNIZER_LOCK = threading.RLock()

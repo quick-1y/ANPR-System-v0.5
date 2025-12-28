@@ -8,8 +8,8 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from ultralytics import YOLO
 
-from anpr.config import Config
-from anpr.infrastructure.logging_manager import get_logger
+from anpr.core.config import Config
+from anpr.io.infrastructure.logging_manager import get_logger
 
 logger = get_logger(__name__)
 

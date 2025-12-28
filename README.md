@@ -96,13 +96,13 @@ python app.py
 
 ```
 ┌─────────────────────────────────────────────┐
-│ Presentation Layer (GUI)                    │ ← main_window.py, app.py
+│ Presentation Layer (GUI)                    │ ← app.py, anpr/ui/main_window.py
 ├─────────────────────────────────────────────┤
-│ Application Layer (Coordinators)            │ ← channel_worker.py, factory.py
+│ Application Layer (Coordinators)            │ ← anpr/core/workers, anpr/core/pipeline/factory.py
 ├─────────────────────────────────────────────┤
-│ Domain Layer (Core Business Logic)          │ ← anpr_pipeline.py (включая TrackAggregator)
+│ Domain Layer (Core Business Logic)          │ ← anpr/core/pipeline/anpr_pipeline.py
 ├─────────────────────────────────────────────┤
-│ Infrastructure Layer (External Services)    │ ← yolo_detector.py, crnn_recognizer.py
+│ Infrastructure Layer (External Services)    │ ← anpr/io/infrastructure
 └─────────────────────────────────────────────┘
 ```
 
@@ -220,45 +220,45 @@ ANPR-System-v0.5/
 │
 └── anpr/                     # Основной пакет приложения
     ├── __init__.py
-    ├── config.py             # Константы путей к моделям и пороги
     │
-    ├── infrastructure/       # Инфраструктурный слой
+    ├── core/                 # Бизнес-логика и модели
     │   ├── __init__.py
-    │   ├── logging_manager.py  # Централизованный менеджер логирования с ротацией
-    │   ├── settings_manager.py # Управление настройками с миграцией версий
-    │   └── storage.py          # Синхронный и асинхронный доступ к SQLite БД
+    │   ├── config.py         # Константы путей к моделям и пороги
+    │   ├── detection/        # Детекция объектов
+    │   │   ├── __init__.py
+    │   │   ├── motion_detector.py # Детектор движения на основе вычитания фона
+    │   │   └── yolo_detector.py   # Обёртка для YOLOv8 с трекингом и откатом
+    │   ├── pipeline/         # Пайплайн обработки
+    │   │   ├── __init__.py
+    │   │   ├── anpr_pipeline.py   # Основной пайплайн (включая TrackAggregator)
+    │   │   └── factory.py         # Фабрика для создания компонентов с общим OCR
+    │   ├── preprocessing/    # Предобработка кропов номера
+    │   │   ├── __init__.py
+    │   │   └── plate_preprocessor.py # Коррекция наклона и перспективы перед OCR
+    │   ├── postprocessing/   # Валидация и нормализация номеров
+    │   │   ├── __init__.py
+    │   │   ├── country_config.py  # Загрузчик YAML-конфигов стран
+    │   │   └── validator.py       # Валидатор и корректор распознанных номеров
+    │   ├── recognition/      # Распознавание текста
+    │   │   ├── __init__.py
+    │   │   ├── crnn.py       # Архитектура CRNN модели
+    │   │   └── crnn_recognizer.py # Обёртка для загрузки и инференса квантованной модели
+    │   └── workers/          # Фоновые процессы
+    │       ├── __init__.py
+    │       └── channel_worker.py # Воркер для асинхронной обработки видеопотока канала
     │
-    ├── detection/            # Детекция объектов
+    ├── io/                   # Инфраструктура и доступ к данным
     │   ├── __init__.py
-    │   ├── motion_detector.py # Детектор движения на основе вычитания фона
-    │   └── yolo_detector.py   # Обёртка для YOLOv8 с трекингом и откатом
+    │   └── infrastructure/   # Инфраструктурный слой
+    │       ├── __init__.py
+    │       ├── event_writer.py    # Очереди записи событий
+    │       ├── logging_manager.py # Централизованный менеджер логирования с ротацией
+    │       ├── settings_manager.py # Управление настройками с миграцией версий
+    │       └── storage.py         # Синхронный и асинхронный доступ к SQLite БД
     │
-    ├── pipeline/             # Пайплайн обработки
-    │   ├── __init__.py
-    │   ├── anpr_pipeline.py   # Основной пайплайн (включая TrackAggregator)
-    │   └── factory.py         # Фабрика для создания компонентов с общим OCR
-    │
-    ├── preprocessing/        # Предобработка кропов номера
-    │   ├── __init__.py
-    │   └── plate_preprocessor.py # Коррекция наклона и перспективы перед OCR
-    │
-    ├── postprocessing/       # Валидация и нормализация номеров
-    │   ├── __init__.py
-    │   ├── country_config.py  # Загрузчик YAML-конфигов стран
-    │   └── validator.py       # Валидатор и корректор распознанных номеров
-    │
-    ├── recognition/          # Распознавание текста
-    │   ├── __init__.py
-    │   ├── crnn.py           # Архитектура CRNN модели
-    │   └── crnn_recognizer.py # Обёртка для загрузки и инференса квантованной модели
-    │
-    ├── ui/                   # Пользовательский интерфейс
-    │   ├── __init__.py
-    │   └── main_window.py    # Главное окно приложения (наблюдение, журнал, настройки)
-    │
-    └── workers/              # Фоновые процессы
+    └── ui/                   # Пользовательский интерфейс
         ├── __init__.py
-        └── channel_worker.py # Воркер для асинхронной обработки видеопотока канала
+        └── main_window.py    # Главное окно приложения (наблюдение, журнал, настройки)
 ```
 
 ## 🛠️ Разработка

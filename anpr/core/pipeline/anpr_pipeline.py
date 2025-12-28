@@ -9,10 +9,10 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from anpr.config import Config
-from anpr.postprocessing.validator import PlatePostProcessor
-from anpr.preprocessing.plate_preprocessor import PlatePreprocessor
-from anpr.recognition.crnn_recognizer import CRNNRecognizer
+from anpr.core.config import Config
+from anpr.core.postprocessing.validator import PlatePostProcessor
+from anpr.core.preprocessing.plate_preprocessor import PlatePreprocessor
+from anpr.core.recognition.crnn_recognizer import CRNNRecognizer
 
 
 class TrackAggregator:
